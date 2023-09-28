@@ -146,8 +146,12 @@ def extract_trajectory(
 
 
 def dataset_states_to_obs(args):
+    print("WARNING: overwriting chen's hardcoded env metadata")
+    PATH_TO_EGOPLAY = "/coc/flash9/skareer6/Projects/EgoPlay/"
+
     # create environment to use for data processing
     env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=args.dataset)
+    env_meta["env_kwargs"]["bddl_file_name"] = "/coc/flash9/skareer6/Projects/EgoPlay/MimicPlay/mimicplay/scripts/bddl_files/KITCHEN_SCENE9_playdata.bddl"
     env = EnvUtils.create_env_for_data_processing(
         env_meta=env_meta,
         camera_names=args.camera_names, 
@@ -189,6 +193,8 @@ def dataset_states_to_obs(args):
         initial_state = dict(states=states[0])
         if is_robosuite_env:
             initial_state["model"] = f["data/{}".format(ep)].attrs["model_file"]
+
+        initial_state["model"] = initial_state["model"].replace("/media/jeremy/cde0dfff-70f1-4c1c-82aa-e0d469c14c62/mimicplay_dev_open/", PATH_TO_EGOPLAY)
 
         # extract obs, rewards, dones
         actions = f["data/{}/actions".format(ep)][()]
