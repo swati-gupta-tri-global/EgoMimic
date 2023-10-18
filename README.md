@@ -227,3 +227,21 @@ Please cite [MimicPlay](https://mimic-play.github.io/) if you find this reposito
 -------
 ## License
 Licensed under the [MIT License](LICENSE)
+
+
+## Simar's Section
+### Calibrating
+On robot run
+- Start ros (launch)
+- `record_episodes.py`
+- Move the whole folder of all epsiodes onto skynet
+- cd into `mimicplay/scripts/aloha_process`
+- run `python aloha_to_robomimic.py`.  ex) 
+
+```bash
+python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ --arm left --out /coc/flash7/skareer6/calibrate_samples/ --task-name robomimic
+```
+
+- In the folder you specify, you'll now see `robomimic.hdf5`
+- Finally cd into `mimicplay/scripts/calibrate_camera`
+- Run `python calibrate_egoplay.py --h5py-path <path to robomimic.hdf5>`

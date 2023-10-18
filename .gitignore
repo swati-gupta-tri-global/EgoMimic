@@ -1,3 +1,7 @@
 *.pth
 *.pyc
 mimicplay.egg-info/
+*.hdf5
+*.json
+*.txt
+*.out.*

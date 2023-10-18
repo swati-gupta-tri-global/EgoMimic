@@ -1,0 +1,123 @@
+import os
+
+folder_path = os.path.join(os.path.dirname(__file__))
+
+import numpy as np
+import cv2
+import argparse
+import json
+import h5py
+
+from scipy.spatial.transform import Rotation as Rot
+
+from rpl_vision_utils.utils.apriltag_detector import AprilTagDetector
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '--h5py-path',
+        type=str,
+    )
+
+    parser.add_argument(
+        '--debug',
+        action='store_true'
+    )
+
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    calib = h5py.File(args.h5py_path, 'r')
+
+    april_detector = AprilTagDetector()
+
+    #TODO get intrinsics
+    # with open(os.path.join(args.config_folder, f"camera_{args.camera_id}_{args.camera_type}.json"), "r") as f:
+    #     intrinsics = json.load(f)
+    # TODO: THESE ARE JUST TEMP VALUES
+    intrinsics = np.array([
+        [616.0, 0.0, 313.4, 0.0],
+        [0.0, 615.7, 236.7, 0.0],
+        [0.0, 0.0, 1.0, 0.0]
+    ])
+    intrinsics = {
+        "color": {
+            "fx": intrinsics[0, 0], 
+            "fy": intrinsics[1, 1],
+            "cx": intrinsics[0, 2],
+            "cy": intrinsics[1, 2]
+        }
+    }
+
+    print(intrinsics)
+
+
+    R_base2gripper_list = []
+    t_base2gripper_list = []
+    R_target2cam_list = []
+    t_target2cam_list = []
+
+    count = 0
+    for key in calib.keys():
+        demo = calib[key]
+        T, H, W, _ = demo["obs/front_img_1"].shape
+        for t in range(T):
+
+            img = demo["obs/front_img_1"][t]
+
+            detect_result = april_detector.detect(img,
+                                                intrinsics=intrinsics["color"],
+                                                tag_size=0.0558)
+
+            if len(detect_result) != 1:
+                print(f"wrong detection, skipping img {t}")
+                continue
+
+            bounding_box_corners = detect_result[0].corners
+            # draw bounding box on img and save
+            if args.debug:
+                img = april_detector.vis_tag(img)
+                cv2.imwrite(f"calibration_imgs/{t}_detection.png", img)
+            
+
+            count += 1
+            pose = demo["obs/ee_pose"][t]
+            assert pose.shape == (7,)
+            pos = pose[0:3]
+            rot = Rot.from_quat(pose[3:])
+
+            R_base2gripper_list.append(rot.as_matrix().T)
+            t_base2gripper_list.append(-rot.as_matrix().T @ np.array(pos)[:, np.newaxis])
+
+            R_target2cam_list.append(detect_result[0].pose_R)
+            pose_t = detect_result[0].pose_t
+
+            # if args.debug:
+            #     print("Detected: ", pose_t, T.quat2axisangle(T.mat2quat(detect_result[0].pose_R)))
+
+            t_target2cam_list.append(pose_t)
+
+    print(f"==========Using {count} images================")
+
+    for method in [
+        cv2.CALIB_HAND_EYE_TSAI
+    ]:
+        R, t = cv2.calibrateHandEye(
+            R_base2gripper_list, t_base2gripper_list,
+            R_target2cam_list, t_target2cam_list,
+            method=method,
+        )
+        print("Rotation matrix: ", R.round(3))
+        # print("Axis Angle: ", T.quat2axisangle(T.mat2quat(R)))
+        # print("Quaternion: ", T.mat2quat(R))
+        print("Translation: ", t.T.round(3))
+    print("==============================")
+
+
+if __name__ == "__main__":
+    main()
