@@ -86,7 +86,7 @@ def single_episode_conversion(filepath, arm, output_dir):
         obs_ee_pose[i] = transformation_matrix_to_pose(T_obs[i])
 
     if os.path.exists(output_path):
-        print("Helpher: output path already exists!")
+        print("Helper: output path already exists!")
         exit()
         # os.remove(filepath.split(".")[0] + "_out.hdf5")
 
@@ -94,7 +94,7 @@ def single_episode_conversion(filepath, arm, output_dir):
         actions_group = f.create_group('actions')
         obs_group = f.create_group('obs')
 
-        actions_group.create_dataset('ee_pose', data = actions_ee_pose)
+        actions_group.create_dataset('ee_pose', data=actions_ee_pose)
 
         obs_group.create_dataset('ee_pose', data=obs_ee_pose)
         obs_group.create_dataset('front_img_1', data=cam_front1)

@@ -26,13 +26,33 @@ def parse_args():
         action='store_true'
     )
 
+    parser.add_argument(
+        '--store-matrix',
+        action='store_true'
+    )
+
     return parser.parse_args()
+
+def store_matrix(path, R, t):
+    file = h5py.File(path, 'r+')
+
+    for demo_name in file.keys():
+        demo = file[demo_name]
+        calib_matrix_group = demo.create_group('calibration_matrix')
+        calib_matrix_group.create_dataset('rotation', data=R)
+        calib_matrix_group.create_dataset('translation', data=t)
+
+    print("Appended calibration matrix: ")
+    print(R.round(3))
+    print(t.round(3))
+    print("==============================")
+
 
 
 def main():
     args = parse_args()
 
-    calib = h5py.File(args.h5py_path, 'r')
+    calib = h5py.File(args.h5py_path, 'r+')
 
     april_detector = AprilTagDetector()
 
@@ -118,6 +138,8 @@ def main():
         print("Translation: ", t.T.round(3))
     print("==============================")
 
+    if args.store_matrix:
+        store_matrix(args.h5py_path, R, t.T)
 
 if __name__ == "__main__":
     main()
