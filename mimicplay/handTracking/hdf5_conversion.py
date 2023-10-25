@@ -23,7 +23,11 @@ for idx, line in enumerate(hand_tracking_file.readlines()):
     pose = line.split()
     if os.path.isfile("images/frame_"+str(pose[0])):
         image = cv2.imread("images/frame_"+str(pose[0]))
-        poses[idx]=np.array(pose[3:10],dtype=float)
+        # Transform coordindates and populate pose
+        poses[idx][0]=-np.array(pose[3],dtype=float)
+        poses[idx][1]=np.array(pose[5],dtype=float)
+        poses[idx][2]=np.array(pose[4]-175,dtype=float)
+        poses[idx][6:10] = np.array(pose[6:10],dtype=float)
         images[idx]=np.array(image)
         if(idx>=1):
             actions[idx]=np.array(poses[-1]-poses[-2])
