@@ -39,6 +39,13 @@ import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.file_utils as FileUtils
 from robomimic.utils.log_utils import PrintLogger, DataLogger
+from mimicplay.utils.file_utils import policy_from_checkpoint
+from torchvision.utils import save_image
+import cv2
+
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm
+import torchvision
+
 
 from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
@@ -124,13 +131,15 @@ def train(config, device):
         config,
         log_tb=config.experiment.logging.log_tb,
     )
-    model = algo_factory(
-        algo_name=config.algo_name,
-        config=config,
-        obs_key_shapes=shape_meta["all_shapes"],
-        ac_dim=shape_meta["ac_dim"],
-        device=device,
-    )
+    # model = algo_factory(
+    #     algo_name=config.algo_name,
+    #     config=config,
+    #     obs_key_shapes=shape_meta["all_shapes"],
+    #     ac_dim=shape_meta["ac_dim"],
+    #     device=device,
+    # )
+    model = policy_from_checkpoint(device=device, ckpt_path=args.eval_path, ckpt_dict=None, verbose=False)
+
     if config.experiment.rollout.enabled:                     # load task video prompt (used for evaluation rollouts during the gap of training)
         model.load_eval_video_prompt(args.video_prompt)
 
@@ -139,7 +148,7 @@ def train(config, device):
         json.dump(config, outfile, indent=4)
 
     print("\n============= Model Summary =============")
-    print(model)  # print model summary
+    print(model[0].policy)  # print model summary
     print("")
 
     # load training data
@@ -173,155 +182,92 @@ def train(config, device):
             dataset=validset,
             sampler=valid_sampler,
             batch_size=config.train.batch_size,
-            shuffle=(valid_sampler is None),
+            shuffle=False,
             num_workers=num_workers,
             drop_last=True
         )
     else:
         valid_loader = None
 
-    # main training loop
-    best_valid_loss = None
-    best_return = {k: -np.inf for k in envs} if config.experiment.rollout.enabled else None
-    best_success_rate = {k: -1. for k in envs} if config.experiment.rollout.enabled else None
-    last_ckpt_time = time.time()
-
-    # number of learning steps per epoch (defaults to a full dataset pass)
-    train_num_steps = config.experiment.epoch_every_n_steps
-    valid_num_steps = config.experiment.validation_epoch_every_n_steps
-
-    for epoch in range(1, config.train.num_epochs + 1):  # epoch numbers start at 1
-        step_log = TrainUtils.run_epoch(model=model, data_loader=train_loader, epoch=epoch, num_steps=train_num_steps)
-        model.on_epoch_end(epoch)
-
-        # setup checkpoint path
-        epoch_ckpt_name = "model_epoch_{}".format(epoch)
-
-        # check for recurring checkpoint saving conditions
-        should_save_ckpt = False
-        if config.experiment.save.enabled:
-            time_check = (config.experiment.save.every_n_seconds is not None) and \
-                         (time.time() - last_ckpt_time > config.experiment.save.every_n_seconds)
-            epoch_check = (config.experiment.save.every_n_epochs is not None) and \
-                          (epoch > 0) and (epoch % config.experiment.save.every_n_epochs == 0)
-            epoch_list_check = (epoch in config.experiment.save.epochs)
-            should_save_ckpt = (time_check or epoch_check or epoch_list_check)
-        ckpt_reason = None
-        if should_save_ckpt:
-            last_ckpt_time = time.time()
-            ckpt_reason = "time"
-
-        print("Train Epoch {}".format(epoch))
-        print(json.dumps(step_log, sort_keys=True, indent=4))
-        for k, v in step_log.items():
-            if k.startswith("Time_"):
-                data_logger.record("Timing_Stats/Train_{}".format(k[5:]), v, epoch)
-            else:
-                data_logger.record("Train/{}".format(k), v, epoch)
-
-        # Evaluate the model on validation set
-        if config.experiment.validate:
-            with torch.no_grad():
-                step_log = TrainUtils.run_epoch(model=model, data_loader=valid_loader, epoch=epoch, validate=True,
-                                                num_steps=valid_num_steps)
-            for k, v in step_log.items():
-                if k.startswith("Time_"):
-                    data_logger.record("Timing_Stats/Valid_{}".format(k[5:]), v, epoch)
-                else:
-                    data_logger.record("Valid/{}".format(k), v, epoch)
-
-            print("Validation Epoch {}".format(epoch))
-            print(json.dumps(step_log, sort_keys=True, indent=4))
-
-            # save checkpoint if achieve new best validation loss
-            valid_check = "Loss" in step_log
-            if valid_check and (best_valid_loss is None or (step_log["Loss"] <= best_valid_loss)):
-                best_valid_loss = step_log["Loss"]
-                if config.experiment.save.enabled and config.experiment.save.on_best_validation:
-                    epoch_ckpt_name += "_best_validation_{}".format(best_valid_loss)
-                    should_save_ckpt = True
-                    ckpt_reason = "valid" if ckpt_reason is None else ckpt_reason
-
-        # Evaluate the model by running rollouts
-
-        # do rollouts at fixed rate or if it's time to save a new ckpt
-        video_paths = None
-        rollout_check = (epoch % config.experiment.rollout.rate == 0) or (should_save_ckpt and ckpt_reason == "time")
-        if config.experiment.rollout.enabled and (epoch > config.experiment.rollout.warmstart) and rollout_check:
-
-            # wrap model as a RolloutPolicy to prepare for rollouts
-            rollout_model = RolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)
-
-            num_episodes = config.experiment.rollout.n
-            all_rollout_logs, video_paths = rollout_with_stats(
-                policy=rollout_model,
-                envs=envs,
-                horizon=config.experiment.rollout.horizon,
-                use_goals=config.use_goals,
-                num_episodes=num_episodes,
-                render=False,
-                video_dir=video_dir if config.experiment.render_video else None,
-                epoch=epoch,
-                video_skip=config.experiment.get("video_skip", 5),
-                terminate_on_success=config.experiment.rollout.terminate_on_success,
-            )
-
-            # summarize results from rollouts to tensorboard and terminal
-            for env_name in all_rollout_logs:
-                rollout_logs = all_rollout_logs[env_name]
-                for k, v in rollout_logs.items():
-                    if k.startswith("Time_"):
-                        data_logger.record("Timing_Stats/Rollout_{}_{}".format(env_name, k[5:]), v, epoch)
-                    else:
-                        data_logger.record("Rollout/{}/{}".format(k, env_name), v, epoch, log_stats=True)
-
-                print("\nEpoch {} Rollouts took {}s (avg) with results:".format(epoch, rollout_logs["time"]))
-                print('Env: {}'.format(env_name))
-                print(json.dumps(rollout_logs, sort_keys=True, indent=4))
-
-            # checkpoint and video saving logic
-            updated_stats = TrainUtils.should_save_from_rollout_logs(
-                all_rollout_logs=all_rollout_logs,
-                best_return=best_return,
-                best_success_rate=best_success_rate,
-                epoch_ckpt_name=epoch_ckpt_name,
-                save_on_best_rollout_return=config.experiment.save.on_best_rollout_return,
-                save_on_best_rollout_success_rate=config.experiment.save.on_best_rollout_success_rate,
-            )
-            best_return = updated_stats["best_return"]
-            best_success_rate = updated_stats["best_success_rate"]
-            epoch_ckpt_name = updated_stats["epoch_ckpt_name"]
-            should_save_ckpt = (config.experiment.save.enabled and updated_stats[
-                "should_save_ckpt"]) or should_save_ckpt
-            if updated_stats["ckpt_reason"] is not None:
-                ckpt_reason = updated_stats["ckpt_reason"]
-
-        # Only keep saved videos if the ckpt should be saved (but not because of validation score)
-        should_save_video = (should_save_ckpt and (ckpt_reason != "valid")) or config.experiment.keep_all_videos
-        if video_paths is not None and not should_save_video:
-            for env_name in video_paths:
-                os.remove(video_paths[env_name])
-
-        # Save model checkpoints based on conditions (success rate, validation loss, etc)
-        if should_save_ckpt:
-            TrainUtils.save_model(
-                model=model,
-                config=config,
-                env_meta=env_meta,
-                shape_meta=shape_meta,
-                ckpt_path=os.path.join(ckpt_dir, epoch_ckpt_name + ".pth"),
-                obs_normalization_stats=obs_normalization_stats,
-            )
-
-        # Finally, log memory usage in MB
-        process = psutil.Process(os.getpid())
-        mem_usage = int(process.memory_info().rss / 1000000)
-        data_logger.record("System/RAM Usage (MB)", mem_usage, epoch)
-        print("\nEpoch {} Memory Usage: {} MB\n".format(epoch, mem_usage))
+    # model.load_state_dict(torch.load(args.eval_path))
+    evaluate_high_level_policy(model[0].policy, valid_loader, env_meta["obs_mins"], env_meta["obs_maxs"])
 
     # terminate logging
     data_logger.close()
 
+
+def evaluate_high_level_policy(model, data_loader, mins, maxs):
+    """
+    Evaluate high level trajectory prediciton policy.
+    model: model loaded from checkpoint
+    data_loader: validation data loader
+    goal_distance: number of steps forward to predict
+    video_path: path to save rendered video
+    """
+    #Internal realsense numbers
+    intrinsics = np.array([
+        [616.0, 0.0, 313.4, 0.0],
+        [0.0, 615.7, 236.7, 0.0],
+        [0.0, 0.0, 1.0, 0.0]
+    ])
+
+    model.set_eval()
+
+    count = 0
+    vids_written = 0
+    T = 400
+    video = torch.zeros((T, 480, 640, 3))
+
+    for i, data in enumerate(data_loader):
+        # import matplotlib.pyplot as plt
+        # save_image(data["obs"]["front_image_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
+
+        # save data["obs"]["front_image_1"][0, 0] which has type uint8 to file
+        print(i)
+        for b in range(data["obs"]["front_image_1"].shape[0]):
+            im = data["obs"]["front_image_1"][b, 0].numpy()
+
+
+            input_batch = model.process_batch_for_training(data)
+            input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
+            
+            info = model.forward_eval(input_batch)
+
+            pred_values = np.ones((10, 3))
+            for t in range(10):
+                means = info.mean[b, t*3:3*(t+1)].cpu().numpy()
+                # means = general_unnorm(means, -110.509903, 624.081421, -1, 1)
+                means[0] = general_unnorm(means[0], mins[0], maxs[0], -1, 1)
+                means[1] = general_unnorm(means[1], mins[1], maxs[1], -1, 1)
+                means[2] = general_unnorm(means[2], mins[2], maxs[2], -1, 1)
+                px_val = cam_frame_to_cam_pixels(means, intrinsics)
+                pred_values[t] = px_val
+
+            frame = draw_dot_on_frame(im, pred_values, show=False, palette="Purples")
+
+            # breakpoint()
+            actions = data["actions"][b, 0].view((10, 3))
+            actions[:, 0] = general_unnorm(actions[:, 0], mins[0], maxs[0], -1, 1)
+            actions[:, 1] = general_unnorm(actions[:, 1], mins[1], maxs[1], -1, 1)
+            actions[:, 2] = general_unnorm(actions[:, 2], mins[2], maxs[2], -1, 1)
+            actions = actions.cpu().numpy()
+            for t in range(10):
+                actions[t] = cam_frame_to_cam_pixels(actions[t], intrinsics)
+
+            # frame = draw_dot_on_frame(frame, actions, show=False, palette="Greens")
+
+            # breakpoint()
+
+            # cv2.imwrite(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{count}.png", frame)
+            if count == T:
+                torchvision.io.write_video(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/hand_traj_v2_{vids_written}.mp4", video[1:count], fps=30)
+                # exit()
+                count = 0
+                vids_written += 1
+                video = torch.zeros((T, 480, 640, 3))
+            video[count] = torch.from_numpy(frame)
+
+            count += 1
 
 def main(args):
     if args.config is not None:
@@ -342,25 +288,6 @@ def main(args):
 
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
-
-    # maybe modify config for debugging purposes
-    if args.debug:
-        # shrink length of training to test whether this run is likely to crash
-        config.unlock()
-        config.lock_keys()
-
-        # train and validate (if enabled) for 3 gradient steps, for 2 epochs
-        config.experiment.epoch_every_n_steps = 3
-        config.experiment.validation_epoch_every_n_steps = 3
-        config.train.num_epochs = 2
-
-        # if rollouts are enabled, try 2 rollouts at end of each epoch, with 10 environment steps
-        config.experiment.rollout.rate = 1
-        config.experiment.rollout.n = 2
-        config.experiment.rollout.horizon = 10
-
-        # send output to a temporary directory
-        config.train.output_dir = "/tmp/tmp_trained_models"
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -408,6 +335,8 @@ if __name__ == "__main__":
         default=None,
         help="(optional) if provided, override the dataset path defined in the config",
     )
+
+    parser.add_argument("--eval-path", type=str, default=None, help="(optional) path to the model to be evaluated")
 
     parser.add_argument(
         "--bddl_file",

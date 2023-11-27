@@ -120,3 +120,6 @@ class MimicPlayConfig(BaseConfig):
         self.algo.playdata.eval_goal_gap = 150                  # goal image sampling gap during evaluation rollouts (mid of training goal_image_range)
         self.algo.playdata.do_not_lock_keys()
 
+        # Handle high / low level keys that shouldn't be processed by main network
+        self.policy_inputs.low_level = []
+        self.policy_inputs.high_level = []

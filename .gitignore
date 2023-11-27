@@ -5,3 +5,4 @@ mimicplay.egg-info/
 *.json
 *.txt
 *.out.*
+mimicplay/debug

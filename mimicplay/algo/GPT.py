@@ -765,10 +765,15 @@ class GPT_wrapper(nn.Module):
         return grid
 
     def forward_train(self, obs):
-        b, seq, _ = obs['robot0_eef_pos'].size()
+        b, seq, _ = obs['ee_pose'].size()
 
-        x_ee_image = obs['robot0_eye_in_hand_image']
-        x_ee_image = x_ee_image.view(b*seq, 3, 84, 84)
+        x_ee_image = obs['front_image_3']
+        x_ee_image = x_ee_image.view(b*seq, 3, 240, 320)
+        #TODO remove
+        # take a 84*84 crop from x_ee_image
+        x_ee_image = x_ee_image[:, :, :84, :84]
+
+
         grid_shifted = self.random_crop_grid(x_ee_image, self.grid_source)
         x_ee_image = F.grid_sample(x_ee_image, grid_shifted, align_corners=True)
 
@@ -776,7 +781,8 @@ class GPT_wrapper(nn.Module):
         x_ee_image = self.ee_spatial_softmax(x_ee_image)
         x_ee_image = x_ee_image.view(b, seq, 128).contiguous()
 
-        x_pose = torch.cat((obs["robot0_eef_pos"], obs["robot0_eef_quat"]), dim=-1).contiguous()
+        # x_pose = torch.cat((obs["ee_pose"], obs["robot0_eef_quat"]), dim=-1).contiguous()
+        x_pose = obs["ee_pose"].contiguous()
         x_pose_feat = self.mlp_encoder_pose(x_pose)
 
         x_feature = obs['latent_plan']
@@ -831,8 +837,14 @@ class GPT_wrapper(nn.Module):
 
     def forward_step(self, obs):
 
-        x_ee_image = obs['robot0_eye_in_hand_image']
-        x_ee_image = x_ee_image.view(1, 3, 84, 84)
+        x_ee_image = obs['front_image_3']
+        x_ee_image = x_ee_image.view(1, 3, 240, 320)
+
+        #TODO remove
+        # take a 84*84 crop from x_ee_image
+        x_ee_image = x_ee_image[:, :, :84, :84]
+
+
         grid_shifted = self.random_crop_grid(x_ee_image, self.grid_source)
         x_ee_image = F.grid_sample(x_ee_image, grid_shifted, align_corners=True)
 
@@ -840,7 +852,9 @@ class GPT_wrapper(nn.Module):
         x_ee_image = self.ee_spatial_softmax(x_ee_image)
         x_ee_image = x_ee_image.view(1, 1, 128).contiguous()
 
-        x_pose = torch.cat((obs["robot0_eef_pos"], obs["robot0_eef_quat"]), dim=-1).contiguous()
+        # x_pose = torch.cat((obs["robot0_eef_pos"], obs["robot0_eef_quat"]), dim=-1).contiguous()
+        x_pose = obs["ee_pose"].contiguous()
+
         x_pose_feat = self.mlp_encoder_pose(x_pose)
         x_pose_feat = x_pose_feat.view(1, 1, 128).contiguous()
 
