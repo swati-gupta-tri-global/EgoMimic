@@ -27,6 +27,8 @@ import os
 import psutil
 import sys
 import traceback
+from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
+import heapq
 
 from collections import OrderedDict
 
@@ -43,11 +45,21 @@ from robomimic.utils.log_utils import PrintLogger, DataLogger
 from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
+def get_gpu_usage_mb():
+    """Returns the GPU usage in B."""
+    h = nvmlDeviceGetHandleByIndex(0)
+    info = nvmlDeviceGetMemoryInfo(h)
+    # print(f'total    : {info.total}')
+    # print(f'free     : {info.free}')
+    # print(f'used     : {info.used}')
+
+    return info.used / 1024 / 1024
 
 def train(config, device):
     """
     Train a model using the algorithm.
     """
+    nvmlInit()
 
     # first set seeds
     np.random.seed(config.train.seed)
@@ -58,11 +70,11 @@ def train(config, device):
     print("")
     log_dir, ckpt_dir, video_dir = get_exp_dir(config)
 
-    if config.experiment.logging.terminal_output_to_txt:
-        # log stdout and stderr to a text file
-        logger = PrintLogger(os.path.join(log_dir, 'log.txt'))
-        sys.stdout = logger
-        sys.stderr = logger
+    # if config.experiment.logging.terminal_output_to_txt:
+    #     # log stdout and stderr to a text file
+    #     logger = PrintLogger(os.path.join(log_dir, 'log.txt'))
+    #     sys.stdout = logger
+    #     sys.stderr = logger
 
     # read config to set up metadata for observation modalities (e.g. detecting rgb observations)
     ObsUtils.initialize_obs_utils_with_config(config)
@@ -181,7 +193,7 @@ def train(config, device):
         valid_loader = None
 
     # main training loop
-    best_valid_loss = None
+    n_best_val = []
     best_return = {k: -np.inf for k in envs} if config.experiment.rollout.enabled else None
     best_success_rate = {k: -1. for k in envs} if config.experiment.rollout.enabled else None
     last_ckpt_time = time.time()
@@ -235,10 +247,25 @@ def train(config, device):
 
             # save checkpoint if achieve new best validation loss
             valid_check = "Loss" in step_log
-            if valid_check and (best_valid_loss is None or (step_log["Loss"] <= best_valid_loss)):
-                best_valid_loss = step_log["Loss"]
+            negator = -1
+            while len(n_best_val) > config.experiment.save.top_n:
+                _, to_delete = heapq.heappop(n_best_val)
+                if os.path.exists(to_delete):
+                    os.remove(to_delete)
+                else:
+                    print(f"Warning: {to_delete} does not exist")
+            if len(n_best_val) < config.experiment.save.top_n or step_log["Loss"] < negator * n_best_val[0][0]:
+                heapq.heappush(
+                    n_best_val,
+                    (negator * step_log["Loss"], os.path.join(ckpt_dir, epoch_ckpt_name + "_best_validation_{}".format(step_log["Loss"])) + ".pth")
+                ) #negate to make max heap
+                is_top_n = True
+            else:
+                is_top_n = False
+
+            if valid_check and (n_best_val is None or is_top_n):
                 if config.experiment.save.enabled and config.experiment.save.on_best_validation:
-                    epoch_ckpt_name += "_best_validation_{}".format(best_valid_loss)
+                    epoch_ckpt_name += "_best_validation_{}".format(step_log["Loss"])
                     should_save_ckpt = True
                     ckpt_reason = "valid" if ckpt_reason is None else ckpt_reason
 
@@ -312,12 +339,25 @@ def train(config, device):
                 ckpt_path=os.path.join(ckpt_dir, epoch_ckpt_name + ".pth"),
                 obs_normalization_stats=obs_normalization_stats,
             )
+        
+        # # Delete all checkpoints except the top 5, or checkpoints saved based on regular time intervals
+        # if config.experiment.save.top_n is not None:
+        #     TrainUtils.delete_checkpoints(
+        #         ckpt_dir=ckpt_dir, 
+        #         top_n=config.experiment.save.top_n,
+        #         smallest=True) # keep the lowest val loss, change to False if using an increasing val metric
+
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
         mem_usage = int(process.memory_info().rss / 1000000)
         data_logger.record("System/RAM Usage (MB)", mem_usage, epoch)
-        print("\nEpoch {} Memory Usage: {} MB\n".format(epoch, mem_usage))
+        print("\nEpoch {} RAM Memory Usage: {} MB\n".format(epoch, mem_usage))
+
+        # print the gpu memory usage using nvidia smi
+        print(f"\n Epoch {epoch} GPU Memory Usage: {get_gpu_usage_mb()} MB\n")
+
+
 
     # terminate logging
     data_logger.close()

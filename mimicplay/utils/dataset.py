@@ -164,15 +164,6 @@ class PlaydataSequenceDataset(SequenceDataset):
         demo_start_index = self._demo_id_to_start_indices[demo_id]
         demo_length = self._demo_id_to_demo_length[demo_id]
         
-        #TODO: hack
-        self.end_buffer=20
-        # Currently we can sample at the end of a demo, I don't think this makes sense.  Here I added a buffer to avoid sampling these frames
-        if index >= demo_start_index + demo_length - self.end_buffer:
-            # randomly sample a new index
-            index = random.randint(demo_start_index, demo_start_index + demo_length - self.end_buffer)
-            assert demo_id == self._index_to_demo_id[index], "Implementation of buffer must be incorrect"
-
-
         # start at offset index if not padding for frame stacking
         demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
         index_in_demo = index - demo_start_index + demo_index_offset

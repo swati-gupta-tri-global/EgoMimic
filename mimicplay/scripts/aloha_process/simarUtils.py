@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import torchvision.transforms.functional as TF
+import torch
 
 def is_key(x):
     return hasattr(x, 'keys') and callable(x.keys)
@@ -9,7 +11,7 @@ def is_listy(x):
     return isinstance(x, list)
 
 
-def nested_ds_print(nested_ds, tab_level=0):
+def nds(nested_ds, tab_level=0):
     """
     Print the structure of a nested dataset.
     nested_ds: a series of nested dictionaries and iterables.  If a dictionary, print the key and recurse on the value.  If a list, print the length of the list and recurse on just the first index.  For other types, just print the shape.
@@ -27,28 +29,44 @@ def nested_ds_print(nested_ds, tab_level=0):
         for key, value in nested_ds.items():
             print('\t' * (tab_level), end='')
             print(f"{key}: ", end="")
-            nested_ds_print(value, tab_level + 1)
+            nds(value, tab_level + 1)
     elif isinstance(nested_ds, list):
         print('\t' * tab_level, end='')
         print("Index[0]", end="")
-        nested_ds_print(nested_ds[0], tab_level+1)
+        nds(nested_ds[0], tab_level+1)
+
+def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
+    """
+    ee_pose_base: (N, 3)
+    T_cam_base: (4, 4)
+
+    returns ee_pose_cam: (N, 3)
+    """
+    N, _ = ee_pose_base.shape
+    ee_pose_base = np.concatenate([ee_pose_base, np.ones((N, 1))], axis=1)
+
+    ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
+    return ee_pose_grip_cam.T
 
 
 def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
     """
+    ee_pose_base: (N, 3)
+    T_cam_base: (4, 4)
+    intrinsics: (3, 4)
 
+
+    returns ee_pose_cam_pixels (N, 2)
     """
-    ee_pose_base = np.concatenate([ee_pose_base, np.array([1])], axis=0)
-    print("3d pos in base frame: ", ee_pose_base)
+    N, _ = ee_pose_base.shape
+    ee_pose_base = np.concatenate([ee_pose_base, np.ones((N, 1))], axis=1)
 
-    ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base
-    print("3d pos in cam frame: ", ee_pose_grip_cam)
+    ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
 
     px_val = intrinsics @ ee_pose_grip_cam
-    px_val = px_val / px_val[2]
-    print("2d pos cam frame: ", px_val)
+    px_val = px_val / px_val[2, :]
 
-    return px_val
+    return px_val.T
 
 def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     """
@@ -56,16 +74,22 @@ def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
         ee_pose_cam: [x, y, z]
         intrinsics: 3x4 matrix
     """
-    ee_pose_cam = np.concatenate([ee_pose_cam, np.array([1])], axis=0)
+    N, _ = ee_pose_cam.shape
+    ee_pose_cam = np.concatenate([ee_pose_cam, np.ones((N, 1))], axis=1)
     # print("3d pos in cam frame: ", ee_pose_cam)
 
-    px_val = intrinsics @ ee_pose_cam
-    px_val = px_val / px_val[2]
+    # print("intrinsics: ", intrinsics.shape, ee_pose_cam.shape)
+    px_val = intrinsics @ ee_pose_cam.T
+    px_val = px_val / px_val[2, :]
     # print("2d pos cam frame: ", px_val)
 
-    return px_val
+    return px_val.T
 
 def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples"):
+    """
+    frame: (H, W, C) numpy array
+    pixel_vals: (N, 2) numpy array of pixel values to draw on frame
+    """
     frame = frame.astype(np.uint8).copy()
     if isinstance(pixel_vals, tuple):
         pixel_vals = [pixel_vals]
@@ -96,3 +120,27 @@ def general_norm(array, min_val, max_val, arr_min=None, arr_max=None):
 
 def general_unnorm(array, orig_min, orig_max, min_val, max_val):
     return ((array - min_val) / (max_val - min_val)) * (orig_max - orig_min) + orig_min
+
+
+def miniviewer(frame, goal_frame):
+    """
+    frame: (H, W, C) numpy array
+    goal_frame: (H, W, C) numpy array
+    
+    return frame with goal_frame in top right corner (1/4 original size)
+
+    resize using TF
+    """
+    frame = frame.copy()
+    goal_frame = goal_frame.copy()
+    if isinstance(frame, np.ndarray):
+        frame = torch.from_numpy(frame)
+    if isinstance(goal_frame, np.ndarray):
+        goal_frame = torch.from_numpy(goal_frame)
+
+    goal_frame = goal_frame.permute((2, 0, 1))
+    frame = frame.permute((2, 0, 1))
+
+    goal_frame = TF.resize(goal_frame, (frame.shape[1] // 4, frame.shape[2] // 4))
+    frame[:, :goal_frame.shape[1], -goal_frame.shape[2]:] = goal_frame
+    return frame.permute((1, 2, 0)).numpy()

@@ -117,7 +117,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         recurse_helper(batch)
 
-        batch["goal_obs"]["front_image_1"] = batch["goal_obs"]["front_image_1"][:, 0]
+        batch["goal_obs"]["front_img_1"] = batch["goal_obs"]["front_img_1"][:, 0]
         # batch["goal_obs"]["front_image_2"] = batch["goal_obs"]["front_image_2"][:, 0]
         # batch["goal_obs"]["hand_loc"] = batch["goal_obs"]["hand_loc"][:, 0]
         batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
@@ -150,7 +150,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
             # TODO: DO NOT COMMIT, the obs here needs hand_loc, but we only have ee_pose, and these are not in the same space, shape etc.  Stubbing hand_loc for now.  Ideally ee_pose would be named the same as hand_loc, and would also be in the same space
             breakpoint() #fix
-            obs["hand_loc"] = torch.ones((320, 4)).to(obs["front_image_1"].device)
+            obs["hand_loc"] = torch.ones((320, 4)).to(obs["front_img_1"].device)
             dists, enc_out, mlp_out = self.nets["policy"].forward_train(
                 obs_dict=obs,
                 goal_dict=goal,
@@ -282,7 +282,7 @@ class Lowlevel_GPT_mimicplay(BC_RNN):
         self.eval_max_goal_img_iter = self.algo_config.lowlevel.eval_max_goal_img_iter
 
         # del self.obs_shapes['agentview_image']
-        # del self.obs_shapes["front_image_1"]
+        # del self.obs_shapes["front_img_1"]
         # del self.obs_shapes["front_image_2"]
         self.obs_shapes = keep_keys(self.obs_shapes, self.global_config.policy_inputs.low_level)
         self.obs_shapes['latent_plan'] = [self.algo_config.highlevel.latent_plan_dim]

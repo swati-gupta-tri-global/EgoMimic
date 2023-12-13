@@ -2,6 +2,8 @@ import h5py
 import os
 from mimicplay.scripts.aloha_process.simarUtils import nested_ds_print
 
+# this is for concatenating together the hand tracking data which comes in separate files.  aloha_to_robomimic is for robot data and will do all processing
+
 def concatenate_h5(source, destination):
     with h5py.File(destination, "w") as dataset:
         for file in os.listdir(source):

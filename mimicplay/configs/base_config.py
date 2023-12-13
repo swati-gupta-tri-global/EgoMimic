@@ -93,6 +93,7 @@ class BaseConfig(Config):
         self.experiment.save.enabled = True                         # whether model saving should be enabled or disabled
         self.experiment.save.every_n_seconds = None                 # save model every n seconds (set to None to disable)
         self.experiment.save.every_n_epochs = 50                    # save model every n epochs (set to None to disable)
+        self.experiment.save.top_n = 3                              # keep top_n best ckpts (set to None to disable)
         self.experiment.save.epochs = []                            # save model on these specific epochs
         self.experiment.save.on_best_validation = False             # save models that achieve best validation score
         self.experiment.save.on_best_rollout_return = False         # save models that achieve best rollout return

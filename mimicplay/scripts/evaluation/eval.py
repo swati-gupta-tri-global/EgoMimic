@@ -43,7 +43,7 @@ from mimicplay.utils.file_utils import policy_from_checkpoint
 from torchvision.utils import save_image
 import cv2
 
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds
 import torchvision
 
 
@@ -152,6 +152,8 @@ def train(config, device):
     print("")
 
     # load training data
+    FIXED_GOAL_RANGE = [150, 150]
+    config["algo"]["playdata"]["goal_image_range"] = FIXED_GOAL_RANGE
     trainset, validset = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"])
     train_sampler = trainset.get_dataset_sampler()
@@ -167,10 +169,11 @@ def train(config, device):
     # initialize data loaders
     train_loader = DataLoader(
         dataset=trainset,
-        sampler=train_sampler,
+        # sampler=train_sampler,
         batch_size=config.train.batch_size,
-        shuffle=(train_sampler is None),
+        shuffle=False,
         num_workers=config.train.num_data_workers,
+        # num_workers=0,
         drop_last=True
     )
 
@@ -184,13 +187,23 @@ def train(config, device):
             batch_size=config.train.batch_size,
             shuffle=False,
             num_workers=num_workers,
+            # num_workers=0,
             drop_last=True
         )
     else:
         valid_loader = None
 
     # model.load_state_dict(torch.load(args.eval_path))
-    evaluate_high_level_policy(model[0].policy, valid_loader, env_meta["obs_mins"], env_meta["obs_maxs"])
+
+    loader = valid_loader if args.eval_split == "valid" else train_loader
+
+    if "obs_mins" not in env_meta:
+        obs_mins = None
+        obs_maxs = None
+    else:
+        obs_mins = np.array(env_meta["obs_mins"])
+        obs_maxs = np.array(env_meta["obs_maxs"])
+    evaluate_high_level_policy(model[0].policy, loader, obs_mins, obs_maxs)
 
     # terminate logging
     data_logger.close()
@@ -220,47 +233,50 @@ def evaluate_high_level_policy(model, data_loader, mins, maxs):
 
     for i, data in enumerate(data_loader):
         # import matplotlib.pyplot as plt
-        # save_image(data["obs"]["front_image_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
+        # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
-        # save data["obs"]["front_image_1"][0, 0] which has type uint8 to file
+        # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
         print(i)
-        for b in range(data["obs"]["front_image_1"].shape[0]):
-            im = data["obs"]["front_image_1"][b, 0].numpy()
-
+        for b in range(data["obs"]["front_img_1"].shape[0]):
+            im = data["obs"]["front_img_1"][b, 0].numpy()
+            goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
 
             input_batch = model.process_batch_for_training(data)
             input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
-            
-            info = model.forward_eval(input_batch)
 
+            info = model.forward_eval(input_batch)
+            
             pred_values = np.ones((10, 3))
             for t in range(10):
                 means = info.mean[b, t*3:3*(t+1)].cpu().numpy()
                 # means = general_unnorm(means, -110.509903, 624.081421, -1, 1)
-                means[0] = general_unnorm(means[0], mins[0], maxs[0], -1, 1)
-                means[1] = general_unnorm(means[1], mins[1], maxs[1], -1, 1)
-                means[2] = general_unnorm(means[2], mins[2], maxs[2], -1, 1)
-                px_val = cam_frame_to_cam_pixels(means, intrinsics)
+                # means[0] = general_unnorm(means[0], mins[0], maxs[0], -1, 1)
+                # means[1] = general_unnorm(means[1], mins[1], maxs[1], -1, 1)
+                # means[2] = general_unnorm(means[2], mins[2], maxs[2], -1, 1)
+                px_val = cam_frame_to_cam_pixels(means[None, :], intrinsics)
                 pred_values[t] = px_val
 
             frame = draw_dot_on_frame(im, pred_values, show=False, palette="Purples")
 
             # breakpoint()
             actions = data["actions"][b, 0].view((10, 3))
-            actions[:, 0] = general_unnorm(actions[:, 0], mins[0], maxs[0], -1, 1)
-            actions[:, 1] = general_unnorm(actions[:, 1], mins[1], maxs[1], -1, 1)
-            actions[:, 2] = general_unnorm(actions[:, 2], mins[2], maxs[2], -1, 1)
+            # actions[:, 0] = general_unnorm(actions[:, 0], mins[0], maxs[0], -1, 1)
+            # actions[:, 1] = general_unnorm(actions[:, 1], mins[1], maxs[1], -1, 1)
+            # actions[:, 2] = general_unnorm(actions[:, 2], mins[2], maxs[2], -1, 1)
             actions = actions.cpu().numpy()
             for t in range(10):
-                actions[t] = cam_frame_to_cam_pixels(actions[t], intrinsics)
+                actions[t] = cam_frame_to_cam_pixels(actions[t][None, :], intrinsics)
 
-            # frame = draw_dot_on_frame(frame, actions, show=False, palette="Greens")
+            frame = draw_dot_on_frame(frame, actions, show=False, palette="Greens")
+
+            # breakpoint()
+            frame = miniviewer(frame, goal_frame)
 
             # breakpoint()
 
             # cv2.imwrite(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{count}.png", frame)
             if count == T:
-                torchvision.io.write_video(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/hand_traj_v2_{vids_written}.mp4", video[1:count], fps=30)
+                torchvision.io.write_video(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/1demo/v3{vids_written}.mp4", video[1:count], fps=30)
                 # exit()
                 count = 0
                 vids_written += 1
@@ -314,11 +330,11 @@ if __name__ == "__main__":
     )
 
     # Algorithm Name
-    parser.add_argument(
-        "--algo",
-        type=str,
-        help="(optional) name of algorithm to run. Only needs to be provided if --config is not provided",
-    )
+    # parser.add_argument(
+    #     "--algo",
+    #     type=str,
+    #     help="(optional) name of algorithm to run. Only needs to be provided if --config is not provided",
+    # )
 
     # Experiment Name (for tensorboard, saving models, etc.)
     parser.add_argument(
@@ -338,26 +354,28 @@ if __name__ == "__main__":
 
     parser.add_argument("--eval-path", type=str, default=None, help="(optional) path to the model to be evaluated")
 
-    parser.add_argument(
-        "--bddl_file",
-        type=str,
-        default=None,
-        help="(optional) if provided, the task's goal is specified as the symbolic goal in the bddl file (several symbolic predicates connected with AND / OR)",
-    )
+    parser.add_argument("--eval-split", type=str, default="valid", help="(optional) split to evaluate on", choices=["train", "valid"])
 
-    parser.add_argument(
-        "--video_prompt",
-        type=str,
-        default=None,
-        help="(optional) if provided, a task video prompt is loaded and used in the evaluation rollouts",
-    )
+    # parser.add_argument(
+    #     "--bddl_file",
+    #     type=str,
+    #     default=None,
+    #     help="(optional) if provided, the task's goal is specified as the symbolic goal in the bddl file (several symbolic predicates connected with AND / OR)",
+    # )
+
+    # parser.add_argument(
+    #     "--video_prompt",
+    #     type=str,
+    #     default=None,
+    #     help="(optional) if provided, a task video prompt is loaded and used in the evaluation rollouts",
+    # )
 
     # debug mode
-    parser.add_argument(
-        "--debug",
-        action='store_true',
-        help="set this flag to run a quick training run for debugging purposes"
-    )
+    # parser.add_argument(
+    #     "--debug",
+    #     action='store_true',
+    #     help="set this flag to run a quick training run for debugging purposes"
+    # )
 
     args = parser.parse_args()
     main(args)
