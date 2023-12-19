@@ -203,13 +203,16 @@ def train(config, device):
     else:
         obs_mins = np.array(env_meta["obs_mins"])
         obs_maxs = np.array(env_meta["obs_maxs"])
-    evaluate_high_level_policy(model[0].policy, loader, obs_mins, obs_maxs)
+
+    if not args.gen_vid:
+        video_dir=None
+    evaluate_high_level_policy(model[0].policy, loader, video_dir=video_dir)
 
     # terminate logging
     data_logger.close()
 
 
-def evaluate_high_level_policy(model, data_loader, mins, maxs):
+def evaluate_high_level_policy(model, data_loader, video_dir):
     """
     Evaluate high level trajectory prediciton policy.
     model: model loaded from checkpoint
@@ -217,6 +220,11 @@ def evaluate_high_level_policy(model, data_loader, mins, maxs):
     goal_distance: number of steps forward to predict
     video_path: path to save rendered video
     """
+    
+    metrics = {
+        "paired_mse": [], # for each trajectory compute MSE((gt_t, gt_t+1), (pred_t, pred_t+1))
+        "final_mse": [], # for each trajectory compute MSE(gt_t+T, pred_t+T)
+    }
     #Internal realsense numbers
     intrinsics = np.array([
         [616.0, 0.0, 313.4, 0.0],
@@ -236,15 +244,15 @@ def evaluate_high_level_policy(model, data_loader, mins, maxs):
         # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
         # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
+        input_batch = model.process_batch_for_training(data)
+        input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
+
+        info = model.forward_eval(input_batch)
+    
         print(i)
         for b in range(data["obs"]["front_img_1"].shape[0]):
             im = data["obs"]["front_img_1"][b, 0].numpy()
             goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
-
-            input_batch = model.process_batch_for_training(data)
-            input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
-
-            info = model.forward_eval(input_batch)
             
             pred_values = np.ones((10, 3))
             for t in range(10):
@@ -264,6 +272,7 @@ def evaluate_high_level_policy(model, data_loader, mins, maxs):
             # actions[:, 1] = general_unnorm(actions[:, 1], mins[1], maxs[1], -1, 1)
             # actions[:, 2] = general_unnorm(actions[:, 2], mins[2], maxs[2], -1, 1)
             actions = actions.cpu().numpy()
+            add_metrics(metrics, actions, info.mean[b].view((10,3)).cpu().numpy())
             for t in range(10):
                 actions[t] = cam_frame_to_cam_pixels(actions[t][None, :], intrinsics)
 
@@ -276,7 +285,8 @@ def evaluate_high_level_policy(model, data_loader, mins, maxs):
 
             # cv2.imwrite(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{count}.png", frame)
             if count == T:
-                torchvision.io.write_video(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/1demo/v3{vids_written}.mp4", video[1:count], fps=30)
+                if video_dir is not None:
+                    torchvision.io.write_video(os.path.join(video_dir, f"_{vids_written}.mp4"), video[1:count], fps=30)
                 # exit()
                 count = 0
                 vids_written += 1
@@ -284,6 +294,24 @@ def evaluate_high_level_policy(model, data_loader, mins, maxs):
             video[count] = torch.from_numpy(frame)
 
             count += 1
+
+    # summarize metrics
+    for key in metrics:
+        concat = np.stack(metrics[key], axis=0)
+        print(f"{key}: {np.mean(concat, axis=0)}")
+
+def add_metrics(metrics, actions, pred_values):
+    """
+    metrics: {"paired_mse": [], "final_mse": []}
+    actions: (10, 3) array of ground truth actions
+    pred_values: (10, 3) array of predicted values
+    """
+    paired_mse = np.mean(np.square(pred_values - actions), axis=0)
+    final_mse = np.square(pred_values[-1] - actions[-1])
+    metrics["paired_mse"].append(paired_mse)
+    metrics["final_mse"].append(final_mse)
+
+    return metrics
 
 def main(args):
     if args.config is not None:
@@ -356,6 +384,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--eval-split", type=str, default="valid", help="(optional) split to evaluate on", choices=["train", "valid"])
 
+    parser.add_argument("--gen-vid", type=int, default=1, help="(optional) whether to generate videos or not 0 false 1 true.", choices=[0, 1])
     # parser.add_argument(
     #     "--bddl_file",
     #     type=str,
