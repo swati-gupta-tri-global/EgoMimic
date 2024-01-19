@@ -3,6 +3,30 @@ import cv2
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 import torch
+from scipy.spatial.transform import Rotation
+
+REALSENSE_INTRINSICS = np.array([
+    [616.0, 0.0, 313.4, 0.0],
+    [0.0, 615.7, 236.7, 0.0],
+    [0.0, 0.0, 1.0, 0.0]
+]) #Internal realsense numbers
+# K: [616.16650390625, 0.0, 313.42645263671875, 0.0, 615.7142333984375, 236.67532348632812, 0.0, 0.0, 1.0]
+
+
+EXTRINSICS = {
+    "table": np.array([
+        [0.144, -0.598,  0.789, -0.017],
+        [-0.978, 0.036, 0.206, -0.202],
+        [-0.152, -0.801, -0.579, 0.491],
+        [ 0.,     0.,     0.,     1.   ]
+    ]),
+    "humanoidJan19": np.array([
+        [ 0.07, -0.911,  0.407, 0.035],
+        [ 0.997,  0.048,   -0.063, -0.309],
+        [ 0.038,  0.41, 0.911, -0.195],
+        [0., 0., 0., 1.]
+    ])
+}
 
 def is_key(x):
     return hasattr(x, 'keys') and callable(x.keys)
@@ -89,6 +113,7 @@ def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples"):
     """
     frame: (H, W, C) numpy array
     pixel_vals: (N, 2) numpy array of pixel values to draw on frame
+    Drawn in light to dark order
     """
     frame = frame.astype(np.uint8).copy()
     if isinstance(pixel_vals, tuple):
@@ -144,3 +169,10 @@ def miniviewer(frame, goal_frame):
     goal_frame = TF.resize(goal_frame, (frame.shape[1] // 4, frame.shape[2] // 4))
     frame[:, :goal_frame.shape[1], -goal_frame.shape[2]:] = goal_frame
     return frame.permute((1, 2, 0)).numpy()
+
+def transformation_matrix_to_pose(T):
+        R = T[:3, :3]
+        p = T[:3, 3]
+        rotation_quaternion = Rotation.from_matrix(R).as_quat()
+        pose_array = np.concatenate((p, rotation_quaternion))
+        return pose_array

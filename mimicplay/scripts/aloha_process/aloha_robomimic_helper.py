@@ -1,15 +1,8 @@
 import h5py
 import numpy as np
-from scipy.spatial.transform import Rotation
 from modern_robotics import FKinSpace
 import os
-
-def transformation_matrix_to_pose(T):
-        R = T[:3, :3]
-        p = T[:3, 3]
-        rotation_quaternion = Rotation.from_matrix(R).as_quat()
-        pose_array = np.concatenate((p, rotation_quaternion))
-        return pose_array
+from mimicplay.scripts.aloha_process.simarUtils import transformation_matrix_to_pose
 
 def single_episode_conversion(filepath, arm, output_dir):
     """
@@ -90,16 +83,19 @@ def single_episode_conversion(filepath, arm, output_dir):
         exit()
         # os.remove(filepath.split(".")[0] + "_out.hdf5")
 
-    with h5py.File(output_path, 'w') as f:
+    assert cam_front1.shape[1:] == (480, 640, 3)
+    assert cam_front2.shape[1:] == (480, 640, 3)
+    assert cam_wrist.shape[1:] == (480, 640, 3)
+    with h5py.File(output_path, 'w', rdcc_nbytes=1024**2*2) as f:
         actions_group = f.create_group('actions')
         obs_group = f.create_group('obs')
 
         actions_group.create_dataset('ee_pose', data=actions_ee_pose)
 
         obs_group.create_dataset('ee_pose', data=obs_ee_pose)
-        obs_group.create_dataset('front_img_1', data=cam_front1)
-        obs_group.create_dataset('front_img_2', data=cam_front2)
-        obs_group.create_dataset('wrist_img_1', data=cam_wrist)
+        obs_group.create_dataset('front_img_1', data=cam_front1, dtype='uint8', chunks=(1, 480, 640, 3))
+        obs_group.create_dataset('front_img_2', data=cam_front2, dtype='uint8', chunks=(1, 480, 640, 3))
+        obs_group.create_dataset('wrist_img_1', data=cam_wrist, dtype='uint8', chunks=(1, 480, 640, 3))
         obs_group.create_dataset('gripper_position', data=arm_gripper_qpos)
         obs_group.create_dataset('joint_positions', data=arm_obs_qpos)
         obs_group.create_dataset('joint_vel', data=arm_gripper_qvel)
