@@ -30,15 +30,22 @@ def prep_for_mimicplay(hdf5_path, data_type):
         demo_1: ...
         demo_2: ...
     """
-    # target_path = hdf5_path.replace(".hdf5", "Mimicplay.hdf5")
-    # shutil.copy(hdf5_path, target_path)
-    # h5py_file = h5py.File(target_path, "r+")
+    target_path = hdf5_path.replace(".hdf5", "Mimicplay.hdf5")
+    shutil.copy(hdf5_path, target_path)
+    h5py_file = h5py.File(target_path, "r+")
 
-    target_path = hdf5_path
-    h5py_file = h5py.File(hdf5_path, "r+")
+    # target_path = hdf5_path
+    # h5py_file = h5py.File(hdf5_path, "r+")
     # breakpoint()
     
     fix_demo_underscores(h5py_file)
+
+    if data_type == "hand":
+        print("Renaming front_image_1 and front_image_2 keys")
+
+        key_dict = {'obs/front_image_1' : 'front_img_1', 'obs/front_image_2' : 'front_img_1'}
+
+        replace_key_names(h5py_file, key_dict)
 
     # NOTE: temp stub put back
     # if data_type == "hand":
@@ -217,6 +224,22 @@ def fix_demo_underscores(h5py_file):
             new_demo_key = demo_key.replace("demo", "demo_")
             h5py_file[f"data/{new_demo_key}"] = h5py_file[f"data/{demo_key}"]
             del h5py_file[f"data/{demo_key}"]
+
+def replace_key_names(h5py_file, key_dict):
+    """
+        key_dict = {old_key : new_key }
+    """
+    demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
+
+    for demo_key in demo_keys:
+        for old_key in key_dict:
+            print(old_key)
+            new_key = key_dict[old_key]
+            print(new_key)
+            if f"data/{demo_key}/{old_key}" in h5py_file:
+                print(f"data/{demo_key}/{old_key}")
+                h5py_file.copy(h5py_file[f"data/{demo_key}/{old_key}"], f"data/{demo_key}/obs/{new_key}")
+                del h5py_file[f"data/{demo_key}/{old_key}"]
 
 
 if __name__ == '__main__':

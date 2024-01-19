@@ -29,6 +29,7 @@ import sys
 import traceback
 from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
 import heapq
+import h5py
 
 from collections import OrderedDict
 
@@ -45,6 +46,7 @@ from robomimic.utils.log_utils import PrintLogger, DataLogger
 from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
+
 def get_gpu_usage_mb():
     """Returns the GPU usage in B."""
     h = nvmlDeviceGetHandleByIndex(0)
@@ -86,6 +88,11 @@ def train(config, device):
 
     # load basic metadata from training file
     print("\n============= Loaded Environment Metadata =============")
+    h5py_file = h5py.File(dataset_path, "r+")
+    if h5py_file["data"].get("env_args") == None:
+        h5py_file["data"].attrs["env_args"] = json.dumps({})
+        print("Added empty env_args")
+    
     env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
         dataset_path=config.train.data,
