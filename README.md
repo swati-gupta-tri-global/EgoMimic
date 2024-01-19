@@ -230,18 +230,33 @@ Licensed under the [MIT License](LICENSE)
 
 
 ## Simar's Section
-### Calibrating
+### Aloha to Robomimic Data
 On robot run
 - Start ros (launch)
 - `record_episodes.py`
 - Move the whole folder of all epsiodes onto skynet
 - cd into `mimicplay/scripts/aloha_process`
-- run `python aloha_to_robomimic.py`.  ex) 
+- run `python aloha_to_robomimic.py`.  This will convert the aloha joint positions to 3d EE pose relative to robot base
 
+ex) 
 ```bash
 python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ --arm left --out /coc/flash7/skareer6/calibrate_samples/ --task-name robomimic
 ```
 
 - In the folder you specify, you'll now see `robomimic.hdf5`
 - Finally cd into `mimicplay/scripts/calibrate_camera`
+
+### Calibration
 - Run `python calibrate_egoplay.py --h5py-path <path to robomimic.hdf5>`
+- This will output the transform matrices
+
+
+### Make Mimicplay Compatible
+- Run `EgoPlay/mimicplay/scripts/aloha_process/mimicplay_data_process.py`
+- This will remove quat from ee pose, and also make the ee_pose relative to the camera frame (if it was originally robot data.  Hand data is already relative to cam frame).
+
+
+
+### Hand Data
+- Run `hand_data_concat.py`
+- Run `EgoPlay/mimicplay/scripts/aloha_process/mimicplay_data_process.py`
