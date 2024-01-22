@@ -72,7 +72,8 @@ def train(config, device):
     print(config)
     print("")
     log_dir, ckpt_dir, video_dir, uid = get_exp_dir(config)
-
+    assert config.experiment.save.video_freq >= config.experiment.validation_freq, "video_freq must be less than validation_freq"
+    assert config.experiment.save.video_freq % config.experiment.validation_freq == 0, "video_freq must be a multiple of validation_freq"
     # if config.experiment.logging.terminal_output_to_txt:
     #     # log stdout and stderr to a text file
     #     logger = PrintLogger(os.path.join(log_dir, 'log.txt'))
@@ -422,6 +423,7 @@ def main(args):
 
         config.experiment.validation_epoch_every_n_steps = 5
         config.experiment.validation_freq = 1
+        config.experiment.save.video_freq = 1
 
         # if rollouts are enabled, try 2 rollouts at end of each epoch, with 10 environment steps
         config.experiment.rollout.rate = 1
