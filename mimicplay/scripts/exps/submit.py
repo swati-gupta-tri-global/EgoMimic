@@ -1,66 +1,9 @@
 import argparse
 import submitit
-from mimicplay.scripts.train import main
-
+from mimicplay.scripts.train import main, train_argparse
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    # External config file that overwrites default config
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help="(optional) path to a config json that will be used to override the default settings. \
-            If omitted, default settings are used. This is the preferred way to run experiments.",
-    )
-
-    # Algorithm Name
-    parser.add_argument(
-        "--algo",
-        type=str,
-        help="(optional) name of algorithm to run. Only needs to be provided if --config is not provided",
-    )
-
-    # Experiment Name (for tensorboard, saving models, etc.)
-    parser.add_argument(
-        "--name",
-        type=str,
-        default=None,
-        required=True,
-        help="override the experiment name defined in the config",
-    )
-
-    # Dataset path, to override the one in the config
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default=None,
-        help="(optional) if provided, override the dataset path defined in the config",
-    )
-
-    parser.add_argument(
-        "--bddl_file",
-        type=str,
-        default=None,
-        help="(optional) if provided, the task's goal is specified as the symbolic goal in the bddl file (several symbolic predicates connected with AND / OR)",
-    )
-
-    parser.add_argument(
-        "--video_prompt",
-        type=str,
-        default=None,
-        help="(optional) if provided, a task video prompt is loaded and used in the evaluation rollouts",
-    )
-
-    # debug mode
-    parser.add_argument(
-        "--debug",
-        action='store_true',
-        help="set this flag to run a quick training run for debugging purposes"
-    )
-
-    args = parser.parse_args()
+    args = train_argparse()
 
 
     # the AutoExecutor class is your interface for submitting function to a cluster or run them locally.

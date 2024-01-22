@@ -50,6 +50,7 @@ import torchvision
 from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
+from mimicplay.utils.val_utils import evaluate_high_level_policy
 
 def train(config, device):
     """
@@ -63,7 +64,7 @@ def train(config, device):
     print("\n============= New Training Run with Config =============")
     print(config)
     print("")
-    log_dir, ckpt_dir, video_dir = get_exp_dir(config)
+    log_dir, ckpt_dir, video_dir, uid = get_exp_dir(config)
 
     if config.experiment.logging.terminal_output_to_txt:
         # log stdout and stderr to a text file
@@ -129,6 +130,7 @@ def train(config, device):
     data_logger = DataLogger(
         log_dir,
         config,
+        uid=uid,
         log_tb=config.experiment.logging.log_tb,
     )
     # model = algo_factory(
@@ -152,8 +154,8 @@ def train(config, device):
     print("")
 
     # load training data
-    FIXED_GOAL_RANGE = [150, 150]
-    config["algo"]["playdata"]["goal_image_range"] = FIXED_GOAL_RANGE
+    # FIXED_GOAL_RANGE = [150, 150]
+    # config["algo"]["playdata"]["goal_image_range"] = FIXED_GOAL_RANGE
     trainset, validset = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"])
     train_sampler = trainset.get_dataset_sampler()
@@ -210,108 +212,6 @@ def train(config, device):
 
     # terminate logging
     data_logger.close()
-
-
-def evaluate_high_level_policy(model, data_loader, video_dir):
-    """
-    Evaluate high level trajectory prediciton policy.
-    model: model loaded from checkpoint
-    data_loader: validation data loader
-    goal_distance: number of steps forward to predict
-    video_path: path to save rendered video
-    """
-    
-    metrics = {
-        "paired_mse": [], # for each trajectory compute MSE((gt_t, gt_t+1), (pred_t, pred_t+1))
-        "final_mse": [], # for each trajectory compute MSE(gt_t+T, pred_t+T)
-    }
-    #Internal realsense numbers
-    intrinsics = np.array([
-        [616.0, 0.0, 313.4, 0.0],
-        [0.0, 615.7, 236.7, 0.0],
-        [0.0, 0.0, 1.0, 0.0]
-    ])
-
-    model.set_eval()
-
-    count = 0
-    vids_written = 0
-    T = 400
-    video = torch.zeros((T, 480, 640, 3))
-
-    for i, data in enumerate(data_loader):
-        # import matplotlib.pyplot as plt
-        # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
-
-        # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
-        input_batch = model.process_batch_for_training(data)
-        input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
-
-        info = model.forward_eval(input_batch)
-    
-        print(i)
-        for b in range(data["obs"]["front_img_1"].shape[0]):
-            im = data["obs"]["front_img_1"][b, 0].numpy()
-            goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
-            
-            pred_values = np.ones((10, 3))
-            for t in range(10):
-                means = info.mean[b, t*3:3*(t+1)].cpu().numpy()
-                # means = general_unnorm(means, -110.509903, 624.081421, -1, 1)
-                # means[0] = general_unnorm(means[0], mins[0], maxs[0], -1, 1)
-                # means[1] = general_unnorm(means[1], mins[1], maxs[1], -1, 1)
-                # means[2] = general_unnorm(means[2], mins[2], maxs[2], -1, 1)
-                px_val = cam_frame_to_cam_pixels(means[None, :], intrinsics)
-                pred_values[t] = px_val
-
-            frame = draw_dot_on_frame(im, pred_values, show=False, palette="Purples")
-
-            # breakpoint()
-            actions = data["actions"][b, 0].view((10, 3))
-            # actions[:, 0] = general_unnorm(actions[:, 0], mins[0], maxs[0], -1, 1)
-            # actions[:, 1] = general_unnorm(actions[:, 1], mins[1], maxs[1], -1, 1)
-            # actions[:, 2] = general_unnorm(actions[:, 2], mins[2], maxs[2], -1, 1)
-            actions = actions.cpu().numpy()
-            add_metrics(metrics, actions, info.mean[b].view((10,3)).cpu().numpy())
-            for t in range(10):
-                actions[t] = cam_frame_to_cam_pixels(actions[t][None, :], intrinsics)
-
-            frame = draw_dot_on_frame(frame, actions, show=False, palette="Greens")
-
-            # breakpoint()
-            frame = miniviewer(frame, goal_frame)
-
-            # breakpoint()
-
-            # cv2.imwrite(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{count}.png", frame)
-            if count == T:
-                if video_dir is not None:
-                    torchvision.io.write_video(os.path.join(video_dir, f"_{vids_written}.mp4"), video[1:count], fps=30)
-                # exit()
-                count = 0
-                vids_written += 1
-                video = torch.zeros((T, 480, 640, 3))
-            video[count] = torch.from_numpy(frame)
-
-            count += 1
-
-    # summarize metrics
-    for key in metrics:
-        concat = np.stack(metrics[key], axis=0)
-        print(f"{key}: {np.mean(concat, axis=0)}")
-
-def add_metrics(metrics, actions, pred_values):
-    """
-    metrics: {"paired_mse": [], "final_mse": []}
-    actions: (10, 3) array of ground truth actions
-    pred_values: (10, 3) array of predicted values
-    """
-    paired_mse = np.mean(np.square(pred_values - actions), axis=0)
-    final_mse = np.square(pred_values[-1] - actions[-1])
-    metrics["paired_mse"].append(paired_mse)
-    metrics["final_mse"].append(final_mse)
-
-    return metrics
 
 def main(args):
     if args.config is not None:

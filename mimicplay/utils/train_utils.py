@@ -47,7 +47,7 @@ def get_exp_dir(config, auto_remove_exp_dir=False):
     """
     # timestamp for directory names
     t_now = time.time()
-    time_str = datetime.datetime.fromtimestamp(t_now).strftime('%Y-%m-%d-%H-%M-%S')
+    time_str = f"{config.experiment.description}_{datetime.datetime.fromtimestamp(t_now).strftime('%Y-%m-%d-%H-%M-%S')}"
 
     # create directory for where to dump model parameters, tensorboard logs, and videos
     base_output_dir = os.path.expanduser(config.train.output_dir)
@@ -77,7 +77,7 @@ def get_exp_dir(config, auto_remove_exp_dir=False):
     # video directory
     video_dir = os.path.join(base_output_dir, time_str, "videos")
     os.makedirs(video_dir)
-    return log_dir, output_dir, video_dir
+    return log_dir, output_dir, video_dir, time_str
 
 
 def load_data_for_training(config, obs_keys):
@@ -121,6 +121,8 @@ def load_data_for_training(config, obs_keys):
     else:
         train_dataset = dataset_factory(config, obs_keys, filter_by_attribute=train_filter_by_attribute)
         valid_dataset = None
+    
+    valid_dataset.goal_obs_gap = [config.algo.playdata.eval_goal_gap, config.algo.playdata.eval_goal_gap]
 
     return train_dataset, valid_dataset
 

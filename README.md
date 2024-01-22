@@ -260,3 +260,11 @@ python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ -
 ### Hand Data
 - Run `hand_data_concat.py`
 - Run `EgoPlay/mimicplay/scripts/aloha_process/mimicplay_data_process.py`
+
+
+### Training policies
+High level:
+`python scripts/exps/submit.py --config configs/highlevel_real.json --dataset /coc/flash7/datasets/egoplay/humanoidStacking/humanoid_stackingMimicplay.hdf5 --name humanoidStacking --description v1`
+or via `python scripts/exps/submit.py`
+
+Use `--debug` to not use wandb

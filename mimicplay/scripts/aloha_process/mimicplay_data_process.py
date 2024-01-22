@@ -5,7 +5,7 @@ import argparse
 from robomimic.scripts.split_train_val import split_train_val_from_hdf5
 from mimicplay.scripts.dataset_extract_traj_plans import process_dataset
 import numpy as np
-from mimicplay.scripts.aloha_process.simarUtils import general_norm, general_unnorm, ee_pose_to_cam_frame, nds
+from mimicplay.scripts.aloha_process.simarUtils import general_norm, general_unnorm, ee_pose_to_cam_frame, nds, EXTRINSICS
 
 # For either robot or hand data, must run this before training models via mimicplay.  Normalizes obs, chunks actions, and converts ee_pose to cam frame (robot)
 # ex) python scripts/aloha_process/mimicplay_data_process.py --hdf5-path /coc/flash7/datasets/egoplay/stacking.hdf5 --data-type robot
@@ -37,6 +37,8 @@ def prep_for_mimicplay(hdf5_path, data_type):
     target_path = hdf5_path
     h5py_file = h5py.File(hdf5_path, "r+")
     # breakpoint()
+
+    add_data_dir(h5py_file)
     
     fix_demo_underscores(h5py_file)
 
@@ -47,8 +49,10 @@ def prep_for_mimicplay(hdf5_path, data_type):
     if data_type == "robot":
         base_to_cam(h5py_file)
 
+
     # normalize_obs(h5py_file)
-    # if no normalize obs h5py_file["data"].attrs["env_args"] = json.dumps({})
+    h5py_file["data"].attrs["env_args"] = json.dumps({}) # if no normalize obs
+
     chunk_actions(h5py_file)
 
     demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
@@ -182,15 +186,16 @@ def base_to_cam(h5py_file):
     DEMO_COUNT = len(demo_keys)
 
 
-    R_cam_base = np.array([
-        [ 0.144, -0.598, 0.789],
-        [-0.978, 0.036, 0.206],
-        [-0.152, -0.801, -0.579]
-    ])
-    Tr_cam_base = np.array([[-0.017, -0.202, 0.491]])
-    T_cam_base = np.concatenate([R_cam_base, Tr_cam_base.T], axis=1)
-    T_cam_base = np.concatenate([T_cam_base, np.array([[0, 0, 0, 1]])], axis=0)
-    print("WARNING: using hardcoded T_cam_base")
+    # R_cam_base = np.array([
+    #     [ 0.144, -0.598, 0.789],
+    #     [-0.978, 0.036, 0.206],
+    #     [-0.152, -0.801, -0.579]
+    # ])
+    # Tr_cam_base = np.array([[-0.017, -0.202, 0.491]])
+    # T_cam_base = np.concatenate([R_cam_base, Tr_cam_base.T], axis=1)
+    # T_cam_base = np.concatenate([T_cam_base, np.array([[0, 0, 0, 1]])], axis=0)
+    T_cam_base = EXTRINSICS["humanoidJan19"]
+    # print("WARNING: using hardcoded T_cam_base")
 
     for demo_key in demo_keys:
         h5py_file[f"data/{demo_key}/obs/ee_pose_cam_frame"] = ee_pose_to_cam_frame(h5py_file[f"data/{demo_key}/obs/ee_pose"][:], T_cam_base)[:, :3]
@@ -217,6 +222,24 @@ def fix_demo_underscores(h5py_file):
             new_demo_key = demo_key.replace("demo", "demo_")
             h5py_file[f"data/{new_demo_key}"] = h5py_file[f"data/{demo_key}"]
             del h5py_file[f"data/{demo_key}"]
+
+
+def add_data_dir(h5py_file):
+    """
+    h5py_file: 
+        demo0
+        demo1
+    returns:
+        data
+            demo0
+            demo1
+    """
+    if "data" not in h5py_file:
+        h5py_file.create_group("data")
+        for key in h5py_file.keys():
+            if "demo" in key:
+                h5py_file[f"data/{key}"] = h5py_file[key]
+                del h5py_file[key]
 
 
 if __name__ == '__main__':
