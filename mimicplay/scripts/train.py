@@ -47,6 +47,8 @@ from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
 
+import mimicplay.utils.val_utils as ValUtils
+
 def get_gpu_usage_mb():
     """Returns the GPU usage in B."""
     h = nvmlDeviceGetHandleByIndex(0)
@@ -70,7 +72,7 @@ def train(config, device):
     print("\n============= New Training Run with Config =============")
     print(config)
     print("")
-    log_dir, ckpt_dir, video_dir = get_exp_dir(config)
+    log_dir, ckpt_dir, video_dir, uid = get_exp_dir(config)
 
     # if config.experiment.logging.terminal_output_to_txt:
     #     # log stdout and stderr to a text file
@@ -141,7 +143,9 @@ def train(config, device):
     data_logger = DataLogger(
         log_dir,
         config,
-        log_tb=config.experiment.logging.log_tb,
+        uid=uid,
+        # log_tb=config.experiment.logging.log_tb,
+        log_wandb=config.experiment.logging.log_wandb,
     )
     model = algo_factory(
         algo_name=config.algo_name,
@@ -192,10 +196,20 @@ def train(config, device):
             dataset=validset,
             sampler=valid_sampler,
             batch_size=config.train.batch_size,
-            shuffle=(valid_sampler is None),
+            # shuffle=(valid_sampler is None),
+            shuffle=False,
             num_workers=num_workers,
             drop_last=True
         )
+
+        # video_valid_loader = DataLoader(
+        #     dataset=validset,
+        #     sampler=valid_sampler,
+        #     batch_size=1,
+        #     shuffle=False,
+        #     num_workers=1,
+        #     drop_last=True
+        # )
     else:
         valid_loader = None
 
@@ -239,15 +253,24 @@ def train(config, device):
                 data_logger.record("Train/{}".format(k), v, epoch)
 
         # Evaluate the model on validation set
-        if config.experiment.validate:
+        if config.experiment.validate and (epoch % config.experiment.validation_freq == 0):
             with torch.no_grad():
                 step_log = TrainUtils.run_epoch(model=model, data_loader=valid_loader, epoch=epoch, validate=True,
                                                 num_steps=valid_num_steps)
+
+                model.set_eval()
+
+                pass_vid = video_dir if config.experiment.save.video_freq is not None and epoch % config.experiment.save.video_freq == 0 else None
+                valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid) #save vid only once every video_freq epochs
+
+                model.set_train()
             for k, v in step_log.items():
                 if k.startswith("Time_"):
                     data_logger.record("Timing_Stats/Valid_{}".format(k[5:]), v, epoch)
                 else:
                     data_logger.record("Valid/{}".format(k), v, epoch)
+            for k, v in valid_step_log.items():
+                data_logger.record(f"Valid/{k}", v, epoch)
 
             print("Validation Epoch {}".format(epoch))
             print(json.dumps(step_log, sort_keys=True, indent=4))
@@ -386,6 +409,9 @@ def main(args):
 
     if args.name is not None:
         config.experiment.name = args.name
+    
+    if args.description is not None:
+        config.experiment.description = args.description
 
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
@@ -397,9 +423,11 @@ def main(args):
         config.lock_keys()
 
         # train and validate (if enabled) for 3 gradient steps, for 2 epochs
-        config.experiment.epoch_every_n_steps = 3
-        config.experiment.validation_epoch_every_n_steps = 3
+        config.experiment.epoch_every_n_steps = 5
         config.train.num_epochs = 2
+
+        config.experiment.validation_epoch_every_n_steps = 5
+        config.experiment.validation_freq = 1
 
         # if rollouts are enabled, try 2 rollouts at end of each epoch, with 10 environment steps
         config.experiment.rollout.rate = 1
@@ -408,6 +436,9 @@ def main(args):
 
         # send output to a temporary directory
         config.train.output_dir = "/tmp/tmp_trained_models"
+
+        config.experiment.logging.log_wandb=False
+        config.experiment.logging.wandb_proj_name=None
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -421,7 +452,7 @@ def main(args):
     print(res_str)
 
 
-if __name__ == "__main__":
+def train_argparse():
     parser = argparse.ArgumentParser()
 
     # External config file that overwrites default config
@@ -443,6 +474,14 @@ if __name__ == "__main__":
     # Experiment Name (for tensorboard, saving models, etc.)
     parser.add_argument(
         "--name",
+        type=str,
+        default=None,
+        help="(optional) if provided, override the experiment name defined in the config",
+    )
+
+    # Experiment Name (for tensorboard, saving models, etc.)
+    parser.add_argument(
+        "--description",
         type=str,
         default=None,
         help="(optional) if provided, override the experiment name defined in the config",
@@ -478,5 +517,11 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    return args
+
+
+if __name__ == "__main__":
+    args = train_argparse()
     main(args)
 
