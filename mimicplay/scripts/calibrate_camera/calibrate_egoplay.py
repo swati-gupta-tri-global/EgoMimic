@@ -54,7 +54,7 @@ def main():
 
     calib = h5py.File(args.h5py_path, 'r+')
 
-    april_detector = AprilTagDetector()
+    april_detector = AprilTagDetector(quad_decimate=1.0)
 
     #TODO get intrinsics
     # with open(os.path.join(args.config_folder, f"camera_{args.camera_id}_{args.camera_type}.json"), "r") as f:
@@ -92,10 +92,13 @@ def main():
 
             detect_result = april_detector.detect(img,
                                                 intrinsics=intrinsics["color"],
-                                                tag_size=0.0558)
+                                                tag_size=0.0958)
 
             if len(detect_result) != 1:
                 print(f"wrong detection, skipping img {t}")
+                if args.debug:
+                    cv2.imwrite(f"calibration_imgs/{t}_fail.png", img)
+
                 continue
 
             bounding_box_corners = detect_result[0].corners
@@ -125,7 +128,11 @@ def main():
     print(f"==========Using {count} images================")
 
     for method in [
-        cv2.CALIB_HAND_EYE_TSAI
+        cv2.CALIB_HAND_EYE_TSAI,
+        cv2.CALIB_HAND_EYE_PARK
+        # cv2.CALIB_HAND_EYE_DANIILIDIS,
+        # cv2.CALIB_HAND_EYE_ANDREFF,
+        # cv2.CALIB_HAND_EYE_HORAUD
     ]:
         R, t = cv2.calibrateHandEye(
             R_base2gripper_list, t_base2gripper_list,
