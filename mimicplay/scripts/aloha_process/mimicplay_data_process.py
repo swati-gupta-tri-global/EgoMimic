@@ -232,14 +232,14 @@ def replace_key_names(h5py_file, key_dict):
     demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
 
     for demo_key in demo_keys:
+        print(f"replacing keys in {demo_key}")
         for old_key in key_dict:
-            print(old_key)
             new_key = key_dict[old_key]
-            print(new_key)
             if f"data/{demo_key}/{old_key}" in h5py_file:
-                print(f"data/{demo_key}/{old_key}")
-                h5py_file.copy(h5py_file[f"data/{demo_key}/{old_key}"], f"data/{demo_key}/obs/{new_key}")
-                del h5py_file[f"data/{demo_key}/{old_key}"]
+                group = h5py_file[f"data/{demo_key}"]
+                data = group[old_key][()]
+                group.create_dataset(new_key, data=data)
+                del group[old_key]
 
 
 if __name__ == '__main__':
