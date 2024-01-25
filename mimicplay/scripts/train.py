@@ -431,7 +431,7 @@ def main(args):
         config.experiment.rollout.horizon = 10
 
         # send output to a temporary directory
-        config.train.output_dir = "/tmp/tmp_trained_models"
+        # config.train.output_dir = "/tmp/tmp_trained_models"
 
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None

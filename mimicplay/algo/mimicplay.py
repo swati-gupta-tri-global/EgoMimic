@@ -120,7 +120,9 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         batch["goal_obs"]["front_img_1"] = batch["goal_obs"]["front_img_1"][:, 0]
         # batch["goal_obs"]["front_image_2"] = batch["goal_obs"]["front_image_2"][:, 0]
         # batch["goal_obs"]["hand_loc"] = batch["goal_obs"]["hand_loc"][:, 0]
-        batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
+        # batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
+        if "ee_pose" in batch["goal_obs"]:
+            del batch["goal_obs"]["ee_pose"]
 
         return TensorUtils.to_device(TensorUtils.to_float(batch), self.device)
 
