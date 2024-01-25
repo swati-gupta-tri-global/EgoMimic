@@ -13,6 +13,7 @@ REALSENSE_INTRINSICS = np.array([
 # K: [616.16650390625, 0.0, 313.42645263671875, 0.0, 615.7142333984375, 236.67532348632812, 0.0, 0.0, 1.0]
 
 
+# Cam to base extrinsics
 EXTRINSICS = {
     "table": np.array([
         [0.144, -0.598,  0.789, -0.017],
@@ -72,6 +73,21 @@ def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
     ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
     return ee_pose_grip_cam.T
 
+def pose_transform(a_pose, T_a_b):
+    """
+    a_pose: (N, 3) series of poses in frame a
+    T_a_b: (4, 4) transformation matrix from frame a to frame b
+
+    returns b_pose: (N, 3) series of poses in frame b
+    """
+    orig_shape = list(a_pose.shape)
+    a_pose = a_pose.reshape(-1, 3)
+    N, _ = a_pose.shape
+    a_pose = np.concatenate([a_pose, np.ones((N, 1))], axis=1)
+
+    ee_pose_grip_cam = T_a_b @ a_pose.T
+    orig_shape[-1] += 1
+    return ee_pose_grip_cam.T.reshape(orig_shape)
 
 def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
     """
@@ -109,7 +125,7 @@ def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
 
     return px_val.T
 
-def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples"):
+def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples", dot_size=5):
     """
     frame: (H, W, C) numpy array
     pixel_vals: (N, 2) numpy array of pixel values to draw on frame
@@ -127,7 +143,7 @@ def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples"):
 
 
     for i, pixel_val in enumerate(pixel_vals):
-        frame = cv2.circle(frame, (int(pixel_val[0]), int(pixel_val[1])), 5, color_palette[i], -1)
+        frame = cv2.circle(frame, (int(pixel_val[0]), int(pixel_val[1])), dot_size, color_palette[i], -1)
         if show:
             plt.imshow(frame)
             plt.show()

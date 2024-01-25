@@ -45,7 +45,6 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
         # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
-        breakpoint()
         input_batch = model.process_batch_for_training(data)
         input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
         del input_batch["goal_obs"]["ee_pose"]
