@@ -163,10 +163,12 @@ def general_unnorm(array, orig_min, orig_max, min_val, max_val):
     return ((array - min_val) / (max_val - min_val)) * (orig_max - orig_min) + orig_min
 
 
-def miniviewer(frame, goal_frame):
+def miniviewer(frame, goal_frame, location="top_right"):
     """
+    overlay goal_frame in a corner of frame
     frame: (H, W, C) numpy array
     goal_frame: (H, W, C) numpy array
+    location: "top_right", "top_left", "bottom_left", "bottom_right"
     
     return frame with goal_frame in top right corner (1/4 original size)
 
@@ -183,7 +185,15 @@ def miniviewer(frame, goal_frame):
     frame = frame.permute((2, 0, 1))
 
     goal_frame = TF.resize(goal_frame, (frame.shape[1] // 4, frame.shape[2] // 4))
-    frame[:, :goal_frame.shape[1], -goal_frame.shape[2]:] = goal_frame
+    if location == "top_right":
+        frame[:, :goal_frame.shape[1], -goal_frame.shape[2]:] = goal_frame
+    elif location == "top_left":
+        frame[:, :goal_frame.shape[1], :goal_frame.shape[2]] = goal_frame
+    elif location == "bottom_left":
+        frame[:, -goal_frame.shape[1]:, :goal_frame.shape[2]] = goal_frame
+    elif location == "bottom_right":
+        frame[:, -goal_frame.shape[1]:, -goal_frame.shape[2]:] = goal_frame
+    # frame[:, :goal_frame.shape[1], -goal_frame.shape[2]:] = goal_frame
     return frame.permute((1, 2, 0)).numpy()
 
 def transformation_matrix_to_pose(T):
