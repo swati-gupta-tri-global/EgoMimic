@@ -1,3 +1,13 @@
 *.pth
 *.pyc
 mimicplay.egg-info/
+*.hdf5
+*.txt
+*.out.*
+mimicplay/debug
+trained_models_highlevel/
+trained_models_lowlevel/
+mimicplay/scripts/exps
+*.ipynb_checkpoints
+*.mp4
+mimicplay/profile.svg

@@ -27,6 +27,8 @@ import os
 import psutil
 import sys
 import traceback
+from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
+import heapq
 
 from collections import OrderedDict
 
@@ -44,10 +46,23 @@ from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
 
+import mimicplay.utils.val_utils as ValUtils
+
+def get_gpu_usage_mb():
+    """Returns the GPU usage in B."""
+    h = nvmlDeviceGetHandleByIndex(0)
+    info = nvmlDeviceGetMemoryInfo(h)
+    # print(f'total    : {info.total}')
+    # print(f'free     : {info.free}')
+    # print(f'used     : {info.used}')
+
+    return info.used / 1024 / 1024
+
 def train(config, device):
     """
     Train a model using the algorithm.
     """
+    nvmlInit()
 
     # first set seeds
     np.random.seed(config.train.seed)
@@ -56,13 +71,14 @@ def train(config, device):
     print("\n============= New Training Run with Config =============")
     print(config)
     print("")
-    log_dir, ckpt_dir, video_dir = get_exp_dir(config)
-
-    if config.experiment.logging.terminal_output_to_txt:
-        # log stdout and stderr to a text file
-        logger = PrintLogger(os.path.join(log_dir, 'log.txt'))
-        sys.stdout = logger
-        sys.stderr = logger
+    log_dir, ckpt_dir, video_dir, uid = get_exp_dir(config)
+    assert config.experiment.save.video_freq >= config.experiment.validation_freq, "video_freq must be less than validation_freq"
+    assert config.experiment.save.video_freq % config.experiment.validation_freq == 0, "video_freq must be a multiple of validation_freq"
+    # if config.experiment.logging.terminal_output_to_txt:
+    #     # log stdout and stderr to a text file
+    #     logger = PrintLogger(os.path.join(log_dir, 'log.txt'))
+    #     sys.stdout = logger
+    #     sys.stderr = logger
 
     # read config to set up metadata for observation modalities (e.g. detecting rgb observations)
     ObsUtils.initialize_obs_utils_with_config(config)
@@ -98,8 +114,8 @@ def train(config, device):
         for env_name in env_names:
             dummy_spec = dict(
                 obs=dict(
-                    low_dim=["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"],
-                    rgb=["agentview_image", "robot0_eye_in_hand_image"],
+                    low_dim=config.observation.modalities.obs.low_dim,
+                    rgb=config.observation.modalities.obs.rgb,
                 ),
             )
             ObsUtils.initialize_obs_utils_with_obs_specs(obs_modality_specs=dummy_spec)
@@ -122,7 +138,9 @@ def train(config, device):
     data_logger = DataLogger(
         log_dir,
         config,
-        log_tb=config.experiment.logging.log_tb,
+        uid=uid,
+        # log_tb=config.experiment.logging.log_tb,
+        log_wandb=config.experiment.logging.log_wandb,
     )
     model = algo_factory(
         algo_name=config.algo_name,
@@ -173,15 +191,25 @@ def train(config, device):
             dataset=validset,
             sampler=valid_sampler,
             batch_size=config.train.batch_size,
-            shuffle=(valid_sampler is None),
+            # shuffle=(valid_sampler is None),
+            shuffle=False,
             num_workers=num_workers,
             drop_last=True
         )
+
+        # video_valid_loader = DataLoader(
+        #     dataset=validset,
+        #     sampler=valid_sampler,
+        #     batch_size=1,
+        #     shuffle=False,
+        #     num_workers=1,
+        #     drop_last=True
+        # )
     else:
         valid_loader = None
 
     # main training loop
-    best_valid_loss = None
+    n_best_val = []
     best_return = {k: -np.inf for k in envs} if config.experiment.rollout.enabled else None
     best_success_rate = {k: -1. for k in envs} if config.experiment.rollout.enabled else None
     last_ckpt_time = time.time()
@@ -220,25 +248,49 @@ def train(config, device):
                 data_logger.record("Train/{}".format(k), v, epoch)
 
         # Evaluate the model on validation set
-        if config.experiment.validate:
+        if config.experiment.validate and (epoch % config.experiment.validation_freq == 0):
             with torch.no_grad():
                 step_log = TrainUtils.run_epoch(model=model, data_loader=valid_loader, epoch=epoch, validate=True,
                                                 num_steps=valid_num_steps)
+
+                model.set_eval()
+
+                pass_vid = video_dir if config.experiment.save.video_freq is not None and epoch % config.experiment.save.video_freq == 0 else None
+                valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid) #save vid only once every video_freq epochs
+
+                model.set_train()
             for k, v in step_log.items():
                 if k.startswith("Time_"):
                     data_logger.record("Timing_Stats/Valid_{}".format(k[5:]), v, epoch)
                 else:
                     data_logger.record("Valid/{}".format(k), v, epoch)
+            for k, v in valid_step_log.items():
+                data_logger.record(f"Valid/{k}", v, epoch)
 
             print("Validation Epoch {}".format(epoch))
             print(json.dumps(step_log, sort_keys=True, indent=4))
 
             # save checkpoint if achieve new best validation loss
             valid_check = "Loss" in step_log
-            if valid_check and (best_valid_loss is None or (step_log["Loss"] <= best_valid_loss)):
-                best_valid_loss = step_log["Loss"]
+            negator = -1
+            while len(n_best_val) > config.experiment.save.top_n:
+                _, to_delete = heapq.heappop(n_best_val)
+                if os.path.exists(to_delete):
+                    os.remove(to_delete)
+                else:
+                    print(f"Warning: {to_delete} does not exist")
+            if len(n_best_val) < config.experiment.save.top_n or step_log["Loss"] < negator * n_best_val[0][0]:
+                heapq.heappush(
+                    n_best_val,
+                    (negator * step_log["Loss"], os.path.join(ckpt_dir, epoch_ckpt_name + "_best_validation_{}".format(step_log["Loss"])) + ".pth")
+                ) #negate to make max heap
+                is_top_n = True
+            else:
+                is_top_n = False
+
+            if valid_check and (n_best_val is None or is_top_n):
                 if config.experiment.save.enabled and config.experiment.save.on_best_validation:
-                    epoch_ckpt_name += "_best_validation_{}".format(best_valid_loss)
+                    epoch_ckpt_name += "_best_validation_{}".format(step_log["Loss"])
                     should_save_ckpt = True
                     ckpt_reason = "valid" if ckpt_reason is None else ckpt_reason
 
@@ -312,12 +364,25 @@ def train(config, device):
                 ckpt_path=os.path.join(ckpt_dir, epoch_ckpt_name + ".pth"),
                 obs_normalization_stats=obs_normalization_stats,
             )
+        
+        # # Delete all checkpoints except the top 5, or checkpoints saved based on regular time intervals
+        # if config.experiment.save.top_n is not None:
+        #     TrainUtils.delete_checkpoints(
+        #         ckpt_dir=ckpt_dir, 
+        #         top_n=config.experiment.save.top_n,
+        #         smallest=True) # keep the lowest val loss, change to False if using an increasing val metric
+
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
         mem_usage = int(process.memory_info().rss / 1000000)
         data_logger.record("System/RAM Usage (MB)", mem_usage, epoch)
-        print("\nEpoch {} Memory Usage: {} MB\n".format(epoch, mem_usage))
+        print("\nEpoch {} RAM Memory Usage: {} MB\n".format(epoch, mem_usage))
+
+        # print the gpu memory usage using nvidia smi
+        print(f"\n Epoch {epoch} GPU Memory Usage: {get_gpu_usage_mb()} MB\n")
+
+
 
     # terminate logging
     data_logger.close()
@@ -339,6 +404,9 @@ def main(args):
 
     if args.name is not None:
         config.experiment.name = args.name
+    
+    if args.description is not None:
+        config.experiment.description = args.description
 
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
@@ -350,9 +418,12 @@ def main(args):
         config.lock_keys()
 
         # train and validate (if enabled) for 3 gradient steps, for 2 epochs
-        config.experiment.epoch_every_n_steps = 3
-        config.experiment.validation_epoch_every_n_steps = 3
+        config.experiment.epoch_every_n_steps = 5
         config.train.num_epochs = 2
+
+        config.experiment.validation_epoch_every_n_steps = 5
+        config.experiment.validation_freq = 1
+        config.experiment.save.video_freq = 1
 
         # if rollouts are enabled, try 2 rollouts at end of each epoch, with 10 environment steps
         config.experiment.rollout.rate = 1
@@ -360,7 +431,10 @@ def main(args):
         config.experiment.rollout.horizon = 10
 
         # send output to a temporary directory
-        config.train.output_dir = "/tmp/tmp_trained_models"
+        # config.train.output_dir = "/tmp/tmp_trained_models"
+
+        config.experiment.logging.log_wandb=False
+        config.experiment.logging.wandb_proj_name=None
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -374,7 +448,7 @@ def main(args):
     print(res_str)
 
 
-if __name__ == "__main__":
+def train_argparse():
     parser = argparse.ArgumentParser()
 
     # External config file that overwrites default config
@@ -396,6 +470,14 @@ if __name__ == "__main__":
     # Experiment Name (for tensorboard, saving models, etc.)
     parser.add_argument(
         "--name",
+        type=str,
+        default=None,
+        help="(optional) if provided, override the experiment name defined in the config",
+    )
+
+    # Experiment Name (for tensorboard, saving models, etc.)
+    parser.add_argument(
+        "--description",
         type=str,
         default=None,
         help="(optional) if provided, override the experiment name defined in the config",
@@ -431,5 +513,11 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    return args
+
+
+if __name__ == "__main__":
+    args = train_argparse()
     main(args)
 

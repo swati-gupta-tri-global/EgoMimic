@@ -18,6 +18,9 @@ from mimicplay.algo import register_algo_factory_func, PolicyAlgo
 from mimicplay.algo.GPT import GPT_wrapper, GPT_wrapper_scratch
 from robomimic.algo.bc import BC_Gaussian, BC_RNN
 
+from mimicplay.utils.obs_utils import keep_keys
+import time
+
 @register_algo_factory_func("mimicplay")
 def algo_config_to_class(algo_config):
     """
@@ -53,7 +56,9 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         assert self.algo_config.highlevel.enabled
         assert not self.algo_config.lowlevel.enabled
 
-        del self.obs_shapes['robot0_eef_pos_future_traj']
+        # del self.obs_shapes['robot0_eef_pos_future_traj']
+        # Here obs_shapes should be the rgb images and current hand pos
+        self.obs_shapes = keep_keys(self.obs_shapes, self.global_config.policy_inputs.high_level)
         self.ac_dim = self.algo_config.highlevel.ac_dim
 
         self.nets = nn.ModuleDict()
@@ -112,36 +117,63 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         recurse_helper(batch)
 
-        batch["goal_obs"]["agentview_image"] = batch["goal_obs"]["agentview_image"][:, 0]
+        batch["goal_obs"]["front_img_1"] = batch["goal_obs"]["front_img_1"][:, 0]
+        # batch["goal_obs"]["front_image_2"] = batch["goal_obs"]["front_image_2"][:, 0]
+        # batch["goal_obs"]["hand_loc"] = batch["goal_obs"]["hand_loc"][:, 0]
+        # batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
+        if "ee_pose" in batch["goal_obs"]:
+            del batch["goal_obs"]["ee_pose"]
 
         return TensorUtils.to_device(TensorUtils.to_float(batch), self.device)
 
     def _get_latent_plan(self, obs, goal):
-        assert 'agentview_image' in obs.keys() # only visual inputs can generate latent plans
+        # assert 'agentview_image' in obs.keys() # only visual inputs can generate latent plans
+        #Todo: generalize this to take inputs from cfg.  For us, it needs to take two input images
+        # bs = self.global_config.train.batch_size
+        # seq = self.global_config.train.seq_length
 
-        if len(obs['agentview_image'].size()) == 5:
-            bs, seq, c, h, w = obs['agentview_image'].size()
+        if len(obs[self.global_config.observation.modalities.obs.rgb[0]].shape) == 5:
+            bs, seq, C, H, W = obs[self.global_config.observation.modalities.obs.rgb[0]].shape
+            for k in obs.keys():
+                # assert obs[k].size()[0] == bs, "batch size doesn't match"
+                assert obs[k].size()[1] == 10, "seq len doesn't match, if changed seq len can rm this assert"
+                # merge the first two dimensions
+                obs[k] = obs[k].view(-1, *obs[k].size()[2:])
+                goal[k] = goal[k].view(-1, *goal[k].size()[2:])
 
-            for item in ['agentview_image']:
-                obs[item] = obs[item].view(bs * seq, c, h, w)
-                goal[item] = goal[item].view(bs * seq, c, h, w)
+            # bs, seq, c, h, w = obs['agentview_image'].size()
 
-            obs['robot0_eef_pos'] = obs['robot0_eef_pos'].view(bs * seq, 3)
+            # for item in ['agentview_image']:
+            #     obs[item] = obs[item].view(bs * seq, c, h, w)
+            #     goal[item] = goal[item].view(bs * seq, c, h, w)
 
+            # obs['robot0_eef_pos'] = obs['robot0_eef_pos'].view(bs * seq, 3)
+
+
+            # TODO: DO NOT COMMIT, the obs here needs hand_loc, but we only have ee_pose, and these are not in the same space, shape etc.  Stubbing hand_loc for now.  Ideally ee_pose would be named the same as hand_loc, and would also be in the same space
+            breakpoint() #fix
+            obs["hand_loc"] = torch.ones((320, 4)).to(obs["front_img_1"].device)
             dists, enc_out, mlp_out = self.nets["policy"].forward_train(
                 obs_dict=obs,
                 goal_dict=goal,
                 return_latent=True
             )
+            del obs["hand_loc"]
 
             act_out_all = dists.mean
             act_out = act_out_all
 
-            for item in ['agentview_image']:
-                obs[item] = obs[item].view(bs, seq, c, h, w)
-                goal[item] = goal[item].view(bs, seq, c, h, w)
+            # unmerge the first two dimensions
+            for k in obs.keys():
+                obs[k] = obs[k].view(bs, seq, *obs[k].size()[1:])
+                goal[k] = goal[k].view(bs, seq, *goal[k].size()[1:])
+                
 
-            obs['robot0_eef_pos'] = obs['robot0_eef_pos'].view(bs, seq, 3)
+            # for item in ['agentview_image']:
+            #     obs[item] = obs[item].view(bs, seq, c, h, w)
+            #     goal[item] = goal[item].view(bs, seq, c, h, w)
+
+            # obs['robot0_eef_pos'] = obs['robot0_eef_pos'].view(bs, seq, 3)
 
             enc_out_feature_size = enc_out.size()[1]
             mlp_out_feature_size = mlp_out.size()[1]
@@ -158,6 +190,14 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             act_out = act_out_all
 
         return act_out, mlp_out
+
+    def forward_eval(self, batch):
+        with torch.no_grad():
+            dists = self.nets["policy"].forward_train(
+                obs_dict=batch["obs"],
+                goal_dict=batch["goal_obs"]
+            )
+            return dists
 
     def _forward_training(self, batch):
         """
@@ -180,7 +220,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         # make sure that this is a batch of multivariate action distributions, so that
         # the log probability computation will be correct
         assert len(dists.batch_shape) == 1
-        log_probs = dists.log_prob(batch["obs"]["robot0_eef_pos_future_traj"])
+        log_probs = dists.log_prob(batch["actions"])
 
         predictions = OrderedDict(
             log_probs=log_probs,
@@ -243,7 +283,10 @@ class Lowlevel_GPT_mimicplay(BC_RNN):
         self.eval_goal_img_window = self.algo_config.lowlevel.eval_goal_img_window
         self.eval_max_goal_img_iter = self.algo_config.lowlevel.eval_max_goal_img_iter
 
-        del self.obs_shapes['agentview_image']
+        # del self.obs_shapes['agentview_image']
+        # del self.obs_shapes["front_img_1"]
+        # del self.obs_shapes["front_image_2"]
+        self.obs_shapes = keep_keys(self.obs_shapes, self.global_config.policy_inputs.low_level)
         self.obs_shapes['latent_plan'] = [self.algo_config.highlevel.latent_plan_dim]
 
         self.nets = nn.ModuleDict()

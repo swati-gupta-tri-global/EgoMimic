@@ -82,6 +82,7 @@ class BaseConfig(Config):
         """
 
         self.experiment.name = "test"                               # name of experiment used to make log files
+        self.experiment.description = "test"                        # variation specific to name
         self.experiment.validate = False                            # whether to do validation or not
         self.experiment.logging.terminal_output_to_txt = True       # whether to log stdout to txt file 
         self.experiment.logging.log_tb = True                       # enable tensorboard logging
@@ -93,14 +94,17 @@ class BaseConfig(Config):
         self.experiment.save.enabled = True                         # whether model saving should be enabled or disabled
         self.experiment.save.every_n_seconds = None                 # save model every n seconds (set to None to disable)
         self.experiment.save.every_n_epochs = 50                    # save model every n epochs (set to None to disable)
+        self.experiment.save.top_n = 3                              # keep top_n best ckpts (set to None to disable)
         self.experiment.save.epochs = []                            # save model on these specific epochs
         self.experiment.save.on_best_validation = False             # save models that achieve best validation score
         self.experiment.save.on_best_rollout_return = False         # save models that achieve best rollout return
         self.experiment.save.on_best_rollout_success_rate = True    # save models that achieve best success rate
+        self.experiment.save.video_freq = 10                        # save videos every n epochs (set to None to disable)
 
         # epoch definitions - if not None, set an epoch to be this many gradient steps, else the full dataset size will be used
         self.experiment.epoch_every_n_steps = 100                   # number of gradient steps in train epoch (None for full dataset pass)
         self.experiment.validation_epoch_every_n_steps = 10         # number of gradient steps in valid epoch (None for full dataset pass)
+        self.experiment.validation_freq = 10                        # validate every n epochs (set to None to disable)
 
         # envs to evaluate model on (assuming rollouts are enabled), to override the metadata stored in dataset
         self.experiment.env = None                                  # no need to set this (unless you want to override)
