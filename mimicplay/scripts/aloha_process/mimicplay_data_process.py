@@ -45,9 +45,11 @@ def prep_for_mimicplay(hdf5_path, data_type):
     if data_type == "hand":
         print("Renaming front_image_1 and front_image_2 keys")
 
-        key_dict = {'obs/front_image_1' : 'front_img_1', 'obs/front_image_2' : 'front_img_1'}
+        key_dict = {'obs/front_image_1' : 'obs/front_img_1', 'obs/front_image_2' : 'obs/front_img_2'}
 
         replace_key_names(h5py_file, key_dict)
+
+        scale_by_factor(h5py_file, 100)
 
     # NOTE: temp stub put back
     # if data_type == "hand":
@@ -246,6 +248,19 @@ def replace_key_names(h5py_file, key_dict):
                 group.create_dataset(new_key, data=data)
                 del group[old_key]
 
+def scale_by_factor(h5py_file, factor):
+    demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
+    for demo_key in demo_keys:
+        print(f"scaling by factor in {demo_key}")
+        # actions
+        actions = h5py_file[f"data/{demo_key}/actions"]
+        actions[:] =  actions[:] / factor
+        actions.flush()
+
+        # obs/ee_pose
+        ee_pose = h5py_file[f"data/{demo_key}/obs/ee_pose"]
+        ee_pose[:] = ee_pose[:] / factor
+        ee_pose.flush()
 
 def add_data_dir(h5py_file):
     """

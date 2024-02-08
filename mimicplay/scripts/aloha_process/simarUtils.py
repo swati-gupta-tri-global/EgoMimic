@@ -115,11 +115,12 @@ def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
         intrinsics: 3x4 matrix
     """
     N, _ = ee_pose_cam.shape
-    ee_pose_cam = np.concatenate([ee_pose_cam, np.ones((N, 1))], axis=1)
-    # print("3d pos in cam frame: ", ee_pose_cam)
-
+    ee_pose_cam = np.concatenate([ee_pose_cam, np.ones((N, 1))], axis=1) 
     # print("intrinsics: ", intrinsics.shape, ee_pose_cam.shape)
+    
     px_val = intrinsics @ ee_pose_cam.T
+    if not np.any(px_val):
+        return px_val.T
     px_val = px_val / px_val[2, :]
     # print("2d pos cam frame: ", px_val)
 
