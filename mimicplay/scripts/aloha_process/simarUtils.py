@@ -119,8 +119,8 @@ def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     # print("intrinsics: ", intrinsics.shape, ee_pose_cam.shape)
     
     px_val = intrinsics @ ee_pose_cam.T
-    if not np.any(px_val):
-        return px_val.T
+    # if not np.any(px_val):
+    #     return px_val.T
     px_val = px_val / px_val[2, :]
     # print("2d pos cam frame: ", px_val)
 

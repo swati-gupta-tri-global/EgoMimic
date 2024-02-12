@@ -214,4 +214,9 @@ class PlaydataSequenceDataset(SequenceDataset):
                 prefix="obs",
             )
 
+        ## check meta for zero front_img and sample safe_index
+        # if not meta["obs"]["front_img_1"].any():
+        #     return self.get_item(0)
+        # if not meta["goal_obs"]["front_img_1"].any():
+        #     return self.get_item(0)
         return meta

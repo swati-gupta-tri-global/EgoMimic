@@ -51,6 +51,8 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
         scale_by_factor(h5py_file, 100)
 
+        remove_corrupted_entries(h5py_file)
+
     # NOTE: temp stub put back
     # if data_type == "hand":
     remove_eepose_quat(h5py_file)
@@ -279,6 +281,31 @@ def add_data_dir(h5py_file):
                 h5py_file[f"data/{key}"] = h5py_file[key]
                 del h5py_file[key]
 
+def remove_corrupted_entries(h5py_file):
+    demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
+    for demo_key in demo_keys:
+        print(f"Removing corrupted entries in {demo_key}")
+        front_img_1 = h5py_file[f'data/{demo_key}/obs/front_img_1'][:]
+        ee_pose = h5py_file[f'data/{demo_key}/obs/ee_pose'][:]
+        actions = h5py_file[f'data/{demo_key}/actions'][:]
+        
+        zero_indices = [i for i, img in enumerate(front_img_1) if not np.any(img)]
+        
+        filtered_front_img_1 = np.delete(front_img_1, zero_indices, axis=0)
+        filtered_ee_pose = np.delete(ee_pose, zero_indices, axis=0)
+        filtered_actions = np.delete(actions, zero_indices, axis=0)
 
+        del h5py_file[f'data/{demo_key}/obs/front_img_1']
+        del h5py_file[f'data/{demo_key}/obs/ee_pose']
+        del h5py_file[f'data/{demo_key}/actions']
+
+        img_shape = front_img_1.shape
+
+        chunks = (1,) + img_shape[1:]
+        
+        h5py_file.create_dataset(f'data/{demo_key}/obs/front_img_1', data=filtered_front_img_1, chunks=chunks)
+        h5py_file.create_dataset(f'data/{demo_key}/obs/ee_pose', data=filtered_ee_pose)
+        h5py_file.create_dataset(f'data/{demo_key}/actions', data=filtered_actions)
+        
 if __name__ == '__main__':
     prep_for_mimicplay(args.hdf5_path, args.data_type)
