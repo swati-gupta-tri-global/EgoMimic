@@ -29,6 +29,7 @@ import sys
 import traceback
 from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
 import heapq
+import h5py
 
 from collections import OrderedDict
 
@@ -90,6 +91,11 @@ def train(config, device):
 
     # load basic metadata from training file
     print("\n============= Loaded Environment Metadata =============")
+    h5py_file = h5py.File(dataset_path, "r+")
+    if h5py_file["data"].get("env_args") == None:
+        h5py_file["data"].attrs["env_args"] = json.dumps({})
+        print("Added empty env_args")
+    
     env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
         dataset_path=config.train.data,

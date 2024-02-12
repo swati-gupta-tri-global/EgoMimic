@@ -211,7 +211,6 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         Returns:
             predictions (dict): dictionary containing network outputs
         """
-
         dists = self.nets["policy"].forward_train(
             obs_dict=batch["obs"],
             goal_dict=batch["goal_obs"]
