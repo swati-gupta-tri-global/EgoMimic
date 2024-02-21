@@ -30,13 +30,14 @@ def prep_for_mimicplay(hdf5_path, data_type):
         demo_1: ...
         demo_2: ...
     """
-    # target_path = hdf5_path.replace(".hdf5", "Mimicplay.hdf5")
-    # shutil.copy(hdf5_path, target_path)
-    # h5py_file = h5py.File(target_path, "r+")
-
-    target_path = hdf5_path
-    h5py_file = h5py.File(hdf5_path, "r+")
-    # breakpoint()
+    COPY = True
+    if COPY:
+        target_path = hdf5_path.replace(".hdf5", "Mimicplay.hdf5")
+        shutil.copy(hdf5_path, target_path)
+        h5py_file = h5py.File(target_path, "r+")
+    else:
+        target_path = hdf5_path
+        h5py_file = h5py.File(hdf5_path, "r+")
 
     add_data_dir(h5py_file)
     

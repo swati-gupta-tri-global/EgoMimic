@@ -197,8 +197,8 @@ def miniviewer(frame, goal_frame, location="top_right"):
     return frame.permute((1, 2, 0)).numpy()
 
 def transformation_matrix_to_pose(T):
-        R = T[:3, :3]
-        p = T[:3, 3]
-        rotation_quaternion = Rotation.from_matrix(R).as_quat()
-        pose_array = np.concatenate((p, rotation_quaternion))
-        return pose_array
+    R = T[:3, :3]
+    p = T[:3, 3]
+    rotation_quaternion = Rotation.from_matrix(R).as_quat()
+    pose_array = np.concatenate((p, rotation_quaternion))
+    return pose_array

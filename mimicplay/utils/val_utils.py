@@ -47,7 +47,8 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
         input_batch = model.process_batch_for_training(data)
         input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
-        del input_batch["goal_obs"]["ee_pose"]
+        if "ee_pose" in input_batch["goal_obs"]:
+            del input_batch["goal_obs"]["ee_pose"]
         del input_batch["actions"]
         info = model.forward_eval(input_batch)
 
@@ -95,6 +96,9 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
             video[count] = torch.from_numpy(frame)
 
             count += 1
+        
+        if i > 300:
+            break
 
     # summarize metrics
     summary_metrics = {}
