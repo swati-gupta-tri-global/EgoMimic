@@ -29,7 +29,7 @@ import sys
 import traceback
 from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
 import heapq
-
+import datetime
 from collections import OrderedDict
 
 import torch
@@ -435,6 +435,11 @@ def main(args):
 
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
+    
+    if args.no_wandb:
+        config.experiment.logging.log_wandb=False
+        config.experiment.logging.wandb_proj_name=None
+
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -512,6 +517,12 @@ def train_argparse():
         help="set this flag to run a quick training run for debugging purposes"
     )
 
+    parser.add_argument(
+        "--no-wandb",
+        action='store_true',
+        help="set this flag to run a without wandb"
+    )
+
     args = parser.parse_args()
 
     return args
@@ -519,5 +530,8 @@ def train_argparse():
 
 if __name__ == "__main__":
     args = train_argparse()
+    if "DT" not in args.description:
+        time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
+        args.description = time_str
     main(args)
 
