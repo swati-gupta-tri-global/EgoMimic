@@ -13,7 +13,7 @@ def concatenate_h5(source, destination):
                     with h5py.File(os.path.join(source, file), "r") as target:
                         try:
                             demo_group = os.path.splitext(file)[0]
-                            demo_num = demo_group.split("demo")[1]
+                            demo_num = demo_group.split("demo_")[1]
                             demo_group = f"demo_{demo_num}"
                             
                             dataset.create_group(f"data/{demo_group}")
@@ -33,7 +33,7 @@ def concatenate_h5(source, destination):
     dataset.close()
                 
 
-source = "/coc/flash7/datasets/egoplay/trajPredDatasetv1/"
-destination = "/coc/flash7/datasets/egoplay/trajPredDatasetv1/concatenated/trajPredDatasetv1.hdf5"
+source = "/coc/flash7/datasets/egoplay/handStacking_gray_Public"
+destination = "/coc/flash7/datasets/egoplay/handStacking_gray_Public/handStacking_gray.hdf5"
 
 concatenate_h5(source, destination)

@@ -40,7 +40,7 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
     add_data_dir(h5py_file)
     
-    fix_demo_underscores(h5py_file)
+    ##fix_demo_underscores(h5py_file)
 
     if data_type == "hand":
         print("Renaming front_image_1 and front_image_2 keys")

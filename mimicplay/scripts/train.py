@@ -441,7 +441,9 @@ def main(args):
 
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
-
+        
+    if args.no_wandb:
+        config.experiment.logging.log_wandb=False
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
 
@@ -516,6 +518,11 @@ def train_argparse():
         "--debug",
         action='store_true',
         help="set this flag to run a quick training run for debugging purposes"
+    )
+    parser.add_argument(
+        "--no-wandb",
+        action='store_true',
+        help="set this flag to run without wandb"
     )
 
     args = parser.parse_args()

@@ -111,7 +111,7 @@ def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
 def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     """
         camera frame 3d coordinates to pixels in camera frame
-        ee_pose_cam: [x, y, z]
+        ee_pose_cam: (N,3) 
         intrinsics: 3x4 matrix
     """
     N, _ = ee_pose_cam.shape
