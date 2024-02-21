@@ -18,9 +18,7 @@ if __name__ == "__main__":
     if "DT" not in args.description:
         time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
-        log_dir = os.path.join(base_dir, time_str, "slurm")
-    else:
-        log_dir = os.path.join(base_dir, args.description, "slurm")
+    log_dir = os.path.join(base_dir, args.description, "slurm")
     os.makedirs(log_dir)
 
     executor = submitit.AutoExecutor(folder=log_dir)

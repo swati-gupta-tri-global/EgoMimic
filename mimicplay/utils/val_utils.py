@@ -96,9 +96,6 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
             video[count] = torch.from_numpy(frame)
 
             count += 1
-        
-        if i > 300:
-            break
 
     # summarize metrics
     summary_metrics = {}
