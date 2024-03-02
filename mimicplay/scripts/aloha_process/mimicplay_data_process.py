@@ -34,10 +34,6 @@ def prep_for_mimicplay(hdf5_path, data_type):
     shutil.copy(hdf5_path, target_path)
     h5py_file = h5py.File(target_path, "r+")
 
-    # target_path = hdf5_path
-    # h5py_file = h5py.File(hdf5_path, "r+")
-    # breakpoint()
-
     add_data_dir(h5py_file)
     
     ##fix_demo_underscores(h5py_file)
@@ -302,10 +298,12 @@ def remove_corrupted_entries(h5py_file):
         img_shape = front_img_1.shape
 
         chunks = (1,) + img_shape[1:]
-        
-        h5py_file.create_dataset(f'data/{demo_key}/obs/front_img_1', data=filtered_front_img_1, chunks=chunks)
-        h5py_file.create_dataset(f'data/{demo_key}/obs/ee_pose', data=filtered_ee_pose)
-        h5py_file.create_dataset(f'data/{demo_key}/actions', data=filtered_actions)
+        try:
+            h5py_file.create_dataset(f'data/{demo_key}/obs/front_img_1', data=filtered_front_img_1, chunks=chunks)
+            h5py_file.create_dataset(f'data/{demo_key}/obs/ee_pose', data=filtered_ee_pose)
+            h5py_file.create_dataset(f'data/{demo_key}/actions', data=filtered_actions)
+        except:
+            print("Could not remove corrupted entries!")
         
 if __name__ == '__main__':
     prep_for_mimicplay(args.hdf5_path, args.data_type)

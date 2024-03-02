@@ -27,17 +27,15 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         "final_mse": [], # for each trajectory compute MSE(gt_t+T, pred_t+T)
     }
     #Internal realsense numbers
-    intrinsics = np.array([
-        [616.0, 0.0, 313.4, 0.0],
-        [0.0, 615.7, 236.7, 0.0],
-        [0.0, 0.0, 1.0, 0.0]
-    ])
+    intrinsics = np.array([[265.83575589493415, 0.0, 324.5832835740557,0.0], 
+                                [0.0, 265.8940770981264, 244.23118856728662,0.0],
+                                [0.0, 0.0, 1.0,0.0]])
 
     model.set_eval()
 
     count = 0
     vids_written = 0
-    T = 400
+    T = 200
     video = torch.zeros((T, 480, 640, 3))
 
     for i, data in enumerate(data_loader):
@@ -84,9 +82,8 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
             # breakpoint()
             frame = miniviewer(frame, goal_frame)
 
-            # breakpoint()
-
-            # cv2.imwrite(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{count}.png", frame)
+            #import cv2
+            #cv2.imwrite(f"/nethome/pmathur39/flash/EgoPlay/mimicplay/image{count}.png", frame)
             if count == T:
                 if video_dir is not None:
                     torchvision.io.write_video(os.path.join(video_dir, f"_{vids_written}.mp4"), video[1:count], fps=30)
