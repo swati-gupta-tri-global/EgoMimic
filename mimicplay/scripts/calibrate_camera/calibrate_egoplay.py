@@ -8,6 +8,8 @@ import argparse
 import json
 import h5py
 
+from mimicplay.scripts.aloha_process.simarUtils import WIDE_LENS_ROBOT_LEFT_K, WIDE_LENS_ROBOT_LEFT_D
+
 from scipy.spatial.transform import Rotation as Rot
 
 from rpl_vision_utils.utils.apriltag_detector import AprilTagDetector
@@ -60,11 +62,7 @@ def main():
     # with open(os.path.join(args.config_folder, f"camera_{args.camera_id}_{args.camera_type}.json"), "r") as f:
     #     intrinsics = json.load(f)
     # TODO: THESE ARE JUST TEMP VALUES
-    intrinsics = np.array([
-        [616.0, 0.0, 313.4, 0.0],
-        [0.0, 615.7, 236.7, 0.0],
-        [0.0, 0.0, 1.0, 0.0]
-    ])
+    intrinsics = WIDE_LENS_ROBOT_LEFT_K
     intrinsics = {
         "color": {
             "fx": intrinsics[0, 0], 
@@ -89,10 +87,12 @@ def main():
         for t in range(T):
 
             img = demo["obs/front_img_1"][t]
+            img = cv2.undistort(img, WIDE_LENS_ROBOT_LEFT_K[:, :3], WIDE_LENS_ROBOT_LEFT_D)
 
             detect_result = april_detector.detect(img,
                                                 intrinsics=intrinsics["color"],
-                                                tag_size=0.0958)
+                                                # tag_size=0.0958)
+                                                tag_size = .17541875)
 
             if len(detect_result) != 1:
                 print(f"wrong detection, skipping img {t}")
@@ -139,10 +139,14 @@ def main():
             R_target2cam_list, t_target2cam_list,
             method=method,
         )
-        print("Rotation matrix: ", R.round(3))
+        # print("Rotation matrix: ", R.round(3))
         # print("Axis Angle: ", T.quat2axisangle(T.mat2quat(R)))
         # print("Quaternion: ", T.mat2quat(R))
-        print("Translation: ", t.T.round(3))
+        # print("Translation: ", t.T.round(3))
+        fullT = np.concatenate((R, t), axis=1)
+        fullT = np.concatenate((fullT, np.array([[0, 0, 0, 1]])), axis=0)
+        print("T: ", repr(fullT))
+
     print("==============================")
 
     if args.store_matrix:
