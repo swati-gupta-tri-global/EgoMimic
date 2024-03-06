@@ -11,3 +11,4 @@ mimicplay/scripts/exps
 *.ipynb_checkpoints
 *.mp4
 mimicplay/profile.svg
+mimicplay/scripts/calibrate_camera/calibration_imgs
