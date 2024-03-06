@@ -37,7 +37,8 @@ def single_episode_conversion(filepath, arm, output_dir):
     obs_qvel = np.array(obs['qvel'])
 
     cam_front1 = np.array(obs['images/cam_high'])
-    cam_front2 = np.array(obs['images/cam_low'])
+    if 'images/cam_low' in obs:
+        cam_front2 = np.array(obs['images/cam_low'])
 
 
     if arm == 'left' :
@@ -84,7 +85,8 @@ def single_episode_conversion(filepath, arm, output_dir):
         # os.remove(filepath.split(".")[0] + "_out.hdf5")
 
     assert cam_front1.shape[1:] == (480, 640, 3)
-    assert cam_front2.shape[1:] == (480, 640, 3)
+    if 'images/cam_low' in obs:
+        assert cam_front2.shape[1:] == (480, 640, 3)
     assert cam_wrist.shape[1:] == (480, 640, 3)
     with h5py.File(output_path, 'w', rdcc_nbytes=1024**2*2) as f:
         actions_group = f.create_group('actions')
@@ -94,7 +96,8 @@ def single_episode_conversion(filepath, arm, output_dir):
 
         obs_group.create_dataset('ee_pose', data=obs_ee_pose)
         obs_group.create_dataset('front_img_1', data=cam_front1, dtype='uint8', chunks=(1, 480, 640, 3))
-        obs_group.create_dataset('front_img_2', data=cam_front2, dtype='uint8', chunks=(1, 480, 640, 3))
+        if 'images/cam_low' in obs:
+            obs_group.create_dataset('front_img_2', data=cam_front2, dtype='uint8', chunks=(1, 480, 640, 3))
         obs_group.create_dataset('wrist_img_1', data=cam_wrist, dtype='uint8', chunks=(1, 480, 640, 3))
         obs_group.create_dataset('gripper_position', data=arm_gripper_qpos)
         obs_group.create_dataset('joint_positions', data=arm_obs_qpos)
