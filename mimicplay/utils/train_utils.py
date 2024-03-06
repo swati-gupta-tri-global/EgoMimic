@@ -46,8 +46,7 @@ def get_exp_dir(config, auto_remove_exp_dir=False):
             to store rollout videos
     """
     # timestamp for directory names
-    t_now = time.time()
-    time_str = f"{config.experiment.description}_{datetime.datetime.fromtimestamp(t_now).strftime('%Y-%m-%d-%H-%M-%S')}"
+    time_str = f"{config.experiment.description}"
 
     # create directory for where to dump model parameters, tensorboard logs, and videos
     base_output_dir = os.path.expanduser(config.train.output_dir)

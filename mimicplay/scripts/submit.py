@@ -1,8 +1,13 @@
 import argparse
 import submitit
 from mimicplay.scripts.train import main, train_argparse
+import os
+import datetime
+import time
 
 if __name__ == "__main__":
+    os.environ["TQDM_DISABLE"]=1
+
     args = train_argparse()
 
     # the AutoExecutor class is your interface for submitting function to a cluster or run them locally.

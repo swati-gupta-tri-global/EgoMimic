@@ -31,6 +31,7 @@ from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
 import heapq
 import h5py
 
+import datetime
 from collections import OrderedDict
 
 import torch
@@ -496,7 +497,7 @@ def train(config, device):
     data_logger = DataLogger(
         log_dir,
         config,
-        uid=uid,
+        uid=f"{config.experiment.name}_{uid}",
         # log_tb=config.experiment.logging.log_tb,
         log_wandb=config.experiment.logging.log_wandb,
     )
@@ -898,5 +899,8 @@ def train_argparse():
 
 if __name__ == "__main__":
     args = train_argparse()
+    if "DT" not in args.description:
+        time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
+        args.description = time_str
     main(args)
 

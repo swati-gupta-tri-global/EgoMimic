@@ -30,9 +30,14 @@ def prep_for_mimicplay(hdf5_path, data_type):
         demo_1: ...
         demo_2: ...
     """
-    target_path = hdf5_path.replace(".hdf5", "Mimicplay.hdf5")
-    shutil.copy(hdf5_path, target_path)
-    h5py_file = h5py.File(target_path, "r+")
+    COPY = True
+    if COPY:
+        target_path = hdf5_path.replace(".hdf5", "Mimicplay.hdf5")
+        shutil.copy(hdf5_path, target_path)
+        h5py_file = h5py.File(target_path, "r+")
+    else:
+        target_path = hdf5_path
+        h5py_file = h5py.File(hdf5_path, "r+")
 
     add_data_dir(h5py_file)
     
@@ -49,18 +54,32 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
         remove_corrupted_entries(h5py_file)
 
+    if data_type == "hand":
+        print("Renaming front_image_1 and front_image_2 keys")
+
+        key_dict = {'obs/front_image_1' : 'obs/front_img_1', 'obs/front_image_2' : 'obs/front_img_2'}
+
+        replace_key_names(h5py_file, key_dict)
+
+        scale_by_factor(h5py_file, 100)
+
+        remove_corrupted_entries(h5py_file)
+
     # NOTE: temp stub put back
     # if data_type == "hand":
     remove_eepose_quat(h5py_file)
 
     if data_type == "robot":
-        base_to_cam(h5py_file)
+        base_to_cam(h5py_file, EXTRINSICS["humanoidFeb29R"])
 
 
     # normalize_obs(h5py_file)
     h5py_file["data"].attrs["env_args"] = json.dumps({}) # if no normalize obs
 
-    chunk_actions(h5py_file)
+    if data_type == "robot":
+        chunk_actions(h5py_file, POINT_GAP=15, FUTURE_POINTS_COUNT=10)
+    elif data_type == "hand":
+        chunk_actions(h5py_file, POINT_GAP=4, FUTURE_POINTS_COUNT=10)
 
     demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
     DEMO_COUNT = len(demo_keys)
@@ -84,7 +103,7 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
     # Only have 1 demo so I'm going to spoof a second demo and use val ratio of 0.5
     # TODO: fix this ratio
-    split_train_val_from_hdf5(hdf5_path=target_path, val_ratio=0.3, filter_key=None)
+    split_train_val_from_hdf5(hdf5_path=target_path, val_ratio=0.2, filter_key=None)
 
 
 def normalize_obs(h5py_file):
@@ -136,7 +155,7 @@ def get_future_points(arr, POINT_GAP=4, FUTURE_POINTS_COUNT=10):
 
     return future_traj
 
-def chunk_actions(h5py_file):
+def chunk_actions(h5py_file, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
     # Open the HDF5 file in read+ mode (allows reading and writing)
     demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
     DEMO_COUNT = len(demo_keys)
@@ -147,7 +166,7 @@ def chunk_actions(h5py_file):
 
         # Calculate the future trajectory for each data point
         future_traj_data = np.array([
-            get_future_points(eef_pos[j:]) for j in range(len(eef_pos))
+            get_future_points(eef_pos[j:], POINT_GAP, FUTURE_POINTS_COUNT) for j in range(len(eef_pos))
         ])
 
         if "actions" in h5py_file[f"data/{demo_key}"].keys():
@@ -169,7 +188,7 @@ def remove_eepose_quat(h5py_file):
         h5py_file[f"data/{demo_key}/obs/ee_pose"] = h5py_file[f"data/{demo_key}/obs/ee_pose_full_unnorm"][:, :3]
 
 
-def base_to_cam(h5py_file):
+def base_to_cam(h5py_file, T_cam_base):
     """
         h5py_file
         dict with keys:  <KeysViewHDF5 ['data']>
@@ -200,7 +219,6 @@ def base_to_cam(h5py_file):
     # Tr_cam_base = np.array([[-0.017, -0.202, 0.491]])
     # T_cam_base = np.concatenate([R_cam_base, Tr_cam_base.T], axis=1)
     # T_cam_base = np.concatenate([T_cam_base, np.array([[0, 0, 0, 1]])], axis=0)
-    T_cam_base = EXTRINSICS["humanoidJan19"]
     # print("WARNING: using hardcoded T_cam_base")
 
     for demo_key in demo_keys:
@@ -303,6 +321,10 @@ def remove_corrupted_entries(h5py_file):
             h5py_file.create_dataset(f'data/{demo_key}/actions', data=filtered_actions)
         except:
             print("Could not remove corrupted entries!")
+<<<<<<< HEAD
         
+=======
+
+>>>>>>> main
 if __name__ == '__main__':
     prep_for_mimicplay(args.hdf5_path, args.data_type)

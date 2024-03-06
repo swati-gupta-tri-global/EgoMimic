@@ -21,6 +21,7 @@ WIDE_LENS_ROBOT_LEFT_K = np.array([
 WIDE_LENS_HAND_LEFT_K = np.array([[265.83575589493415, 0.0, 324.5832835740557,0.0], 
                                 [0.0, 265.8940770981264, 244.23118856728662,0.0],
                                 [0.0, 0.0, 1.0,0.0]])
+
 WIDE_LENS_ROBOT_LEFT_D = np.array([[ 0.00087175, -0.00866803,  0.00016203,  0.00050252, -0.004487  ]])
 
 # Cam to base extrinsics

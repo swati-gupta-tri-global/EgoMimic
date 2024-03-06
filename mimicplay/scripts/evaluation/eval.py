@@ -51,7 +51,7 @@ from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
 from mimicplay.utils.val_utils import evaluate_high_level_policy
-
+import datetime
 def train(config, device):
     """
     Train a model using the algorithm.
@@ -231,6 +231,9 @@ def main(args):
     if args.name is not None:
         config.experiment.name = args.name
 
+    if args.name is not None:
+        config.experiment.description = args.description
+
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
 
@@ -273,6 +276,13 @@ if __name__ == "__main__":
         help="(optional) if provided, override the experiment name defined in the config",
     )
 
+    parser.add_argument(
+        "--description",
+        type=str,
+        default=None,
+        help="(optional) if provided, override the experiment description defined in the config",
+    )
+
     # Dataset path, to override the one in the config
     parser.add_argument(
         "--dataset",
@@ -308,5 +318,8 @@ if __name__ == "__main__":
     # )
 
     args = parser.parse_args()
+    if "DT" not in args.description:
+        time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
+        args.description = time_str
     main(args)
 
