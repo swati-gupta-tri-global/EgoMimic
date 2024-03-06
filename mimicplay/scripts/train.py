@@ -138,7 +138,7 @@ def train(config, device):
     data_logger = DataLogger(
         log_dir,
         config,
-        uid=uid,
+        uid=f"{config.experiment.name}_{uid}",
         # log_tb=config.experiment.logging.log_tb,
         log_wandb=config.experiment.logging.log_wandb,
     )

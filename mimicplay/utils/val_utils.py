@@ -1,4 +1,4 @@
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, EXTRINSICS, WIDE_LENS_ROBOT_LEFT_K
 import torchvision
 import numpy as np
 import torch
@@ -27,11 +27,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         "final_mse": [], # for each trajectory compute MSE(gt_t+T, pred_t+T)
     }
     #Internal realsense numbers
-    intrinsics = np.array([
-        [616.0, 0.0, 313.4, 0.0],
-        [0.0, 615.7, 236.7, 0.0],
-        [0.0, 0.0, 1.0, 0.0]
-    ])
+    intrinsics = WIDE_LENS_ROBOT_LEFT_K
 
     model.set_eval()
 
@@ -96,7 +92,8 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
             video[count] = torch.from_numpy(frame)
 
             count += 1
-
+    
+    torchvision.io.write_video(os.path.join(video_dir, f"_{vids_written}.mp4"), video[1:count], fps=30)
     # summarize metrics
     summary_metrics = {}
     for key in metrics:
