@@ -12,6 +12,16 @@ REALSENSE_INTRINSICS = np.array([
 ]) #Internal realsense numbers
 # K: [616.16650390625, 0.0, 313.42645263671875, 0.0, 615.7142333984375, 236.67532348632812, 0.0, 0.0, 1.0]
 
+# A2 paper without turning in skew direction
+WIDE_LENS_ROBOT_LEFT_K = np.array([
+    [133.25430222*2,   0.        , 160.27941013*2, 0],
+    [  0.        , 133.2502574*2 , 122.05743188*2, 0],
+    [  0.        ,   0.        ,   1.        , 0]
+])
+WIDE_LENS_HAND_LEFT_K = np.array([[265.83575589493415, 0.0, 324.5832835740557,0.0], 
+                                [0.0, 265.8940770981264, 244.23118856728662,0.0],
+                                [0.0, 0.0, 1.0,0.0]])
+WIDE_LENS_ROBOT_LEFT_D = np.array([[ 0.00087175, -0.00866803,  0.00016203,  0.00050252, -0.004487  ]])
 
 # Cam to base extrinsics
 EXTRINSICS = {
@@ -26,6 +36,12 @@ EXTRINSICS = {
         [ 0.997,  0.048,   -0.063, -0.309],
         [ 0.038,  0.41, 0.911, -0.195],
         [0., 0., 0., 1.]
+    ]),
+    "humanoidFeb29R": np.array([
+        [ 0.01742509, -0.67120392,  0.74106792,  0.09484187],
+        [ 0.99969314, -0.00135605, -0.02473448, -0.27895615],
+        [ 0.0176068 ,  0.74127152,  0.67097432, -0.16654236],
+        [ 0.        ,  0.        ,  0.        ,  1.        ]
     ])
 }
 
@@ -111,16 +127,15 @@ def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
 def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     """
         camera frame 3d coordinates to pixels in camera frame
-        ee_pose_cam: (N,3) 
+        ee_pose_cam: [x, y, z]
         intrinsics: 3x4 matrix
     """
     N, _ = ee_pose_cam.shape
-    ee_pose_cam = np.concatenate([ee_pose_cam, np.ones((N, 1))], axis=1) 
+    ee_pose_cam = np.concatenate([ee_pose_cam, np.ones((N, 1))], axis=1)
+    # print("3d pos in cam frame: ", ee_pose_cam)
+
     # print("intrinsics: ", intrinsics.shape, ee_pose_cam.shape)
-    
     px_val = intrinsics @ ee_pose_cam.T
-    # if not np.any(px_val):
-    #     return px_val.T
     px_val = px_val / px_val[2, :]
     # print("2d pos cam frame: ", px_val)
 
@@ -198,8 +213,8 @@ def miniviewer(frame, goal_frame, location="top_right"):
     return frame.permute((1, 2, 0)).numpy()
 
 def transformation_matrix_to_pose(T):
-        R = T[:3, :3]
-        p = T[:3, 3]
-        rotation_quaternion = Rotation.from_matrix(R).as_quat()
-        pose_array = np.concatenate((p, rotation_quaternion))
-        return pose_array
+    R = T[:3, :3]
+    p = T[:3, 3]
+    rotation_quaternion = Rotation.from_matrix(R).as_quat()
+    pose_array = np.concatenate((p, rotation_quaternion))
+    return pose_array

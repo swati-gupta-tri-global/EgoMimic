@@ -45,7 +45,7 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
         replace_key_names(h5py_file, key_dict)
 
-        scale_by_factor(h5py_file, 100)
+        scale_by_factor(h5py_file, 1)
 
         remove_corrupted_entries(h5py_file)
 
@@ -124,7 +124,7 @@ def normalize_obs(h5py_file):
         del h5py_file[f"data/{demo_key}/obs/ee_pose_norm"]
 
 
-def get_future_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
+def get_future_points(arr, POINT_GAP=4, FUTURE_POINTS_COUNT=10):
     future_traj = []
 
     for i in range(POINT_GAP, (FUTURE_POINTS_COUNT + 1) * POINT_GAP, POINT_GAP):
@@ -161,8 +161,7 @@ def chunk_actions(h5py_file):
 def remove_eepose_quat(h5py_file):
     demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
     DEMO_COUNT = len(demo_keys)
-
-    # breakpoint()
+    #breakpoint()
 
     for demo_key in demo_keys:
         h5py_file[f"data/{demo_key}/obs/ee_pose_full_unnorm"] = h5py_file[f"data/{demo_key}/obs/ee_pose"]

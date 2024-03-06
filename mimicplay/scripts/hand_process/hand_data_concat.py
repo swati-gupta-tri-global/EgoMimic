@@ -31,7 +31,7 @@ def concatenate_h5(source, destination):
     dataset.close()
                 
 
-source = "/coc/flash7/datasets/egoplay/handStacking_gray_Public"
-destination = "/coc/flash7/datasets/egoplay/handStacking_gray_Public/handStacking_gray.hdf5"
+source = "/coc/flash7/datasets/egoplay/dino_data"
+destination = "/coc/flash7/datasets/egoplay/dino_data/plushies.hdf5"
 
 concatenate_h5(source, destination)

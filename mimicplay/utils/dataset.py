@@ -193,7 +193,7 @@ class PlaydataSequenceDataset(SequenceDataset):
             seq_length=self.seq_length,
             prefix="obs"
         )
-
+        
         if self.load_next_obs:
             meta["next_obs"] = self.get_obs_sequence_from_demo(
                 demo_id,
