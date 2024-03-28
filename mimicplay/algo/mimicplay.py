@@ -7,6 +7,7 @@ import copy
 import h5py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import robomimic.models.base_nets as BaseNets
 import mimicplay.models.policy_nets as PolicyNets
@@ -45,6 +46,24 @@ def algo_config_to_class(algo_config):
         else:
             return BC_RNN_GMM, {}
 
+class Domain_Discriminator(nn.Module):
+    def __init__(self, in_features=512):
+        super(Domain_Discriminator, self).__init__()
+        self.in_features = in_features
+        self.model = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        return self.model(x)
+
 class Highlevel_GMM_pretrain(BC_Gaussian):
     """
     MimicPlay highlevel latent planner, trained to generate 3D trajectory based on observation and goal image.
@@ -74,6 +93,10 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
         )
 
+        ## domain discriminator
+        self.discriminator = Domain_Discriminator()
+        self.discriminator = self.discriminator.float().to(self.device)
+
         self.save_count = 0
 
         self.nets = self.nets.float().to(self.device)
@@ -98,18 +121,21 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         # we will search the nested batch dictionary for the following special batch dict keys
         # and apply the processing function to their values (which correspond to observations)
-        obs_keys = ["obs", "next_obs", "goal_obs"]
+        obs_keys = ["obs", "next_obs", "goal_obs", "robot_obs", "robot_next_obs", "robot_goal_obs"]
 
         def recurse_helper(d):
             """
             Apply process_obs_dict to values in nested dictionary d that match a key in obs_keys.
             """
             for k in d:
+                # breakpoint()
                 if k in obs_keys:
                     # found key - stop search and process observation
                     if d[k] is not None:
+                        # breakpoint()
                         d[k] = ObsUtils.process_obs_dict(d[k])
                         if obs_normalization_stats is not None:
+                            # breakpoint()
                             d[k] = ObsUtils.normalize_obs(d[k], obs_normalization_stats=obs_normalization_stats)
                 elif isinstance(d[k], dict):
                     # search down into dictionary
@@ -121,8 +147,18 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         # batch["goal_obs"]["front_image_2"] = batch["goal_obs"]["front_image_2"][:, 0]
         # batch["goal_obs"]["hand_loc"] = batch["goal_obs"]["hand_loc"][:, 0]
         # batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
+
+        # breakpoint()
+        if "robot_goal_obs" in batch.keys():
+            batch["robot_goal_obs"]["front_img_1"] = batch["robot_goal_obs"]["front_img_1"][:, 0]
+
         if "ee_pose" in batch["goal_obs"]:
             del batch["goal_obs"]["ee_pose"]
+
+        if "robot_goal_obs" in batch.keys() and "ee_pose" in batch["robot_goal_obs"]:
+            del batch["robot_goal_obs"]["ee_pose"]
+        
+        # breakpoint()
 
         return TensorUtils.to_device(TensorUtils.to_float(batch), self.device)
 
@@ -197,6 +233,13 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
                 obs_dict=batch["obs"],
                 goal_dict=batch["goal_obs"]
             )
+            if "robot_obs" in batch.keys() and "robot_goal_obs" in batch.keys():
+                robot_dists = self.nets["policy"].forward_train(
+                    obs_dict=batch["robot_obs"],
+                    goal_dict=batch["robot_goal_obs"]
+                )
+                return dists, robot_dists
+            
             return dists
 
     def _forward_training(self, batch):
@@ -211,18 +254,87 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         Returns:
             predictions (dict): dictionary containing network outputs
         """
-        dists = self.nets["policy"].forward_train(
+        # dists = self.nets["policy"].forward_train(
+        #     obs_dict=batch["obs"],
+        #     goal_dict=batch["goal_obs"]
+        # )
+        # breakpoint()
+        human_obs_dict = {}
+        robot_obs_dict = {}
+        human_goal_obs_dict = {}
+        robot_goal_obs_dict = {}
+        dummy = batch['obs']
+        
+        for key, value in batch['obs'].items():
+            if key != 'type':
+                human_obs_dict[key] = value[batch['obs']['type'] == 1]
+                robot_obs_dict[key] = value[batch['obs']['type'] == 0]
+        # breakpoint()
+
+        for key, value in batch['goal_obs'].items():
+            if key != 'type':
+                human_goal_obs_dict[key] = value[batch['goal_obs']['type'] == 1]
+                robot_goal_obs_dict[key] = value[batch['goal_obs']['type'] == 0]
+        # breakpoint()
+
+        '''
+        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
             obs_dict=batch["obs"],
-            goal_dict=batch["goal_obs"]
+            goal_dict=batch["goal_obs"],
+            return_latent=True
         )
+
+        robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
+            obs_dict=batch["robot_obs"],
+            goal_dict=batch["robot_goal_obs"],
+            return_latent=True
+        )
+        '''
+
+        '''
+        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+            obs_dict=human_obs_dict,
+            goal_dict=human_goal_obs_dict,
+            return_latent=True
+        )
+
+        robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
+            obs_dict=robot_obs_dict,
+            goal_dict=robot_goal_obs_dict,
+            return_latent=True
+        )
+        '''
+
+        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+            obs_dict=batch["obs"],
+            goal_dict=batch["goal_obs"],
+            return_latent=True
+        )
+
+        ## sort representations based on type - robot or human 
+        type_list = batch['obs']['type'].tolist()
+        zipped_items = list(batch['obs'].items())
+        sorted_indices = sorted(range(len(type_list)), key=lambda k: type_list[k], reverse=True)
+        sorted_type = batch['obs']['type'][sorted_indices]
+        num_human_samples = len(sorted_type[sorted_type == 1])
+        # print("num_human_samples:", num_human_samples)
+        # if num_human_samples == 32:
+        #     breakpoint()
+        sorted_enc_out = enc_out[sorted_indices]
+        human_enc_out = sorted_enc_out[:num_human_samples]
+        robot_enc_out = sorted_enc_out[num_human_samples:]
 
         # make sure that this is a batch of multivariate action distributions, so that
         # the log probability computation will be correct
+        breakpoint()
         assert len(dists.batch_shape) == 1
         log_probs = dists.log_prob(batch["actions"])
 
         predictions = OrderedDict(
             log_probs=log_probs,
+            enc_out=enc_out,
+            robot_enc_out=robot_enc_out,
+            human_enc_out=human_enc_out
         )
         return predictions
 
@@ -241,10 +353,47 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         """
 
         # loss is just negative log-likelihood of action targets
-        action_loss = -predictions["log_probs"].mean()
+        
+        ##
+        '''
+        KL Logic
+        mean1, var1
+        mean2, var2
+        kl_loss (Add to action_loss)
+        '''
+        
+        input_kl = F.log_softmax(predictions["robot_enc_out"], dim=1)
+        # target_kl = F.softmax(predictions["enc_out"], dim=1)
+        target_kl = F.softmax(predictions["human_enc_out"], dim=1)
+
+        if input_kl.shape[0] ==0 or target_kl.shape[0] == 0:
+            # breakpoint()
+            kl_div_loss = torch.zeros(1, requires_grad=True)
+        else:
+            if target_kl.shape[0] > input_kl.shape[0]:
+                input_kl_resized = input_kl.repeat(target_kl.shape[0] // input_kl.shape[0], 1)
+                target_kl_resized = target_kl
+                remaining_elements = target_kl.shape[0] - input_kl_resized.shape[0]
+                if remaining_elements > 0:
+                    input_kl_resized = torch.cat([input_kl_resized, input_kl[:remaining_elements]], dim=0)
+            else:
+                input_kl_resized = input_kl
+                target_kl_resized = target_kl.repeat(input_kl.shape[0] // target_kl.shape[0], 1)
+                # Check if any remaining elements are needed to match the size
+                remaining_elements = input_kl.shape[0] - target_kl_resized.shape[0]
+                if remaining_elements > 0:
+                    target_kl_resized = torch.cat([target_kl_resized, target_kl[:remaining_elements]], dim=0)
+
+            # kl_div_loss = 10*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
+            kl_div_loss = 10*torch.nn.KLDivLoss(reduction="batchmean")(input_kl_resized, target_kl_resized)
+        
+        ##
+        action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean()
+        # breakpoint()
         return OrderedDict(
             log_probs=-action_loss,
             action_loss=action_loss,
+            kl_div_loss=kl_div_loss
         )
 
     def log_info(self, info):
@@ -261,6 +410,8 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         log = PolicyAlgo.log_info(self, info)
         log["Loss"] = info["losses"]["action_loss"].item()
         log["Log_Likelihood"] = info["losses"]["log_probs"].item()
+        log["kl_div_loss"] = info["losses"]["kl_div_loss"].item()
+        # breakpoint()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log

@@ -130,6 +130,8 @@ class PlaydataSequenceDataset(SequenceDataset):
                         obs_keys_in_memory.append(k)
             self.obs_keys_in_memory = obs_keys_in_memory
 
+            # breakpoint()
+
             self.hdf5_cache = self.load_dataset_in_memory(
                 demo_list=self.demos,
                 hdf5_file=self.hdf5_file,
@@ -138,12 +140,14 @@ class PlaydataSequenceDataset(SequenceDataset):
                 load_next_obs=self.load_next_obs
             )
 
+            # breakpoint()
+            
             if self.hdf5_cache_mode == "all":
                 # cache getitem calls for even more speedup. We don't do this for
                 # "low-dim" since image observations require calls to getitem anyways.
                 print("SequenceDataset: caching get_item calls...")
                 self.getitem_cache = [self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))]
-
+                # breakpoint()
                 # don't need the previous cache anymore
                 del self.hdf5_cache
                 self.hdf5_cache = None
@@ -155,12 +159,39 @@ class PlaydataSequenceDataset(SequenceDataset):
         self.close_and_delete_hdf5_handle()
 
 
+        self.robot_keys = [] #self.hdf5_file['mask']['robot_demos']
+        self.human_keys = [] #self.hdf5_file['mask']['human_demos']
+        
+        if self.filter_by_attribute == 'train':
+            # for k in self.hdf5_file['data'].keys():
+            key_list = self.hdf5_file['mask/train'][:].tolist()
+            decoded_key_list = [item.decode('utf-8') for item in key_list]
+            for k in decoded_key_list:
+                label = self.hdf5_file['data'][k]['label']
+                label = label[()][0]
+                if label == 1:
+                    self.human_keys.append(k)
+                else:
+                    self.robot_keys.append(k)
+        elif self.filter_by_attribute == 'valid':
+            # for k in self.hdf5_file['data'].keys():
+            key_list = self.hdf5_file['mask/valid'][:].tolist()
+            decoded_key_list = [item.decode('utf-8') for item in key_list]
+            for k in decoded_key_list:
+                label = self.hdf5_file['data'][k]['label']
+                label = label[()][0]
+                if label == 1:
+                    self.human_keys.append(k)
+                else:
+                    self.robot_keys.append(k)
+
+    
     def get_item(self, index):
         """
         Main implementation of getitem when not using cache.
         """
-
         demo_id = self._index_to_demo_id[index]
+        # breakpoint()
         demo_start_index = self._demo_id_to_start_indices[demo_id]
         demo_length = self._demo_id_to_demo_length[demo_id]
         
@@ -179,8 +210,10 @@ class PlaydataSequenceDataset(SequenceDataset):
             num_frames_to_stack=self.n_frame_stack - 1, # note: need to decrement self.n_frame_stack by one
             seq_length=self.seq_length
         )
+        # breakpoint()
 
         # determine goal index
+        reverse_rgb = False
         goal_index = None
         if self.goal_mode == "nstep":
             goal_index = min(index_in_demo + random.randint(self.goal_obs_gap[0], self.goal_obs_gap[1]) , demo_length) - 1
@@ -193,7 +226,8 @@ class PlaydataSequenceDataset(SequenceDataset):
             seq_length=self.seq_length,
             prefix="obs"
         )
-        
+        if reverse_rgb:
+            meta["obs"]["front_img_1"] = meta["obs"]["front_img_1"][:,:,:,[2,1,0]]
         if self.load_next_obs:
             meta["next_obs"] = self.get_obs_sequence_from_demo(
                 demo_id,
@@ -203,7 +237,8 @@ class PlaydataSequenceDataset(SequenceDataset):
                 seq_length=self.seq_length,
                 prefix="next_obs"
             )
-
+            if reverse_rgb:
+                meta["next_obs"]["front_img_1"] = meta["next_obs"]["front_img_1"][:,:,:,[2,1,0]]
         if goal_index is not None:
             meta["goal_obs"] = self.get_obs_sequence_from_demo(
                 demo_id,
@@ -213,10 +248,135 @@ class PlaydataSequenceDataset(SequenceDataset):
                 seq_length=self.seq_length,
                 prefix="obs",
             )
-
+            if reverse_rgb:
+                meta["goal_obs"]["front_img_1"] = meta["goal_obs"]["front_img_1"][:,:,:,[2,1,0]]
         ## check meta for zero front_img and sample safe_index
         # if not meta["obs"]["front_img_1"].any():
         #     return self.get_item(0)
         # if not meta["goal_obs"]["front_img_1"].any():
         #     return self.get_item(0)
+        # breakpoint()
+        if demo_id in self.human_keys:
+            meta['obs']['type'] = 1 #'human'
+            meta['goal_obs']['type'] = 1 #'human'
+        elif demo_id in self.robot_keys:
+            meta['obs']['type'] = 0 #'robot'
+            meta['goal_obs']['type'] = 0 #'robot'
+
+        # print('demo_id: {} type {} index {}'.format(demo_id, meta['obs']['type'], index))
+        # print('HUMAN KEYS {} ROBOT KEYS {}'.format(self.human_keys, self.robot_keys))
+        # breakpoint()
         return meta
+    
+    
+    '''
+    def get_item(self, index):
+        """
+        Modified getitem to sample both human and robot demonstrations.
+
+        Args:
+        index: 
+        """
+
+        # Define a helper function to get the meta data for a given demo index
+        def get_demo_meta(demo_index, demo_type):
+            prefix = f"{demo_type}_" if demo_type == "robot" else ""
+            # breakpoint()
+            demo_id = self._index_to_demo_id[demo_index]
+            demo_start_index = self._demo_id_to_start_indices[demo_id]
+            demo_length = self._demo_id_to_demo_length[demo_id]
+            # breakpoint()
+            
+            # Start at offset index if not padding for frame stacking
+            demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
+            index_in_demo = demo_index - demo_start_index + demo_index_offset
+
+            # end at offset index if not padding for seq length
+            demo_length_offset = 0 if self.pad_seq_length else (self.seq_length - 1)
+            end_index_in_demo = demo_length - demo_length_offset
+            
+            init_meta = self.get_dataset_sequence_from_demo(
+                demo_id,
+                index_in_demo=index_in_demo,
+                keys=self.dataset_keys,
+                num_frames_to_stack=self.n_frame_stack - 1, # note: need to decrement self.n_frame_stack by one
+                seq_length=self.seq_length
+            )
+            prefix = f"{demo_type}_" if demo_type == "robot" else ""
+            meta = {f'{prefix}{key}': value for key, value in init_meta.items()}
+            # breakpoint()
+            del init_meta
+            # Determine goal index
+            reverse_rgb = False
+            goal_index = None
+            if self.goal_mode == "nstep":
+                goal_index = min(index_in_demo + random.randint(self.goal_obs_gap[0], self.goal_obs_gap[1]), demo_length) - 1
+
+
+            meta[f"{prefix}obs"] = self.get_obs_sequence_from_demo(
+                demo_id,
+                index_in_demo=index_in_demo,
+                keys=self.obs_keys,
+                num_frames_to_stack=self.n_frame_stack - 1,
+                seq_length=self.seq_length,
+                prefix="obs"
+            )
+            if reverse_rgb:
+                meta[f"{prefix}obs"]["front_img_1"] = meta["{prefix}obs"]["front_img_1"][:,:,:,[2,1,0]]
+            if self.load_next_obs:
+                meta[f"{prefix}next_obs"] = self.get_obs_sequence_from_demo(
+                    demo_id,
+                    index_in_demo=index_in_demo,
+                    keys=self.obs_keys,
+                    num_frames_to_stack=self.n_frame_stack - 1,
+                    seq_length=self.seq_length,
+                    prefix="next_obs"
+                )
+
+            if goal_index is not None:
+                meta[f"{prefix}goal_obs"] = self.get_obs_sequence_from_demo(
+                    demo_id,
+                    index_in_demo=goal_index,
+                    keys=self.obs_keys,
+                    num_frames_to_stack=self.n_frame_stack - 1,
+                    seq_length=self.seq_length,
+                    prefix="obs",
+                )
+
+            return meta
+
+        # Get meta data for both human and robot demonstrations
+        demo_id = self._index_to_demo_id[index]
+        # breakpoint()
+        if demo_id in self.human_keys:
+            # breakpoint()
+            human_meta = get_demo_meta(index, "human")
+            # breakpoint()
+            robot_demo_id = random.choice(self.robot_keys)
+            robot_demo_start_idx = self._demo_id_to_start_indices[robot_demo_id]
+            robot_demo_end_idx = self._demo_id_to_start_indices[robot_demo_id] + self._demo_id_to_demo_length[robot_demo_id]
+            robot_index = random.randint(robot_demo_start_idx, robot_demo_end_idx - 1)
+            # breakpoint()
+
+            robot_meta = get_demo_meta(robot_index, "robot")
+        else:
+            # breakpoint()
+            robot_meta = get_demo_meta(index, "robot")
+            # breakpoint()
+            human_demo_id = random.choice(self.human_keys)
+            human_demo_start_idx = self._demo_id_to_start_indices[human_demo_id]
+            human_demo_end_idx = self._demo_id_to_start_indices[human_demo_id] + self._demo_id_to_demo_length[human_demo_id]
+            human_index = random.randint(human_demo_start_idx, human_demo_end_idx - 1)
+            # breakpoint()
+            human_meta = get_demo_meta(human_index, "human")
+        
+        debug_video = robot_meta["robot_obs"]["front_img_1"]
+        # breakpoint()
+
+        # Combine human and robot meta data into one dictionary
+        combined_meta = {**human_meta, **robot_meta}
+        # breakpoint()
+
+        return combined_meta
+    '''
+        

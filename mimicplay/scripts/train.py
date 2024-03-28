@@ -166,7 +166,7 @@ def train_ddp(config):
         ac_dim=shape_meta["ac_dim"],
         device=device,
     )
-    breakpoint()
+
     model = torch.nn.parallel.DistributedDataParallel(
         model, device_ids=[device], output_device=device
     )

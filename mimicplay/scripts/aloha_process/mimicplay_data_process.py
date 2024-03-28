@@ -54,17 +54,7 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
         remove_corrupted_entries(h5py_file)
 
-    if data_type == "hand":
-        print("Renaming front_image_1 and front_image_2 keys")
-
-        key_dict = {'obs/front_image_1' : 'obs/front_img_1', 'obs/front_image_2' : 'obs/front_img_2'}
-
-        replace_key_names(h5py_file, key_dict)
-
-        scale_by_factor(h5py_file, 100)
-
-        remove_corrupted_entries(h5py_file)
-
+        #convert_bgr_to_rgb(h5py_file)
     # NOTE: temp stub put back
     # if data_type == "hand":
     remove_eepose_quat(h5py_file)
@@ -321,10 +311,17 @@ def remove_corrupted_entries(h5py_file):
             h5py_file.create_dataset(f'data/{demo_key}/actions', data=filtered_actions)
         except:
             print("Could not remove corrupted entries!")
-<<<<<<< HEAD
-        
-=======
 
->>>>>>> main
+def convert_bgr_to_rgb(h5py_file):
+    """
+    Convert BGR to RGB
+    """
+    demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
+    for demo_key in demo_keys:
+        print(f"Converting BGR to RGB images for {demo_key}")
+        front_img_ = h5py_file[f'data/{demo_key}/obs/front_img_1']
+        h5py_file[f'data/{demo_key}/obs/front_img_1'][...,0]=front_img_[...,2]
+        h5py_file[f'data/{demo_key}/obs/front_img_1'][...,2]=front_img_[...,0]
+
 if __name__ == '__main__':
     prep_for_mimicplay(args.hdf5_path, args.data_type)

@@ -208,7 +208,6 @@ def train(config, device):
 
     if not args.gen_vid:
         video_dir=None
-
     evaluate_high_level_policy(model[0].policy, loader, video_dir=video_dir)
 
     # terminate logging
