@@ -33,8 +33,10 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
 
     count = 0
     vids_written = 0
-    T = 400
+    T = 700
     video = torch.zeros((T, 480, 640, 3))
+
+    GOAL_COND = model.global_config.train.goal_mode
 
     for i, data in enumerate(data_loader):
         # import matplotlib.pyplot as plt
@@ -43,7 +45,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
         input_batch = model.process_batch_for_training(data)
         input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
-        if "ee_pose" in input_batch["goal_obs"]:
+        if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
             del input_batch["goal_obs"]["ee_pose"]
         del input_batch["actions"]
         info = model.forward_eval(input_batch)
@@ -51,7 +53,6 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         print(i)
         for b in range(data["obs"]["front_img_1"].shape[0]):
             im = data["obs"]["front_img_1"][b, 0].numpy()
-            goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
             
             pred_values = np.ones((10, 3))
             for t in range(10):
@@ -76,10 +77,9 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
 
             frame = draw_dot_on_frame(frame, actions, show=False, palette="Greens")
 
-            # breakpoint()
-            frame = miniviewer(frame, goal_frame)
-
-            # breakpoint()
+            if GOAL_COND:
+                goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
+                frame = miniviewer(frame, goal_frame)
 
             # cv2.imwrite(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{count}.png", frame)
             if count == T:

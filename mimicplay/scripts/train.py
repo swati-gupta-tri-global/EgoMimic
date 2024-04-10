@@ -440,6 +440,10 @@ def main(args):
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
 
+    if args.non_goal_cond:
+        config.observation.modalities.goal.rgb = []
+        config.train.goal_mode = None
+
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -521,6 +525,12 @@ def train_argparse():
         "--no-wandb",
         action='store_true',
         help="set this flag to run a without wandb"
+    )
+
+    parser.add_argument(
+        "--non-goal-cond",
+        action='store_true',
+        help="edits config to remove rgb goal conditioning"
     )
 
     args = parser.parse_args()

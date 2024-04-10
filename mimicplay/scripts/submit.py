@@ -6,7 +6,7 @@ import datetime
 import time
 
 if __name__ == "__main__":
-    os.environ["TQDM_DISABLE"]=1
+    os.environ["TQDM_DISABLE"]="1"
 
     args = train_argparse()
 
