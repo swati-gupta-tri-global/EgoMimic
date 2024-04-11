@@ -444,6 +444,9 @@ def main(args):
         config.observation.modalities.goal.rgb = []
         config.train.goal_mode = None
 
+    if args.lr:
+        config.algo.optim_params.policy.learning_rate.initial = args.lr
+
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -532,6 +535,14 @@ def train_argparse():
         action='store_true',
         help="edits config to remove rgb goal conditioning"
     )
+
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=None,
+        help="learning rate"
+    )
+
 
     args = parser.parse_args()
 
