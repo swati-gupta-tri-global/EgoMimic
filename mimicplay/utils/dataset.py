@@ -185,7 +185,7 @@ class PlaydataSequenceDataset(SequenceDataset):
                 else:
                     self.robot_keys.append(k)
 
-    
+    '''    
     def get_item(self, index):
         """
         Main implementation of getitem when not using cache.
@@ -267,7 +267,7 @@ class PlaydataSequenceDataset(SequenceDataset):
         # print('HUMAN KEYS {} ROBOT KEYS {}'.format(self.human_keys, self.robot_keys))
         # breakpoint()
         return meta
-    
+    '''
     
     '''
     def get_item(self, index):
@@ -380,3 +380,75 @@ class PlaydataSequenceDataset(SequenceDataset):
         return combined_meta
     '''
         
+    def get_item(self, index):
+        """
+        Main implementation of getitem when not using cache.
+        """
+
+        demo_id = self._index_to_demo_id[index]
+        demo_start_index = self._demo_id_to_start_indices[demo_id]
+        demo_length = self._demo_id_to_demo_length[demo_id]
+        
+        # start at offset index if not padding for frame stacking
+        demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
+        index_in_demo = index - demo_start_index + demo_index_offset
+
+        # end at offset index if not padding for seq length
+        demo_length_offset = 0 if self.pad_seq_length else (self.seq_length - 1)
+        end_index_in_demo = demo_length - demo_length_offset
+
+        meta = self.get_dataset_sequence_from_demo(
+            demo_id,
+            index_in_demo=index_in_demo,
+            keys=self.dataset_keys,
+            num_frames_to_stack=self.n_frame_stack - 1, # note: need to decrement self.n_frame_stack by one
+            seq_length=self.seq_length
+        )
+
+        # determine goal index
+        goal_index = None
+        if self.goal_mode == "nstep":
+            goal_index = min(index_in_demo + random.randint(self.goal_obs_gap[0], self.goal_obs_gap[1]) , demo_length) - 1
+
+        meta["obs"] = self.get_obs_sequence_from_demo(
+            demo_id,
+            index_in_demo=index_in_demo,
+            keys=self.obs_keys,
+            num_frames_to_stack=self.n_frame_stack - 1,
+            seq_length=self.seq_length,
+            prefix="obs"
+        )
+        
+        if self.load_next_obs:
+            meta["next_obs"] = self.get_obs_sequence_from_demo(
+                demo_id,
+                index_in_demo=index_in_demo,
+                keys=self.obs_keys,
+                num_frames_to_stack=self.n_frame_stack - 1,
+                seq_length=self.seq_length,
+                prefix="next_obs"
+            )
+
+        if goal_index is not None:
+            meta["goal_obs"] = self.get_obs_sequence_from_demo(
+                demo_id,
+                index_in_demo=goal_index,
+                keys=self.obs_keys,
+                num_frames_to_stack=self.n_frame_stack - 1,
+                seq_length=self.seq_length,
+                prefix="obs",
+            )
+
+        if demo_id in self.human_keys:
+            meta['obs']['type'] = 1 #'human'
+            meta['goal_obs']['type'] = 1 #'human'
+        elif demo_id in self.robot_keys:
+            meta['obs']['type'] = 0 #'robot'
+            meta['goal_obs']['type'] = 0 #'robot'
+            
+        ## check meta for zero front_img and sample safe_index
+        # if not meta["obs"]["front_img_1"].any():
+        #     return self.get_item(0)
+        # if not meta["goal_obs"]["front_img_1"].any():
+        #     return self.get_item(0)
+        return meta

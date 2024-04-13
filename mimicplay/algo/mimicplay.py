@@ -94,8 +94,8 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         )
 
         ## domain discriminator
-        self.discriminator = Domain_Discriminator()
-        self.discriminator = self.discriminator.float().to(self.device)
+        # self.discriminator = Domain_Discriminator()
+        # self.discriminator = self.discriminator.float().to(self.device)
 
         self.save_count = 0
 
@@ -242,6 +242,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             
             return dists
 
+    '''
     def _forward_training(self, batch):
         """
         Internal helper function for BC algo class. Compute forward pass
@@ -258,7 +259,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         #     obs_dict=batch["obs"],
         #     goal_dict=batch["goal_obs"]
         # )
-        # breakpoint()
+        breakpoint()
         human_obs_dict = {}
         robot_obs_dict = {}
         human_goal_obs_dict = {}
@@ -277,33 +278,29 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
                 robot_goal_obs_dict[key] = value[batch['goal_obs']['type'] == 0]
         # breakpoint()
 
-        '''
-        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
-            obs_dict=batch["obs"],
-            goal_dict=batch["goal_obs"],
-            return_latent=True
-        )
+        # dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+        #     obs_dict=batch["obs"],
+        #     goal_dict=batch["goal_obs"],
+        #     return_latent=True
+        # )
 
-        robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
-            obs_dict=batch["robot_obs"],
-            goal_dict=batch["robot_goal_obs"],
-            return_latent=True
-        )
-        '''
+        # robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
+        #     obs_dict=batch["robot_obs"],
+        #     goal_dict=batch["robot_goal_obs"],
+        #     return_latent=True
+        # )
 
-        '''
-        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
-            obs_dict=human_obs_dict,
-            goal_dict=human_goal_obs_dict,
-            return_latent=True
-        )
+        # dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+        #     obs_dict=human_obs_dict,
+        #     goal_dict=human_goal_obs_dict,
+        #     return_latent=True
+        # )
 
-        robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
-            obs_dict=robot_obs_dict,
-            goal_dict=robot_goal_obs_dict,
-            return_latent=True
-        )
-        '''
+        # robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
+        #     obs_dict=robot_obs_dict,
+        #     goal_dict=robot_goal_obs_dict,
+        #     return_latent=True
+        # )
 
         dists, enc_out, mlp_out = self.nets["policy"].forward_train(
             obs_dict=batch["obs"],
@@ -337,6 +334,59 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             human_enc_out=human_enc_out
         )
         return predictions
+    '''
+
+    def _forward_training(self, batch):
+        """
+        Internal helper function for BC algo class. Compute forward pass
+        and return network outputs in @predictions dict.
+
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader and filtered by @process_batch_for_training
+
+        Returns:
+            predictions (dict): dictionary containing network outputs
+        """
+        
+        ## Set batch_1 => Hand and batch_2 => Robot
+        if torch.all(batch[0]['obs']['type'] == 1):
+            batch_hand = batch[0]
+            batch_robot = batch[1]
+        elif torch.all(batch[1]['obs']['type'] == 1):
+            batch_hand = batch[1]
+            batch_robot = batch[0]
+
+        # batch_1 = batch[0]
+        # batch_2 = batch[1]
+
+        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+            obs_dict=batch_hand["obs"],
+            goal_dict=batch_hand["goal_obs"],
+            return_latent=True
+        )
+
+        dists_2, enc_out_2, mlp_out_2 = self.nets["policy"].forward_train(
+            obs_dict=batch_robot["obs"],
+            goal_dict=batch_robot["goal_obs"],
+            return_latent=True
+        )
+        
+        # make sure that this is a batch of multivariate action distributions, so that
+        # the log probability computation will be correct
+        # breakpoint()
+        assert len(dists.batch_shape) == 1
+        # log_probs = dists.log_prob(batch["actions"])
+        log_probs = dists.log_prob(batch_hand["actions"])
+
+        predictions = OrderedDict(
+            log_probs=log_probs,
+            enc_out=enc_out,
+            enc_out_2=enc_out_2
+            # robot_enc_out=robot_enc_out,
+            # human_enc_out=human_enc_out
+        )
+        return predictions
 
     def _compute_losses(self, predictions, batch):
         """
@@ -353,40 +403,10 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         """
 
         # loss is just negative log-likelihood of action targets
-        
-        ##
-        '''
-        KL Logic
-        mean1, var1
-        mean2, var2
-        kl_loss (Add to action_loss)
-        '''
-        
-        input_kl = F.log_softmax(predictions["robot_enc_out"], dim=1)
-        # target_kl = F.softmax(predictions["enc_out"], dim=1)
-        target_kl = F.softmax(predictions["human_enc_out"], dim=1)
+        input_kl = F.log_softmax(predictions["enc_out_2"], dim=1) # robot
+        target_kl = F.softmax(predictions["enc_out"], dim=1) # human
+        kl_div_loss = 10*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
 
-        if input_kl.shape[0] ==0 or target_kl.shape[0] == 0:
-            # breakpoint()
-            kl_div_loss = torch.zeros(1, requires_grad=True)
-        else:
-            if target_kl.shape[0] > input_kl.shape[0]:
-                input_kl_resized = input_kl.repeat(target_kl.shape[0] // input_kl.shape[0], 1)
-                target_kl_resized = target_kl
-                remaining_elements = target_kl.shape[0] - input_kl_resized.shape[0]
-                if remaining_elements > 0:
-                    input_kl_resized = torch.cat([input_kl_resized, input_kl[:remaining_elements]], dim=0)
-            else:
-                input_kl_resized = input_kl
-                target_kl_resized = target_kl.repeat(input_kl.shape[0] // target_kl.shape[0], 1)
-                # Check if any remaining elements are needed to match the size
-                remaining_elements = input_kl.shape[0] - target_kl_resized.shape[0]
-                if remaining_elements > 0:
-                    target_kl_resized = torch.cat([target_kl_resized, target_kl[:remaining_elements]], dim=0)
-
-            # kl_div_loss = 10*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
-            kl_div_loss = 10*torch.nn.KLDivLoss(reduction="batchmean")(input_kl_resized, target_kl_resized)
-        
         ##
         action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean()
         # breakpoint()

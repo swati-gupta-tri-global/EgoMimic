@@ -126,6 +126,58 @@ def load_data_for_training(config, obs_keys):
     return train_dataset, valid_dataset
 
 
+def load_dataset(config, obs_keys, dataset_path=None):
+    """
+    Data loading at the start of an algorithm.
+
+    Args:
+        config (BaseConfig instance): config object
+        obs_keys (list): list of observation modalities that are required for
+            training (this will inform the dataloader on what modalities to load)
+
+    Returns:
+        train_dataset (PlaydataSequenceDataset instance): train dataset object
+        valid_dataset (PlaydataSequenceDataset instance): valid dataset object (only if using validation)
+    """
+
+    # breakpoint()
+
+    # config can contain an attribute to filter on
+    train_filter_by_attribute = config.train.hdf5_filter_key
+    valid_filter_by_attribute = config.train.hdf5_validation_filter_key
+    if valid_filter_by_attribute is not None:
+        assert config.experiment.validate, "specified validation filter key {}, but config.experiment.validate is not set".format(valid_filter_by_attribute)
+
+    # load the dataset into memory
+    if config.experiment.validate:
+        assert not config.train.hdf5_normalize_obs, "no support for observation normalization with validation data yet"
+        assert (train_filter_by_attribute is not None) and (valid_filter_by_attribute is not None), \
+            "did not specify filter keys corresponding to train and valid split in dataset" \
+            " - please fill config.train.hdf5_filter_key and config.train.hdf5_validation_filter_key"
+        train_demo_keys = FileUtils.get_demos_for_filter_key(
+            hdf5_path=dataset_path, #os.path.expanduser(config.train.data),
+            filter_key=train_filter_by_attribute,
+        )
+        valid_demo_keys = FileUtils.get_demos_for_filter_key(
+            hdf5_path=dataset_path, #os.path.expanduser(config.train.data),
+            filter_key=valid_filter_by_attribute,
+        )
+        assert set(train_demo_keys).isdisjoint(set(valid_demo_keys)), "training demonstrations overlap with " \
+            "validation demonstrations!"
+        train_dataset = dataset_factory(config, obs_keys, filter_by_attribute=train_filter_by_attribute, dataset_path=dataset_path)
+        valid_dataset = dataset_factory(config, obs_keys, filter_by_attribute=valid_filter_by_attribute, dataset_path=dataset_path)
+        # train_dataset_2 = dataset_factory(config, obs_keys, filter_by_attribute=train_filter_by_attribute, dataset_path="/coc/flash7/datasets/egoplay/bowl_place_robot_mar4/robomimic/bowl_place_robotMimicplay_with_type_label.hdf5")
+        # valid_dataset_2 = dataset_factory(config, obs_keys, filter_by_attribute=valid_filter_by_attribute, dataset_path="/coc/flash7/datasets/egoplay/bowl_place_robot_mar4/robomimic/bowl_place_robotMimicplay_with_type_label.hdf5")
+    else:
+        train_dataset = dataset_factory(config, obs_keys, filter_by_attribute=train_filter_by_attribute, dataset_path=dataset_path)
+        valid_dataset = None
+        # train_dataset_2 = dataset_factory(config, obs_keys, filter_by_attribute=train_filter_by_attribute, dataset_path="/coc/flash7/datasets/egoplay/bowl_place_robot_mar4/robomimic/bowl_place_robotMimicplay_with_type_label.hdf5")
+        # valid_dataset_2 = None
+ 
+    valid_dataset.goal_obs_gap = [config.algo.playdata.eval_goal_gap, config.algo.playdata.eval_goal_gap]
+
+    return train_dataset, valid_dataset #, train_dataset_2, valid_dataset_2
+
 def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=None):
     """
     Create a PlaydataSequenceDataset instance to pass to a torch DataLoader.
