@@ -36,8 +36,9 @@ if __name__ == "__main__":
     #before converting everything, check it all at least opens
     for file in tqdm(os.listdir(args.dataset)):
         # print("Trying to open " + file)
-        with h5py.File(os.path.join(args.dataset, file), "r") as f:
-            pass
+        if not os.path.isdir(os.path.join(args.dataset, file)):
+            with h5py.File(os.path.join(args.dataset, file), "r") as f:
+                pass
 
     for file in tqdm(os.listdir(args.dataset)):
         print("Trying to convert " + file)

@@ -12,6 +12,9 @@ def single_episode_conversion(filepath, arm, output_dir):
     """
     output_path = os.path.join(output_dir, os.path.basename(filepath))
     output_path = output_path.split(".")[0] + "_out.hdf5"
+    if os.path.exists(output_path):
+        print("Helper: output path already exists!", output_path)
+        return
     # if output_path == None:
     #     # just append out to file name
     #     output_path = filepath.split(".")[0] + "_out.hdf5"

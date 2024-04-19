@@ -3,7 +3,7 @@ from simarUtils import *
 import numpy as np
 
 # Open the existing HDF5 files
-h5py_file1 = h5py.File("/coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay.hdf5", "r")
+h5py_file1 = None # h5py.File("/coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay.hdf5", "r")
 if h5py_file1 is not None:
     print(len(h5py_file1['data'].keys()))
 h5py_file2 = h5py.File("/coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16Mimicplay_copy.hdf5", "r")
@@ -24,7 +24,7 @@ masks = {'train':[], 'valid':[]}
 max_length = 0
 
 # Create a new HDF5 file to store the combined data
-with h5py.File("/coc/flash7/datasets/egoplay/one_bowl_one_object/combined_oboov2.hdf5", "w") as h5py_combined:
+with h5py.File("/coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16Mimicplay_copy_with_type_label.hdf5", "w") as h5py_combined:
 
     # Create groups in the combined file
     combined_data = h5py_combined.create_group("data")

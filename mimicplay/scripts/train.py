@@ -795,9 +795,15 @@ def main(args):
         
     if args.no_wandb:
         config.experiment.logging.log_wandb=False
-    
-    if args.use_ddp:
-        config.experiment.use_ddp = True
+        config.experiment.logging.wandb_proj_name=None
+
+    if args.non_goal_cond:
+        config.observation.modalities.goal.rgb = []
+        config.train.goal_mode = None
+
+    if args.lr:
+        config.algo.optim_params.policy.learning_rate.initial = args.lr
+
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -892,6 +898,21 @@ def train_argparse():
         action='store_true',
         help="set this flag to run on multiple gpus"
     )
+
+    parser.add_argument(
+        "--non-goal-cond",
+        action='store_true',
+        help="edits config to remove rgb goal conditioning"
+    )
+
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=None,
+        help="learning rate"
+    )
+
+
     args = parser.parse_args()
 
     return args

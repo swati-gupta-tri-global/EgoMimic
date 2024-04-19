@@ -124,7 +124,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         # we will search the nested batch dictionary for the following special batch dict keys
         # and apply the processing function to their values (which correspond to observations)
-        obs_keys = ["obs", "next_obs", "goal_obs", "robot_obs", "robot_next_obs", "robot_goal_obs"]
+        obs_keys = ["obs", "next_obs", "goal_obs"]
 
         def recurse_helper(d):
             """
@@ -146,22 +146,13 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         recurse_helper(batch)
 
-        batch["goal_obs"]["front_img_1"] = batch["goal_obs"]["front_img_1"][:, 0]
-        # batch["goal_obs"]["front_image_2"] = batch["goal_obs"]["front_image_2"][:, 0]
-        # batch["goal_obs"]["hand_loc"] = batch["goal_obs"]["hand_loc"][:, 0]
-        # batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
-
-        # breakpoint()
-        if "robot_goal_obs" in batch.keys():
-            batch["robot_goal_obs"]["front_img_1"] = batch["robot_goal_obs"]["front_img_1"][:, 0]
-
-        if "ee_pose" in batch["goal_obs"]:
-            del batch["goal_obs"]["ee_pose"]
-
-        if "robot_goal_obs" in batch.keys() and "ee_pose" in batch["robot_goal_obs"]:
-            del batch["robot_goal_obs"]["ee_pose"]
-        
-        # breakpoint()
+        if self.global_config.train.goal_mode:
+            batch["goal_obs"]["front_img_1"] = batch["goal_obs"]["front_img_1"][:, 0]
+            # batch["goal_obs"]["front_image_2"] = batch["goal_obs"]["front_image_2"][:, 0]
+            # batch["goal_obs"]["hand_loc"] = batch["goal_obs"]["hand_loc"][:, 0]
+            # batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
+            if "ee_pose" in batch["goal_obs"]:
+                del batch["goal_obs"]["ee_pose"]
 
         return TensorUtils.to_device(TensorUtils.to_float(batch), self.device)
 
@@ -235,109 +226,8 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             dists = self.nets["policy"].forward_train(
                 obs_dict=batch["obs"],
                 goal_dict=batch["goal_obs"]
-            )
-            if "robot_obs" in batch.keys() and "robot_goal_obs" in batch.keys():
-                robot_dists = self.nets["policy"].forward_train(
-                    obs_dict=batch["robot_obs"],
-                    goal_dict=batch["robot_goal_obs"]
-                )
-                return dists, robot_dists
-            
+            )            
             return dists
-
-    '''
-    def _forward_training(self, batch):
-        """
-        Internal helper function for BC algo class. Compute forward pass
-        and return network outputs in @predictions dict.
-
-        Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader and filtered by @process_batch_for_training
-
-        Returns:
-            predictions (dict): dictionary containing network outputs
-        """
-        # dists = self.nets["policy"].forward_train(
-        #     obs_dict=batch["obs"],
-        #     goal_dict=batch["goal_obs"]
-        # )
-        breakpoint()
-        human_obs_dict = {}
-        robot_obs_dict = {}
-        human_goal_obs_dict = {}
-        robot_goal_obs_dict = {}
-        dummy = batch['obs']
-        
-        for key, value in batch['obs'].items():
-            if key != 'type':
-                human_obs_dict[key] = value[batch['obs']['type'] == 1]
-                robot_obs_dict[key] = value[batch['obs']['type'] == 0]
-        # breakpoint()
-
-        for key, value in batch['goal_obs'].items():
-            if key != 'type':
-                human_goal_obs_dict[key] = value[batch['goal_obs']['type'] == 1]
-                robot_goal_obs_dict[key] = value[batch['goal_obs']['type'] == 0]
-        # breakpoint()
-
-        # dists, enc_out, mlp_out = self.nets["policy"].forward_train(
-        #     obs_dict=batch["obs"],
-        #     goal_dict=batch["goal_obs"],
-        #     return_latent=True
-        # )
-
-        # robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
-        #     obs_dict=batch["robot_obs"],
-        #     goal_dict=batch["robot_goal_obs"],
-        #     return_latent=True
-        # )
-
-        # dists, enc_out, mlp_out = self.nets["policy"].forward_train(
-        #     obs_dict=human_obs_dict,
-        #     goal_dict=human_goal_obs_dict,
-        #     return_latent=True
-        # )
-
-        # robot_dists, robot_enc_out, robot_mlp_out = self.nets["policy"].forward_train(
-        #     obs_dict=robot_obs_dict,
-        #     goal_dict=robot_goal_obs_dict,
-        #     return_latent=True
-        # )
-
-        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
-            obs_dict=batch["obs"],
-            goal_dict=batch["goal_obs"],
-            return_latent=True
-        )
-
-        ## sort representations based on type - robot or human 
-        type_list = batch['obs']['type'].tolist()
-        zipped_items = list(batch['obs'].items())
-        sorted_indices = sorted(range(len(type_list)), key=lambda k: type_list[k], reverse=True)
-        sorted_type = batch['obs']['type'][sorted_indices]
-        num_human_samples = len(sorted_type[sorted_type == 1])
-        # print("num_human_samples:", num_human_samples)
-        # if num_human_samples == 32:
-        #     breakpoint()
-        sorted_enc_out = enc_out[sorted_indices]
-        human_enc_out = sorted_enc_out[:num_human_samples]
-        robot_enc_out = sorted_enc_out[num_human_samples:]
-
-        # make sure that this is a batch of multivariate action distributions, so that
-        # the log probability computation will be correct
-        breakpoint()
-        assert len(dists.batch_shape) == 1
-        log_probs = dists.log_prob(batch["actions"])
-
-        predictions = OrderedDict(
-            log_probs=log_probs,
-            enc_out=enc_out,
-            robot_enc_out=robot_enc_out,
-            human_enc_out=human_enc_out
-        )
-        return predictions
-    '''
 
     def _forward_training(self, batch):
         """
@@ -389,8 +279,6 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             log_probs=log_probs,
             enc_out=enc_out,
             enc_out_2=enc_out_2
-            # robot_enc_out=robot_enc_out,
-            # human_enc_out=human_enc_out
         )
         return predictions
 

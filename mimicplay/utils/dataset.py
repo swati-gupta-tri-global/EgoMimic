@@ -246,10 +246,12 @@ class PlaydataSequenceDataset(SequenceDataset):
 
         if demo_id in self.human_keys:
             meta['obs']['type'] = 1 #'human'
-            meta['goal_obs']['type'] = 1 #'human'
+            if self.goal_mode is not None:
+                meta['goal_obs']['type'] = 1 #'human'
         elif demo_id in self.robot_keys:
             meta['obs']['type'] = 0 #'robot'
-            meta['goal_obs']['type'] = 0 #'robot'
+            if self.goal_mode is not None:
+                meta['goal_obs']['type'] = 0 #'robot'
             
         ## check meta for zero front_img and sample safe_index
         # if not meta["obs"]["front_img_1"].any():

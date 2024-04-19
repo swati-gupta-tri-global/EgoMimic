@@ -1,6 +1,6 @@
 import argparse
 import submitit
-from mimicplay.scripts.train import main, train_argparse
+from mimicplay.scripts.train_2_dataloaders import main, train_argparse
 import os
 import datetime
 import time
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # Cluster specific options must be appended by the cluster name:
     # Eg.: slurm partition can be specified using `slurm_partition` argument. It
     # will be ignored on other clusters:
-    executor.update_parameters(slurm_partition="rl2-lab", cpus_per_task=16, nodes=1, slurm_ntasks_per_node=1, gpus_per_node="a40:2", slurm_qos="short", slurm_mem_per_gpu="40G", timeout_min=60*24*2)
+    executor.update_parameters(slurm_partition="hoffman-lab", cpus_per_task=16, nodes=1, slurm_ntasks_per_node=1, gpus_per_node="a40:2", slurm_qos="long", slurm_mem_per_gpu="40G", timeout_min=60*24*4)
     # The submission interface is identical to concurrent.futures.Executor
 
     job = executor.submit(main, args)

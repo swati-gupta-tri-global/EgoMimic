@@ -95,10 +95,7 @@
             "num_modes": 5,
             "min_std": 0.0001,
             "std_activation": "softplus",
-            "low_noise_eval": false,
-            "kl_weight": 10,
-            "kl": true,
-            "cotrain": true
+            "low_noise_eval": false
         },
         "vae": {
             "enabled": false,
@@ -169,8 +166,8 @@
         },
         "playdata": {
             "enabled": true,
-            "goal_image_range": [30, 50],
-            "eval_goal_gap": 40
+            "goal_image_range": [100, 200],
+            "eval_goal_gap": 150
         }
     },
     "observation": {
