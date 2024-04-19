@@ -3,6 +3,7 @@ import torchvision
 import numpy as np
 import torch
 import os
+from mimicplay.algo.act import ACT
 
 def evaluate_high_level_policy(model, data_loader, video_dir):
     """
@@ -39,6 +40,8 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
     GOAL_COND = model.global_config.train.goal_mode
 
     for i, data in enumerate(data_loader):
+        if i == 10:
+            break
         # import matplotlib.pyplot as plt
         # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
@@ -56,7 +59,11 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
             
             pred_values = np.ones((10, 3))
             for t in range(10):
-                means = info.mean[b, t*3:3*(t+1)].cpu().numpy()
+                if isinstance(model, ACT):
+                    means = info["actions"][b, t].cpu().numpy()
+                else:
+                    means = info.mean[b, t*3:3*(t+1)].cpu().numpy()
+
                 # means = general_unnorm(means, -110.509903, 624.081421, -1, 1)
                 # means[0] = general_unnorm(means[0], mins[0], maxs[0], -1, 1)
                 # means[1] = general_unnorm(means[1], mins[1], maxs[1], -1, 1)
@@ -71,7 +78,11 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
             # actions[:, 1] = general_unnorm(actions[:, 1], mins[1], maxs[1], -1, 1)
             # actions[:, 2] = general_unnorm(actions[:, 2], mins[2], maxs[2], -1, 1)
             actions = actions.cpu().numpy()
-            add_metrics(metrics, actions, info.mean[b].view((10,3)).cpu().numpy())
+
+            if isinstance(model, ACT):
+                add_metrics(metrics, actions, info["actions"][b].cpu().numpy())
+            else:
+                add_metrics(metrics, actions, info.mean[b].view((10,3)).cpu().numpy())
             for t in range(10):
                 actions[t] = cam_frame_to_cam_pixels(actions[t][None, :], intrinsics)
 

@@ -35,8 +35,6 @@ conda activate mimicplay
 
 The simulation result of MimicPlay is tested on [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO), which is a great multitask manipulation simulation based on [robosuite](https://github.com/ARISE-Initiative/robosuite) and latest [MuJoCo](https://github.com/google-deepmind/mujoco). We choose LIBERO due to its utilization of the [BDDL language](https://github.com/StanfordVL/bddl) for goal specification, which facilitates the multitask evaluation for learning from play data.
 ```	
-# Install MuJoCo
-pip install mujoco
 
 # Install robosuite
 git clone https://github.com/ARISE-Initiative/robosuite.git
@@ -45,19 +43,6 @@ git checkout v1.4.1_libero
 pip install -r requirements.txt
 pip install -r requirements-extra.txt
 pip install -e .
-
-# Install BDDL
-cd ..
-git clone https://github.com/StanfordVL/bddl.git
-cd bddl
-pip install -e .
-
-# Install LIBERO
-cd ..
-git clone https://github.com/Lifelong-Robot-Learning/LIBERO.git
-cd LIBERO
-pip install -r requirements.txt
-pip install -e .
 ```
 
 MimicPlay is based on [robomimic](https://github.com/ARISE-Initiative/robomimic), which facilitates the basics of learning from offline demonstrations.
@@ -65,9 +50,14 @@ MimicPlay is based on [robomimic](https://github.com/ARISE-Initiative/robomimic)
 cd ..
 git clone https://github.com/ARISE-Initiative/robomimic
 cd robomimic
-git checkout mimicplay-libero
+git checkout <custom branch>
+pip install -e .
+cd act/detr
 pip install -e .
 ```
+
+Install submit
+pip install git+https://github.com/SimarKareer/submitit
 
 Install MimicPlay
 ```	
@@ -76,6 +66,14 @@ git clone https://github.com/j96w/MimicPlay.git
 cd MimicPlay
 pip install -e .
 ```
+
+Install other things
+```
+pip install git+https://github.com/simarkareer/submitit
+pip install av
+pip install pynvml
+```
+
 
 -------
 ## Dataset
@@ -271,3 +269,9 @@ With dinov2 non goal cond
 `python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/one_bowl_one_object_robot_apr9/robomimic/oboo_apr9Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
 
 Use `--debug` to check that the pipeline works
+
+
+ACT based:
+```
+python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16Mimicplay_copy.hdf5 --name vanillaact --description v1 --non-goal-cond
+```
