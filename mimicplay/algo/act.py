@@ -51,7 +51,7 @@ class ACT(BC_VAE):
             self.proprio_dim += self.obs_key_shapes[k][0]
 
         from act.detr.main import build_ACT_model_and_optimizer
-        #TODO Our current setup uses sequence length 1, change to 10 then pull this from config
+        #TODO FIX HARDCODE num_queries and a_dim
         policy_config = {'num_queries': 10,
                          'hidden_dim': self.algo_config.act.hidden_dim,
                          'dim_feedforward': self.algo_config.act.dim_feedforward,
@@ -60,7 +60,7 @@ class ACT(BC_VAE):
                          'dec_layers': self.algo_config.act.dec_layers,
                          'nheads': self.algo_config.act.nheads,
                          'latent_dim': self.algo_config.act.latent_dim,
-                         'a_dim': self.ac_dim,
+                         'a_dim': 3,
                          'state_dim': self.proprio_dim,
                          'camera_names': self.camera_keys
                          }

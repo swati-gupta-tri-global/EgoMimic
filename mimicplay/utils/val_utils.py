@@ -40,8 +40,6 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
     GOAL_COND = model.global_config.train.goal_mode
 
     for i, data in enumerate(data_loader):
-        if i == 10:
-            break
         # import matplotlib.pyplot as plt
         # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
