@@ -101,6 +101,9 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         self.nets = self.nets.float().to(self.device)
 
+        ## KL div
+        self.kl_weight=self.algo_config.gmm.kl_weight
+
     def postprocess_batch_for_training(self, batch, obs_normalization_stats):
         """
         Processes input batch from a data loader to filter out
@@ -378,6 +381,9 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         assert len(dists.batch_shape) == 1
         # log_probs = dists.log_prob(batch["actions"])
         log_probs = dists.log_prob(batch_hand["actions"])
+        
+        if self.algo_config.gmm.cotrain == True:
+            log_probs = torch.cat((dists.log_prob(batch_hand["actions"]), dists_2.log_prob(batch_robot["actions"])))
 
         predictions = OrderedDict(
             log_probs=log_probs,
@@ -405,11 +411,13 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         # loss is just negative log-likelihood of action targets
         input_kl = F.log_softmax(predictions["enc_out_2"], dim=1) # robot
         target_kl = F.softmax(predictions["enc_out"], dim=1) # human
-        kl_div_loss = 10*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
+        kl_div_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
+        if self.algo_config.gmm.kl == True:
+            kl_div_loss = self.kl_weight*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
 
         ##
         action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean()
-        # breakpoint()
+
         return OrderedDict(
             log_probs=-action_loss,
             action_loss=action_loss,

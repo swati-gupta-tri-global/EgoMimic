@@ -47,7 +47,7 @@ from robomimic.utils.log_utils import PrintLogger, DataLogger
 
 from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
-from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training, load_dataset
+from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
 
 import mimicplay.utils.val_utils as ValUtils
 from mimicplay.scripts.ddp_utils import convert_groupnorm_model, init_distrib_slurm, EXIT
@@ -527,9 +527,9 @@ def train(config, device):
     print("")
     
     # load training data
-    trainset, validset = load_dataset(
+    trainset, validset = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path)
-    trainset_2, validset_2 = load_dataset(
+    trainset_2, validset_2 = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2)
     train_sampler = trainset.get_dataset_sampler()
     train_sampler_2 = trainset_2.get_dataset_sampler()
@@ -840,7 +840,9 @@ def main(args):
         config = config_factory(ext_cfg["algo_name"])
         # update config with external json - this will throw errors if
         # the external config has keys not present in the base algo config
+        config.unlock()
         with config.values_unlocked():
+            config.unlock()
             config.update(ext_cfg)
     else:
         config = config_factory(args.algo)
