@@ -47,13 +47,11 @@ def algo_config_to_class(algo_config):
             return BC_RNN_GMM, {}
 
 class Domain_Discriminator(nn.Module):
-    def __init__(self, in_features=512):
+    def __init__(self, in_features=67):
         super(Domain_Discriminator, self).__init__()
         self.in_features = in_features
         self.model = nn.Sequential(
-            nn.Linear(in_features=in_features, out_features=256),
-            nn.ReLU(),
-            nn.Linear(256, 64),
+            nn.Linear(67, 64),
             nn.ReLU(),
             nn.Linear(64, 16),
             nn.ReLU(),
@@ -94,8 +92,13 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         )
 
         ## domain discriminator
-        # self.discriminator = Domain_Discriminator()
-        # self.discriminator = self.discriminator.float().to(self.device)
+        self.discriminator = Domain_Discriminator()
+        self.discriminator = self.discriminator.float().to(self.device)
+        # Parameters for the optimizer
+        learning_rate = 0.0002  # Common starting learning rate for Adam in GANs
+        betas = (0.5, 0.999)    # Betas used typically in GANs to control the moving averages
+        self.discriminator_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=learning_rate, betas=betas)
+
 
         self.save_count = 0
 
@@ -303,13 +306,31 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         if self.algo_config.gmm.kl == True:
             kl_div_loss = self.kl_weight*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
 
+        ## Discriminator-based loss
+        human_latent, robot_latent = predictions["enc_out"], predictions["enc_out_2"]
+        real_labels = torch.ones(human_latent.size(0), 1, device=self.device)
+        fake_labels = torch.zeros(robot_latent.size(0), 1, device=self.device)
+
+        # breakpoint()
+        real_loss = F.binary_cross_entropy(self.discriminator(human_latent), real_labels)
+        fake_loss = F.binary_cross_entropy(self.discriminator(robot_latent), fake_labels)
+        discriminator_loss = (real_loss + fake_loss) / 2
+
+        self.discriminator_optimizer.zero_grad()  # Reset gradients
+        discriminator_loss.backward()        # Compute gradients
+        self.discriminator_optimizer.step()       # Update weights
+
+        generator_loss =  F.binary_cross_entropy(self.discriminator(robot_latent), real_labels)
+        
         ##
-        action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean()
+        action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean() + generator_loss.mean()
 
         return OrderedDict(
             log_probs=-action_loss,
             action_loss=action_loss,
-            kl_div_loss=kl_div_loss
+            kl_div_loss=kl_div_loss,
+            generator_loss=generator_loss,
+            discriminator_loss=discriminator_loss
         )
 
     def log_info(self, info):
@@ -327,6 +348,8 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         log["Loss"] = info["losses"]["action_loss"].item()
         log["Log_Likelihood"] = info["losses"]["log_probs"].item()
         log["kl_div_loss"] = info["losses"]["kl_div_loss"].item()
+        log["generator_loss"]=info["losses"]["generator_loss"].item()
+        log["discriminator_loss"]=info["losses"]["discriminator_loss"].item()
         # breakpoint()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
