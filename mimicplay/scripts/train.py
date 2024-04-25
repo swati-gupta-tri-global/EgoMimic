@@ -411,6 +411,9 @@ def main(args):
     
     if args.ac_key is not None:
         config.train.ac_key = args.ac_key
+    
+    if args.obs_rgb is not None:
+        config.observation.modalities.obs.rgb = args.obs_rgb
 
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
@@ -554,6 +557,13 @@ def train_argparse():
         type=str,
         default=None,
         help="action key"
+    )
+
+    # add list of camera names
+    parser.add_argument(
+        "--obs-rgb",
+        nargs='+',
+        help="list of camera names"
     )
 
     args = parser.parse_args()

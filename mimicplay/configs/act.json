@@ -59,7 +59,7 @@
         ],
         "goal_mode": null,
         "cuda": true,
-        "batch_size": 128,
+        "batch_size": 8,
         "num_epochs": 10000,
         "seed": 1
     },
@@ -68,7 +68,7 @@
             "policy": {
                 "optimizer_type": "adamw",
                 "learning_rate": {
-                    "initial": 5e-5,
+                    "initial": 1e-5,
                     "decay_factor": 1,
                     "epoch_schedule": [
                         100
