@@ -65,7 +65,13 @@ if __name__ == "__main__":
         type=str,
         help="path to output dataset: /coc/flash7/datasets/oboov2/<ds_name>.hdf5"
     )
-
+    parser.add_argument(
+        "--data-type",
+        type=str,
+        required=True,
+        choices=['hand', 'robot'],  # Restrict to only 'hand' or 'robot'
+        help="Choose which data-type - hand or robot"
+    )
     args = parser.parse_args()
 
     chain = pk.build_serial_chain_from_urdf(open("/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf").read(), "vx300s/ee_gripper_link")
@@ -91,6 +97,10 @@ if __name__ == "__main__":
             with h5py.File(aloha_demo_path, "r") as aloha_hdf5:
                 demo_number = aloha_demo.split("_")[1].split(".")[0]
                 demo_i_group = data_group.create_group(f"demo_{demo_number}")
+                if args.data_type == "hand":
+                    demo_i_group['label'] = np.array([1])
+                elif args.data_type == "robot":
+                    demo_i_group['label'] = np.array([0])
                 demo_i_group.attrs["num_samples"] = aloha_hdf5["action"].shape[0]
                 demo_i_obs_group = demo_i_group.create_group("obs")
 
