@@ -20,7 +20,6 @@ from robomimic.algo.bc import BC_Gaussian, BC_RNN
 
 from mimicplay.utils.obs_utils import keep_keys
 import time
-import robomimic.algo.act
 
 @register_algo_factory_func("mimicplay")
 def algo_config_to_class(algo_config):

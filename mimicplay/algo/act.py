@@ -45,6 +45,7 @@ class ACT(BC_VAE):
         self.camera_keys = self.obs_config['modalities']['obs']['rgb'].copy()
         self.proprio_keys = self.obs_config['modalities']['obs']['low_dim'].copy()
         self.obs_keys = self.proprio_keys + self.camera_keys
+        self.ac_key = self.global_config.train.ac_key
 
         self.proprio_dim = 0
         for k in self.proprio_keys:
@@ -52,7 +53,8 @@ class ACT(BC_VAE):
 
         from act.detr.main import build_ACT_model_and_optimizer
         #TODO FIX HARDCODE num_queries and a_dim
-        policy_config = {'num_queries': 10,
+        policy_config = {
+                         'num_queries': self.global_config.train.seq_length,
                          'hidden_dim': self.algo_config.act.hidden_dim,
                          'dim_feedforward': self.algo_config.act.dim_feedforward,
                          'backbone': self.algo_config.act.backbone,
@@ -60,7 +62,8 @@ class ACT(BC_VAE):
                          'dec_layers': self.algo_config.act.dec_layers,
                          'nheads': self.algo_config.act.nheads,
                          'latent_dim': self.algo_config.act.latent_dim,
-                         'a_dim': 3,
+                         'a_dim': self.ac_dim,
+                         'ac_key': self.ac_key,
                          'state_dim': self.proprio_dim,
                          'camera_names': self.camera_keys
                          }
@@ -90,13 +93,9 @@ class ACT(BC_VAE):
 
         input_batch = dict()
         input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"] if k != 'pad_mask'}
-        # input_batch["obs"]['pad_mask'] = batch["obs"]['pad_mask']
+        input_batch["obs"]['pad_mask'] = batch["obs"]['pad_mask']
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
-        B, T, D = batch["actions"].shape
-        assert T == 1, "assuming our current dataloader which returns (1, 30)"
-        assert D == 30, "assuming our current dataloader which returns (1, 30)"
-
-        input_batch["actions"] = batch["actions"][:, :, :].view((B, 10, 3))
+        input_batch["actions"] = batch[self.ac_key]
         
         # we move to device first before float conversion because image observation modalities will be uint8 -
         # this minimizes the amount of data transferred to GPU
@@ -135,11 +134,10 @@ class ACT(BC_VAE):
         env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # this is not used
 
         actions = batch['actions']
-        # is_pad = batch['obs']['pad_mask'] == 0  # from 1.0 or 0 to False and True
-        #TODO: don't hardcode padding
-        is_pad = torch.ones(actions.shape[:2]).to(actions.device) == 0
-        # is_pad = is_pad.squeeze(dim=-1)
-        # is_pad = None
+        is_pad = batch['obs']['pad_mask'] == 0  # from 1.0 or 0 to False and True
+        is_pad = is_pad.squeeze(dim=-1)
+        B, T = is_pad.shape
+        assert T == self.chunk_size
 
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, actions, is_pad)
         total_kld, dim_wise_kld, mean_kld = self.kl_divergence(mu, logvar)
@@ -184,13 +182,12 @@ class ACT(BC_VAE):
         env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # this is not used
 
         # actions = batch['actions']
-        # is_pad = batch['obs']['pad_mask'] == 0  # from 1.0 or 0 to False and True
-        #TODO: don't hardcode padding
-        # is_pad = torch.ones(actions.shape[:2]).to(actions.device) == 0
-        # is_pad = is_pad.squeeze(dim=-1)
-        # is_pad = None
+        is_pad = batch['obs']['pad_mask'] == 0  # from 1.0 or 0 to False and True
+        is_pad = is_pad.squeeze(dim=-1)
+        B, T = is_pad.shape
+        assert T == self.chunk_size
 
-        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, None, None)
+        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, actions=None, is_pad=is_pad)
 
         predictions = OrderedDict(
             actions=a_hat

@@ -182,6 +182,9 @@ class BaseConfig(Config):
         self.train.frame_stack = 1
         self.train.pad_frame_stack = True
 
+        # Added for egoplay
+        self.train.ac_key = "actions"
+
         # keys from hdf5 to load into each batch, besides "obs" and "next_obs". If algorithms
         # require additional keys from each trajectory in the hdf5, they should be specified here.
         self.train.dataset_keys = (

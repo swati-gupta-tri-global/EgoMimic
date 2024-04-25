@@ -234,25 +234,18 @@ On robot run
 - `record_episodes.py`
 - Move the whole folder of all epsiodes onto skynet
 - cd into `mimicplay/scripts/aloha_process`
-- run `python aloha_to_robomimic.py`.  This will convert the aloha joint positions to 3d EE pose relative to robot base
+- run `python aloha_to_robomimicv2.py`.  This will convert the aloha joint positions to 3d EE pose relative to robot base
 
 ex) 
 ```bash
-python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ --arm left --out /coc/flash7/skareer6/calibrate_samples/ --task-name robomimic
+python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5  --extrinsics humanoidApr16
 ```
 
-- In the folder you specify, you'll now see `robomimic.hdf5`
-- Finally cd into `mimicplay/scripts/calibrate_camera`
 
 ### Calibration
-- Run `python calibrate_egoplay.py --h5py-path <path to robomimic.hdf5>`
+- cd into `mimicplay/scripts/calibrate_camera`
+- Run `python calibrate_egoplay.py --h5py-path <path to hdf5 from previous section.hdf5>`
 - This will output the transform matrices
-
-
-### Make Mimicplay Compatible
-- Run `EgoPlay/mimicplay/scripts/aloha_process/mimicplay_data_process.py`
-- This will remove quat from ee pose, and also make the ee_pose relative to the camera frame (if it was originally robot data.  Hand data is already relative to cam frame).
-
 
 
 ### Hand Data
@@ -261,17 +254,20 @@ python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ -
 
 
 ### Training policies
-High level:
+Base High level:
 `python scripts/train.py --config configs/highlevel_real.json --dataset /coc/flash7/datasets/egoplay/humanoidStacking/humanoid_stackingMimicplay.hdf5 --name humanoidStacking --description v1`
 or via `python scripts/exps/submit.py`
 
 With dinov2 non goal cond
 `python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/one_bowl_one_object_robot_apr9/robomimic/oboo_apr9Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
 
+With ACT settings
+`python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACT --description joints --non-goal-cond --ac-key actions_joints`
+
 Use `--debug` to check that the pipeline works
 
+Remember `conda activate eplay2`
 
-ACT based:
-```
-python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16Mimicplay_copy.hdf5 --name vanillaact --description v1 --non-goal-cond
-```
+Dirty laundry
+- Hardcoded path to urdf in SimarUtils.py
+- hardcoded extrinsics in val_utils.py

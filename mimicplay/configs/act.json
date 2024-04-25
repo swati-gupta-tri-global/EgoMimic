@@ -48,12 +48,14 @@
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
         "hdf5_normalize_obs": false,
-        "seq_length": 1,
+        "seq_length": 100,
+        "ac_key": "actions_xyz",
         "pad_seq_length": true,
         "frame_stack": 1,
         "pad_frame_stack": true,
         "dataset_keys": [
-            "actions"
+            "actions_xyz",
+            "actions_joints"
         ],
         "goal_mode": null,
         "cuda": true,
@@ -66,7 +68,7 @@
             "policy": {
                 "optimizer_type": "adamw",
                 "learning_rate": {
-                    "initial": 0.00005,
+                    "initial": 5e-5,
                     "decay_factor": 1,
                     "epoch_schedule": [
                         100
