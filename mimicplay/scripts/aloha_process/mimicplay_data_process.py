@@ -78,6 +78,11 @@ def prep_for_mimicplay(hdf5_path, data_type):
     for demo_key in demo_keys:
         h5py_file[f"data/{demo_key}"].attrs["num_samples"] = h5py_file[f"data/{demo_key}/actions"].shape[0]
 
+        if  data_type == "hand":
+            h5py_file[f"data/{demo_key}"]['label'] = np.array([1])
+        elif data_type == "robot":
+            h5py_file[f"data/{demo_key}"]['label'] = np.array([0])
+
         # It seems like robomimic wants (..., C, H, W) instead of (..., H, W, C)
         # for im_number in range(1, 3):
         #     im1 = h5py_file[f"data/{k}/obs/front_image_{im_number}"][...].transpose((0, 3, 1, 2))

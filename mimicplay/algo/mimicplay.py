@@ -306,22 +306,26 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         if self.algo_config.gmm.kl == True:
             kl_div_loss = self.kl_weight*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
 
-        ## Discriminator-based loss
-        human_latent, robot_latent = predictions["enc_out"], predictions["enc_out_2"]
-        real_labels = torch.ones(human_latent.size(0), 1, device=self.device)
-        fake_labels = torch.zeros(robot_latent.size(0), 1, device=self.device)
+        ## Domain Discriminator
+        generator_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
+        discriminator_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
 
-        # breakpoint()
-        real_loss = F.binary_cross_entropy(self.discriminator(human_latent), real_labels)
-        fake_loss = F.binary_cross_entropy(self.discriminator(robot_latent), fake_labels)
-        discriminator_loss = (real_loss + fake_loss) / 2
+        if self.algo_config.gmm.domain_discriminator == True:
+            human_latent, robot_latent = predictions["enc_out"], predictions["enc_out_2"]
+            real_labels = torch.ones(human_latent.size(0), 1, device=self.device)
+            fake_labels = torch.zeros(robot_latent.size(0), 1, device=self.device)
 
-        self.discriminator_optimizer.zero_grad()  # Reset gradients
-        discriminator_loss.backward()        # Compute gradients
-        self.discriminator_optimizer.step()       # Update weights
+            # breakpoint()
+            real_loss = F.binary_cross_entropy(self.discriminator(human_latent), real_labels)
+            fake_loss = F.binary_cross_entropy(self.discriminator(robot_latent), fake_labels)
+            discriminator_loss = (real_loss + fake_loss) / 2
 
-        generator_loss =  F.binary_cross_entropy(self.discriminator(robot_latent), real_labels)
-        
+            self.discriminator_optimizer.zero_grad()  # Reset gradients
+            discriminator_loss.backward()        # Compute gradients
+            self.discriminator_optimizer.step()       # Update weights
+
+            generator_loss =  F.binary_cross_entropy(self.discriminator(robot_latent), real_labels)
+            
         ##
         action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean() + generator_loss.mean()
 

@@ -97,8 +97,9 @@
             "std_activation": "softplus",
             "low_noise_eval": false,
             "kl_weight": 10,
-            "kl": true,
-            "cotrain": true
+            "kl": false,
+            "cotrain": true,
+            "domain_discriminator": false
         },
         "vae": {
             "enabled": false,
