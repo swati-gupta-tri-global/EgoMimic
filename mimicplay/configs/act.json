@@ -12,17 +12,17 @@
         "save": {
             "enabled": true,
             "every_n_seconds": null,
-            "every_n_epochs": 500,
+            "every_n_epochs": 300,
             "top_n": 5,
             "epochs": [],
             "on_best_validation": true,
             "on_best_rollout_return": false,
             "on_best_rollout_success_rate": true,
-            "video_freq": 10
+            "video_freq": 300
         },
-        "epoch_every_n_steps": 500,
-        "validation_epoch_every_n_steps": 20,
-        "validation_freq": 10,
+        "epoch_every_n_steps": 100,
+        "validation_freq": 300,
+        "validation_max_samples": null,
         "env": null,
         "additional_envs": null,
         "render": false,
@@ -41,7 +41,7 @@
     "train": {
         "data": null,
         "output_dir":"../trained_models_highlevel",
-        "num_data_workers": 4,
+        "num_data_workers": 5,
         "hdf5_cache_mode": "low_dim",
         "hdf5_use_swmr": true,
         "hdf5_load_next_obs": false,
@@ -49,7 +49,7 @@
         "hdf5_validation_filter_key": "valid",
         "hdf5_normalize_obs": false,
         "seq_length": 100,
-        "ac_key": "actions_xyz",
+        "ac_key": "actions_joints",
         "pad_seq_length": true,
         "frame_stack": 1,
         "pad_frame_stack": true,
@@ -107,7 +107,7 @@
                 "low_dim": [
                     "ee_pose"
                 ],
-                "rgb": ["front_img_1"],
+                "rgb": ["front_img_1", "right_wrist_img"],
                 "depth": [],
                 "scan": []
             },

@@ -15,7 +15,7 @@ def visualize_ACT(preds, actions, frame):
     """
 
 
-def evaluate_high_level_policy(model, data_loader, video_dir):
+def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None):
     """
     Evaluate high level trajectory prediciton policy.
     model: model loaded from checkpoint
@@ -23,6 +23,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
     goal_distance: number of steps forward to predict
     video_path: path to save rendered video
     acton_type: "xyz" or "joints"
+    max_samples: maximum number of samples to evaluate
     """
 
     vid_dir_count = 0
@@ -51,6 +52,9 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
     GOAL_COND = model.global_config.train.goal_mode
 
     for i, data in enumerate(data_loader):
+        B = data["obs"]["front_img_1"].shape[0]
+        if max_samples is not None and i * B > max_samples:
+            break
         # import matplotlib.pyplot as plt
         # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
@@ -63,7 +67,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         info = model.forward_eval(input_batch)
 
         print(i)
-        for b in range(data["obs"]["front_img_1"].shape[0]):
+        for b in range(B):
             im = data["obs"]["front_img_1"][b, 0].numpy()
             if isinstance(model, ACT):
                 pred_values = info["actions"][b].cpu().numpy()
@@ -111,17 +115,23 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
 
         summary_metrics[key] = mean_stat
 
-    to_return = {
-        "paired_mse x": summary_metrics["paired_mse"][0],
-        "paired_mse y": summary_metrics["paired_mse"][1],
-        "paired_mse z": summary_metrics["paired_mse"][2],
-        "paired_mse avg": np.mean(summary_metrics["paired_mse"]),
-        "final_mse x": summary_metrics["final_mse"][0],
-        "final_mse y": summary_metrics["final_mse"][1],
-        "final_mse z": summary_metrics["final_mse"][2],
-        "final_mse avg": np.mean(summary_metrics["final_mse"]),
-    }
-    
+    if model.ac_key == "actions_joints":
+        to_return = {
+            "paired_mse_avg": np.mean(summary_metrics["paired_mse"]),
+            "final_mse_avg": np.mean(summary_metrics["final_mse"]),
+        }
+    else:
+        to_return = {
+            "paired_mse x": summary_metrics["paired_mse"][0],
+            "paired_mse y": summary_metrics["paired_mse"][1],
+            "paired_mse z": summary_metrics["paired_mse"][2],
+            "paired_mse_avg": np.mean(summary_metrics["paired_mse"]),
+            "final_mse x": summary_metrics["final_mse"][0],
+            "final_mse y": summary_metrics["final_mse"][1],
+            "final_mse z": summary_metrics["final_mse"][2],
+            "final_mse_avg": np.mean(summary_metrics["final_mse"]),
+        }
+        
     return to_return
 
 def add_metrics(metrics, actions, pred_values):

@@ -29,24 +29,33 @@ import psutil
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.tensor_utils as TensorUtils
 import torch
+from torch.utils.data import DataLoader
 import wandb
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer, seed_everything
-from pytorch_lightning.callbacks import Callback, StochasticWeightAveraging, Timer
+from pytorch_lightning.callbacks import Callback, StochasticWeightAveraging, Timer, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.profilers import AdvancedProfiler
 from pytorch_lightning.strategies import DDPStrategy
-from robomimic.algo import RolloutPolicy
+from pytorch_lightning.utilities import rank_zero_only
+
+
+import robomimic.utils.train_utils as TrainUtils
+import robomimic.utils.torch_utils as TorchUtils
+import robomimic.utils.obs_utils as ObsUtils
+import robomimic.utils.env_utils as EnvUtils
+import robomimic.utils.file_utils as FileUtils
+from robomimic.utils.log_utils import PrintLogger, DataLogger
 from robomimic.algo.algo import PolicyAlgo
-from robomimic.utils.log_utils import PrintLogger
-from torch.utils.data import DataLoader
 
-import optimus.utils.env_utils as EnvUtils
-import optimus.utils.file_utils as FileUtils
-import optimus.utils.train_utils as TrainUtils
-from optimus.algo import algo_factory
-from optimus.config import config_factory
-from optimus.envs.wrappers import EvaluateOnDatasetWrapper, FrameStackWrapper
+from mimicplay.configs import config_factory
+from mimicplay.algo import algo_factory, RolloutPolicy
+from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
 
+import mimicplay.utils.val_utils as ValUtils
+
+import datetime
+import time
+from mimicplay.scripts.aloha_process.simarUtils import nds
 
 class DataModuleWrapper(LightningDataModule):
     """
@@ -74,192 +83,10 @@ class DataModuleWrapper(LightningDataModule):
     def train_dataloader(self):
         new_dataloader = DataLoader(dataset=self.train_dataset, **self.train_dataloader_params)
         return new_dataloader
-
-
-class RolloutCallback(Callback):
-    """
-    Callback that handles running rollouts and saving checkpoints based on best return.
-    Also handles online epoch rollouts when toggled.
-    """
-
-    def __init__(
-        self,
-        envs,
-        video_dir,
-        obs_normalization_stats,
-        trainset,
-        ckpt_dir,
-        vis_data,
-        config_path,
-        rollout_dir,
-        exp_log_dir,
-    ):
-        config = TrainUtils.get_config_from_path(config_path)
-        self.envs = envs
-        self.video_dir = video_dir if config.experiment.render_video else None
-        self.rollout_dir = rollout_dir
-        self.exp_log_dir = exp_log_dir
-        self.obs_normalization_stats = obs_normalization_stats
-        self.best_return = {k: -np.inf for k in envs} if config.experiment.rollout.enabled else None
-        self.best_success_rate = (
-            {k: -1.0 for k in envs} if config.experiment.rollout.enabled else None
-        )
-        self.trainset = trainset
-        self.ckpt_dir = ckpt_dir
-        self.data = (
-            {k: dict() for k in envs} if config.experiment.rollout.enabled else None
-        )  # store all the scalar data logged so far
-        self.vis_data = vis_data
-        self.config_path = config_path
-
-    def load_state_dict(self, state_dict):
-        self.best_return = state_dict["best_return"]
-        self.best_success_rate = state_dict["best_success_rate"]
-        self.obs_normalization_stats = state_dict["obs_normalization_stats"]
-        self.data = state_dict["data"]
-
-    def state_dict(self):
-        return dict(
-            best_return=self.best_return,
-            best_success_rate=self.best_success_rate,
-            obs_normalization_stats=self.obs_normalization_stats,
-            data=self.data,
-        )
-
-    def on_train_batch_end(
-        self,
-        trainer,
-        pl_module,
-        outputs,
-        batch,
-        batch_idx,
-        unused=0,
-    ):
-        config = TrainUtils.get_config_from_path(self.config_path)
-        epoch = pl_module.global_step // config.experiment.epoch_every_n_steps
-        envs = self.envs
-        video_dir = self.video_dir
-        model = pl_module.model
-        rollout_check = epoch % config.experiment.rollout.rate == 0
-        epoch_ckpt_name = "model_epoch_{}".format(epoch)
-        epoch_end = pl_module.global_step % config.experiment.epoch_every_n_steps == 0
-        exp_log_dir = self.exp_log_dir
-        epoch_exp_log_dir = os.path.join(exp_log_dir, f"epoch_{epoch}")
-        os.makedirs(epoch_exp_log_dir, exist_ok=True)
-        if (
-            config.experiment.rollout.enabled
-            and (epoch > config.experiment.rollout.warmstart)
-            and rollout_check
-            and epoch_end
-        ):
-            # wrap model as a RolloutPolicy to prepare for rollouts
-            rollout_model = RolloutPolicy(
-                model, obs_normalization_stats=self.obs_normalization_stats
-            )
-            rollout_model.policy.device = pl_module.device
-            num_episodes = config.experiment.rollout.n
-            (all_rollout_logs, video_paths) = TrainUtils.rollout_with_stats(
-                policy=rollout_model,
-                envs=envs,
-                horizon=config.experiment.rollout.horizon,
-                use_goals=config.use_goals,
-                num_episodes=num_episodes,
-                render=False,
-                video_dir=video_dir,
-                epoch=epoch,
-                video_skip=config.experiment.get("video_skip", 5),
-                terminate_on_success=config.experiment.rollout.terminate_on_success,
-                rollout_dir=self.rollout_dir,
-                config=config,
-            )
-
-            if video_dir:
-                for k in video_paths.keys():
-                    trainer.logger.experiment.log(
-                        {f"{k}video": wandb.Video(video_paths[k], format="mp4")}
-                    )
-
-            # summarize results from rollouts to wandb and terminal
-            cumulative_success_rate = 0
-            cumulative_solve_rate = 0
-            for env_name in all_rollout_logs:
-                rollout_logs = all_rollout_logs[env_name]
-                for k, v in rollout_logs.items():
-                    if k not in self.data[env_name]:
-                        self.data[env_name][k] = []
-                    self.data[env_name][k].append(v)
-                    if k == "Success_Rate":
-                        cumulative_success_rate += v
-                    if k.startswith("Time_"):
-                        pl_module.log(
-                            "Timing_Stats/Rollout_{}_{}".format(env_name, k[5:]),
-                            v,
-                        )
-                    else:
-                        pl_module.log("Rollout/{}/{}".format(k, env_name), v)
-
-                    stats = self.get_stats(k, env_name)
-                    for stat_k, stat_v in stats.items():
-                        if k == "Success_Rate" and stat_k == "max":
-                            # this means the task was solved at some checkpoint in training
-                            cumulative_solve_rate += int(stat_v == 1)
-                        stat_k_name = "{}-{}".format(env_name, stat_k)
-                        if k.startswith("Time_"):
-                            pl_module.log(
-                                "Timing_Stats/Rollout_{}_{}".format(stat_k_name, k[5:]),
-                                stat_v,
-                            )
-                        else:
-                            pl_module.log("Rollout/{}/{}".format(k, stat_k_name), stat_v)
-                print("Env: {}".format(env_name))
-                print(json.dumps(rollout_logs, sort_keys=True, indent=4))
-                # checkpoint and video saving logic
-            updated_stats = TrainUtils.should_save_from_rollout_logs(
-                all_rollout_logs=all_rollout_logs,
-                best_return=self.best_return,
-                best_success_rate=self.best_success_rate,
-                epoch_ckpt_name=epoch_ckpt_name,
-                save_on_best_rollout_return=config.experiment.save.on_best_rollout_return,
-                save_on_best_rollout_success_rate=config.experiment.save.on_best_rollout_success_rate,
-            )
-            self.best_return = updated_stats["best_return"]
-            self.best_success_rate = updated_stats["best_success_rate"]
-            epoch_ckpt_name = updated_stats["epoch_ckpt_name"]
-            should_save_ckpt = (
-                config.experiment.save.enabled
-                and updated_stats["should_save_ckpt"]
-                or config.train.num_gpus > 1
-            )
-
-            if should_save_ckpt:
-                checkpoint_path = os.path.join(self.ckpt_dir, epoch_ckpt_name + ".ckpt")
-                trainer.save_checkpoint(checkpoint_path)
-
-        model.set_train()  # rollouts disable training mode
-
-    def on_train_epoch_end(self, trainer, pl_module):
-        # every epoch, overwrite current checkpoint
-        config = TrainUtils.get_config_from_path(self.config_path)
-        if config.train.save_ckpt_on_epoch_end:
-            checkpoint_path = os.path.join(self.ckpt_dir, "model_latest.ckpt")
-            trainer.save_checkpoint(checkpoint_path)
-        pass
-
-    def get_stats(self, k, env_name):
-        """
-        Computes running statistics for a particular key.
-
-        Args:
-            k (str): key string
-        Returns:
-            stats (dict): dictionary of statistics
-        """
-        stats = dict()
-        stats["mean"] = np.mean(self.data[env_name][k])
-        stats["std"] = np.std(self.data[env_name][k])
-        stats["min"] = np.min(self.data[env_name][k])
-        stats["max"] = np.max(self.data[env_name][k])
-        return stats
+    
+    def val_dataloader(self):
+        new_dataloader = DataLoader(dataset=self.valid_dataset, **self.valid_dataloader_params)
+        return new_dataloader
 
 
 class ModelWrapper(LightningModule):
@@ -267,7 +94,7 @@ class ModelWrapper(LightningModule):
     Wrapper class around robomimic models to ensure compatibility with Pytorch Lightning.
     """
 
-    def __init__(self, model):
+    def __init__(self, model, datamodule):
         """
         Args:
             model (PolicyAlgo): robomimic model to wrap.
@@ -284,7 +111,10 @@ class ModelWrapper(LightningModule):
         self.step_log_all_train = []
         self.step_log_all_valid = []
 
+        self.datamodule = datamodule
+
     def training_step(self, batch, batch_idx):
+        self.train()
         batch["obs"] = ObsUtils.process_obs_dict(batch["obs"])
         info = PolicyAlgo.train_on_batch(self.model, batch, self.current_epoch, validate=False)
         batch = self.model.process_batch_for_training(batch)
@@ -292,7 +122,15 @@ class ModelWrapper(LightningModule):
         losses = self.model._compute_losses(predictions, batch)
         info["losses"] = TensorUtils.detach(losses)
         self.step_log_all_train.append(self.model.log_info(info))
-        if self.global_step % self.model.epoch_every_n_steps == 0:
+
+        # count=0
+        # for name, param in self.named_parameters():
+        #     if param.grad is None:
+        #         count += 1
+        #         # print(name)
+        # print("Unused params: ", count)
+
+        if self.global_step % self.model.global_config.experiment.epoch_every_n_steps == 0:
             # flatten and take the mean of the metrics
             log = {}
             for i in range(len(self.step_log_all_train)):
@@ -309,37 +147,8 @@ class ModelWrapper(LightningModule):
             self.step_log_all_train = []
         return losses["action_loss"]
 
-    def validation_step(self, batch, batch_idx):
-        try:
-            low_noise_eval = self.model.nets["policy"].low_noise_eval
-            self.model.nets["policy"].low_noise_eval = False
-        except:
-            low_noise_eval = None
-            pass
-        batch["obs"] = ObsUtils.process_obs_dict(batch["obs"])
-        info = PolicyAlgo.train_on_batch(self.model, batch, self.current_epoch, validate=True)
-        batch = self.model.process_batch_for_training(batch)
-        predictions = self.model._forward_training(batch)
-        losses = self.model._compute_losses(predictions, batch)
-        info["losses"] = TensorUtils.detach(losses)
-        self.step_log_all_valid.append(self.model.log_info(info))
-        if self.global_step % self.model.epoch_every_n_steps == 0:
-            # flatten and take the mean of the metrics
-            log = {}
-            for i in range(len(self.step_log_all_valid)):
-                for k in self.step_log_all_valid[i]:
-                    if k not in log:
-                        log[k] = []
-                    log[k].append(self.step_log_all_valid[i][k])
-            log_all = dict((k, float(np.mean(v))) for k, v in log.items())
-            for k, v in log_all.items():
-                self.log("Valid/" + k, v, sync_dist=True)
-            self.step_log_all_valid = []
-        try:
-            self.model.nets["policy"].low_noise_eval = low_noise_eval
-        except:
-            pass
-        return losses["action_loss"]
+    def val_dataloader(self):
+        return self.datamodule.val_dataloader()
 
     def configure_optimizers(self):
         if self.model.lr_schedulers["policy"]:
@@ -357,19 +166,39 @@ class ModelWrapper(LightningModule):
                 "optimizer": self.model.optimizers["policy"],
             }
 
-    def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
-        optimizer.zero_grad()
+    # def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
+    #     optimizer.zero_grad(optimizer_idx)
 
-    def training_epoch_end(self, outputs):
+    def on_train_epoch_end(self):
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
         mem_usage = process.memory_info().rss / int(1e9)
         self.log("System/RAM Usage (GB)", mem_usage, sync_dist=True)
         print("\nEpoch {} Memory Usage: {} GB\n".format(self.current_epoch, mem_usage))
-        return super().training_epoch_end(outputs)
+        # self.log('epoch', self.trainer.current_epoch)
 
-    def lr_scheduler_step(self, scheduler, optimizer_idx, metric):
-        if self.model.lr_warmup:
+        
+        # if rank 0
+        if self.global_rank == 0:
+            # Perform custom validation
+            val_freq = self.model.global_config.experiment.validation_freq
+            video_freq = self.model.global_config.experiment.save.video_freq
+
+            self.eval()
+            self.zero_grad()
+            with torch.no_grad():
+                if self.current_epoch % val_freq == 0 and self.current_epoch != 0:
+                    pass_vid = os.path.join(self.trainer.default_root_dir, "videos") if self.current_epoch % video_freq == 0 else None
+                    valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.val_dataloader(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples) #save vid only once every video_freq epochs
+                    self.log("final_mse_avg", valid_step_log["final_mse_avg"])
+                
+            self.train()
+        # self.trainer.save_checkpoint(os.path.join(self.trainer.default_root_dir, "models/curr_ckpt.ckpt"))
+
+        return super().on_train_epoch_end()
+
+    def lr_scheduler_step(self, scheduler, optimizer_idx):
+        if False and self.model.lr_warmup:
             # lr warmup schedule taken from Gato paper
             # update params
             initial_lr = 0
@@ -389,6 +218,7 @@ class ModelWrapper(LightningModule):
 
 
 def train(config, ckpt_path, resume_dir):
+    RANK = os.environ["SLURM_PROCID"]
     torch.set_float32_matmul_precision("medium")
     seed_everything(config.train.seed, workers=True)
     """
@@ -414,18 +244,20 @@ def train(config, ckpt_path, resume_dir):
         print("\n============= New Training Run with Config =============")
         print(config)
         print("")
-        log_dir, ckpt_dir, video_dir, time_str = TrainUtils.get_exp_dir(config)
+        log_dir, ckpt_dir, video_dir, time_str = get_exp_dir(config, rank=int(RANK))
         base_output_dir = os.path.join(config.train.output_dir, config.experiment.name)
+        exp_dir = os.path.join(base_output_dir, time_str)
         rollout_dir = os.path.join(base_output_dir, time_str, "rollouts")
-        os.makedirs(rollout_dir, exist_ok=True)
         exp_log_dir = os.path.join(base_output_dir, time_str, "exp_logs")
-        os.makedirs(exp_log_dir, exist_ok=True)
+        if RANK == 0:
+            os.makedirs(rollout_dir, exist_ok=True)
+            os.makedirs(exp_log_dir, exist_ok=True)
 
-    if config.experiment.logging.terminal_output_to_txt:
-        # log stdout and stderr to a text file
-        logger = PrintLogger(os.path.join(log_dir, "log.txt"))
-        sys.stdout = logger
-        sys.stderr = logger
+    # if config.experiment.logging.terminal_output_to_txt:
+    #     # log stdout and stderr to a text file
+    #     logger = PrintLogger(os.path.join(log_dir, "log.txt"))
+    #     sys.stdout = logger
+    #     sys.stderr = logger
 
     # read config to set up metadata for observation modalities (e.g. detecting rgb observations)
     ObsUtils.initialize_obs_utils_with_config(config)
@@ -439,7 +271,10 @@ def train(config, ckpt_path, resume_dir):
     print("\n============= Loaded Environment Metadata =============")
     env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
-        dataset_path=dataset_path, all_obs_keys=config.all_obs_keys, verbose=True
+        dataset_path=dataset_path,
+        all_obs_keys=config.all_obs_keys,
+        verbose=True,
+        ac_key=config.train.ac_key
     )
 
     if type(env_meta) is list:
@@ -447,71 +282,30 @@ def train(config, ckpt_path, resume_dir):
     else:
         env_metas = [env_meta]
     # create environment
-    envs = OrderedDict()
-    if config.experiment.rollout.enabled:
-        env_names_seen = []
-        # create environments for validation runs
-        for env_meta in env_metas:
-            env_name = env_meta["env_name"]
-            # check that the validation set of this env is not 0
-            num_valid_demos = TrainUtils.get_num_valid_demos(config, env_name)
-            if num_valid_demos == 0:
-                print(
-                    "No valid demos found for environment {} in dataset {}".format(
-                        env_name, dataset_path
-                    )
-                )
-                continue
 
-            if env_name in env_names_seen:
-                continue
-            env_names_seen.append(env_name)
-            env = EnvUtils.create_env_from_metadata(
-                env_meta=env_meta,
-                env_name=env_name,
-                render=False,
-                render_offscreen=config.experiment.render_video,
-                use_image_obs=shape_meta["use_images"],
-            )
-
-            if config.train.frame_stack > 1:
-                env = FrameStackWrapper(
-                    env,
-                    config.train.frame_stack,
-                    config.experiment.rollout.horizon,
-                    dataset_path=config.train.data,
-                    valid_key=config.experiment.rollout.valid_key,
-                )
-            else:
-                env = EvaluateOnDatasetWrapper(
-                    env,
-                    dataset_path=config.train.data,
-                    valid_key=config.experiment.rollout.valid_key,
-                )
-            envs[env_name] = env
-    print("")
     # setup for a new training runs
     model = algo_factory(
         algo_name=config.algo_name,
         config=config,
         obs_key_shapes=shape_meta["all_shapes"],
         ac_dim=shape_meta["ac_dim"],
-        device=torch.device("cpu"),  # default to cpu, pl will move to gpu
+        device="cuda"  # default to cpu, pl will move to gpu
     )
 
-    if config.train.ckpt_path is not None:
-        model = ModelWrapper.load_from_checkpoint(config.train.ckpt_path, model=model).model
+    # if config.train.ckpt_path is not None:
+    #     model = ModelWrapper.load_from_checkpoint(config.train.ckpt_path, model=model).model
 
     # save the config as a json file
-    with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
-        json.dump(config, outfile, indent=4)
+    if RANK == 0:
+        with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
+            json.dump(config, outfile, indent=4)
 
     print("\n============= Model Summary =============")
     print(model)  # print model summary
     print("")
 
     # load training data
-    trainset, validset = TrainUtils.load_data_for_training(
+    trainset, validset = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"]
     )
     print("\n============= Training Dataset =============")
@@ -520,88 +314,98 @@ def train(config, ckpt_path, resume_dir):
 
     # maybe retreve statistics for normalizing observations
     obs_normalization_stats = None
-    if config.train.hdf5_normalize_obs:
-        obs_normalization_stats = trainset.get_obs_normalization_stats()
+    # if config.train.hdf5_normalize_obs:
+    #     obs_normalization_stats = trainset.get_obs_normalization_stats()
 
-    loggers = [
-        WandbLogger(
-            project=config.wandb_project_name,
-            sync_tensorboard=True,
-            name=config.experiment.name,
-            config=config,
-            save_dir=log_dir,
-        ),
-    ]
+    loggers = [] if config.experiment.logging.wandb_proj_name is None else [WandbLogger(
+        project=config.experiment.logging.wandb_proj_name,
+        sync_tensorboard=True,
+        name=config.experiment.description,
+        config=config,
+        save_dir=log_dir,
+    )]
+
+    # breakpoint()
     callbacks = [
-        RolloutCallback(
-            envs=envs,
-            video_dir=video_dir,
-            obs_normalization_stats=obs_normalization_stats,
-            trainset=trainset,
-            ckpt_dir=ckpt_dir,
-            vis_data=trainset.vis_data,
-            config_path=os.path.join(log_dir, "..", "config.json"),
-            rollout_dir=rollout_dir,
-            exp_log_dir=exp_log_dir,
+        ModelCheckpoint(
+            every_n_epochs=config.experiment.save.every_n_epochs,
+            dirpath=ckpt_dir,
+            save_on_train_epoch_end=True,
+            filename="model_epoch_{epoch}",
+            save_top_k=-1,
         ),
-        Timer(),
-    ]
-    if config.train.use_swa:
-        callbacks.append(
-            StochasticWeightAveraging(swa_lrs=config.algo.optim_params.policy.learning_rate.initial)
+        ModelCheckpoint(
+            dirpath=ckpt_dir,
+            save_on_train_epoch_end=True,
+            filename="model_epoch_{epoch}_{final_mse_avg:.1f}",
+            save_top_k=3,
+            monitor="final_mse_avg",
+            mode="min",
         )
+    ]
+    # if config.train.use_swa:
+    #     callbacks.append(
+    #         StochasticWeightAveraging(swa_lrs=config.algo.optim_params.policy.learning_rate.initial)
+    #     )
     trainer = Trainer(
-        max_steps=config.train.num_epochs * config.experiment.epoch_every_n_steps,
+        max_epochs=config.train.num_epochs,
+        limit_train_batches=config.experiment.epoch_every_n_steps,
         accelerator="gpu",
-        devices=config.train.num_gpus,
+        devices=config.train.gpus_per_node,
+        num_nodes=config.train.num_nodes,
         logger=loggers,
-        default_root_dir=ckpt_dir,
+        default_root_dir=exp_dir,
         callbacks=callbacks,
         fast_dev_run=config.train.fast_dev_run,
-        val_check_interval=config.experiment.validation_epoch_every_n_steps,
-        check_val_every_n_epoch=None,
-        gradient_clip_algorithm="norm",
-        gradient_clip_val=config.train.max_grad_norm,
-        precision=16 if config.train.amp_enabled else 32,
-        reload_dataloaders_every_n_epochs=1 if config.algo.dagger.enabled else 0,
-        replace_sampler_ddp=True,
-        strategy=DDPStrategy(
-            find_unused_parameters=False,
-            static_graph=True,
-            gradient_as_bucket_view=True,
-        )
-        if config.train.num_gpus > 1
-        else None,
-        profiler=AdvancedProfiler(dirpath=".", filename="perf_logs")
-        if args.profiler != "none"
-        else None,
+        # val_check_interval=config.experiment.validation_epoch_every_n_steps,
+        check_val_every_n_epoch=config.experiment.validation_freq,
+        # gradient_clip_algorithm="norm",
+        # gradient_clip_val=config.train.max_grad_norm,
+        # precision=16 if config.train.amp_enabled else 32,
+        precision=32,
+        reload_dataloaders_every_n_epochs=0,
+        use_distributed_sampler=True,
+        # strategy=DDPStrategy(
+        #     find_unused_parameters=False,
+        #     static_graph=True,
+        #     gradient_as_bucket_view=True,
+        # ),
+        strategy="ddp_find_unused_parameters_true",
+        profiler="simple",
+        # profiler=AdvancedProfiler(dirpath=".", filename="perf_logs")
+        # if args.profiler != "none"
+        # else None,
     )
 
     train_sampler = trainset.get_dataset_sampler()
     valid_sampler = validset.get_dataset_sampler()
 
-    trainer.fit(
-        model=ModelWrapper(model),
-        datamodule=DataModuleWrapper(
-            train_dataset=trainset,
-            valid_dataset=validset,
-            train_dataloader_params=dict(
-                sampler=train_sampler,
-                batch_size=config.train.batch_size,
-                shuffle=(train_sampler is None),
-                num_workers=config.train.num_data_workers,
-                drop_last=True,
-                pin_memory=True,
-            ),
-            valid_dataloader_params=dict(
-                sampler=valid_sampler,
-                batch_size=config.train.batch_size,
-                shuffle=False,
-                num_workers=config.train.num_data_workers,
-                drop_last=True,
-                pin_memory=True,
-            ),
+    datamodule=DataModuleWrapper(
+        train_dataset=trainset,
+        valid_dataset=validset,
+        train_dataloader_params=dict(
+            sampler=train_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=(train_sampler is None),
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
         ),
+        valid_dataloader_params=dict(
+            sampler=valid_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=False,
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
+        ),
+    )
+    model=ModelWrapper(model, datamodule)
+
+
+    trainer.fit(
+        model=model,
+        datamodule=datamodule,
         ckpt_path=ckpt_path,
     )
 
@@ -628,7 +432,18 @@ def main(args):
 
     if args.seed is not None:
         config.train.seed = args.seed
-    config.train.num_gpus = args.num_gpus
+    
+    if args.description is not None:
+        config.experiment.description = args.description
+    
+    if args.lr:
+        config.algo.optim_params.policy.learning_rate.initial = args.lr
+
+    if args.batch_size:
+        config.train.batch_size = args.batch_size
+
+    config.train.gpus_per_node = args.gpus_per_node
+    config.train.num_nodes = args.num_nodes
     # maybe modify config for debugging purposes
     if args.debug:
         # shrink length of training to test whether this run is likely to crash
@@ -636,17 +451,22 @@ def main(args):
         config.lock_keys()
 
         # train and validate (if enabled) for 1 gradient steps, for 2 epochs
-        config.train.fast_dev_run = 2
+        # config.train.fast_dev_run = 2
+        config.train.num_epochs = 10
+        config.experiment.save.every_n_epochs = 5
+
 
         # if rollouts are enabled, try 10 rollouts at end of each epoch, with 10 environment steps
-        config.experiment.rollout.rate = 1
-        config.experiment.rollout.n = 5
-        config.experiment.rollout.warmstart = -1
-        config.experiment.epoch_every_n_steps = 1
+        config.experiment.epoch_every_n_steps = 10
 
         # send output to a temporary directory
-        config.wandb_project_name = "test"
-        config.experiment.name = "test"
+        config.experiment.logging.log_wandb=False
+        config.experiment.logging.wandb_proj_name=None
+
+        config.experiment.validation_max_samples = 200
+        config.experiment.validation_freq = 2
+        config.experiment.save.every_n_epochs = 2
+        config.experiment.save.video_freq = 2
     elif args.profiler != "none":
         # shrink length of training to test whether this run is likely to crash
         config.unlock()
@@ -661,14 +481,21 @@ def main(args):
         # config.experiment.rollout.n = 1
 
         # send output to a temporary directory
-        config.wandb_project_name = "test"
-        config.experiment.name = "test"
+        config.experiment.logging.log_wandb=False
+        config.experiment.logging.wandb_proj_name=None
     else:
         config.wandb_project_name = args.wandb_project_name
         config.train.fast_dev_run = False
 
-    if config.train.num_gpus == 1:
+    if config.train.gpus_per_node == 1 and args.num_nodes == 1:
         os.environ["OMP_NUM_THREADS"] = "1"
+    
+    if args.no_wandb:
+        config.experiment.logging.log_wandb=False
+        config.experiment.logging.wandb_proj_name=None
+    
+    assert config.experiment.validation_freq % config.experiment.save.every_n_epochs == 0, "current code expects validation_freq to be a multiple of save.every_n_epochs"
+    assert config.experiment.validation_freq == config.experiment.save.video_freq, "current code expects validation_freq to be the same as save.video_freq"
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -686,8 +513,7 @@ def main(args):
         print("\nRollout Success Rate Stats")
         print(important_stats)
 
-
-if __name__ == "__main__":
+def train_argparse():
     parser = argparse.ArgumentParser()
 
     # External config file that overwrites default config
@@ -712,6 +538,14 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="(optional) if provided, override the experiment name defined in the config",
+    )
+
+    # description
+    parser.add_argument(
+        "--description",
+        type=str,
+        default=None,
+        help="description",
     )
 
     # Dataset path, to override the one in the config
@@ -746,9 +580,23 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--lr",
+        type=float,
+        default=None,
+        help="learning rate"
+    )
+
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="batch size"
+    )
+
+    parser.add_argument(
         "--wandb_project_name",
         type=str,
-        default="optimus_transformer",
+        default="egoplay",
     )
 
     parser.add_argument(
@@ -773,9 +621,33 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--num_gpus",
+        "--gpus-per-node",
         type=int,
         default=1,
     )
+
+    parser.add_argument(
+        "--num-nodes",
+        type=int,
+        default=1,
+    )
+
+    parser.add_argument(
+        "--no-wandb",
+        action='store_true',
+        help="set this flag to run a without wandb"
+    )
+
     args = parser.parse_args()
+
+    return args
+
+
+if __name__ == "__main__":
+    args = train_argparse()
+
+    if "DT" not in args.description:
+        time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
+        args.description = time_str
+
     main(args)

@@ -9,6 +9,7 @@ import time
 
 from cProfile import Profile
 from pstats import SortKey, Stats
+from mimicplay.scripts.aloha_process.simarUtils import nds
 
 class PlaydataSequenceDataset(SequenceDataset):
     def __init__(
@@ -154,6 +155,8 @@ class PlaydataSequenceDataset(SequenceDataset):
 
         self.close_and_delete_hdf5_handle()
 
+        self.rgb_keys = [k for k in self.obs_keys if ObsUtils.key_is_obs_modality(k, "rgb")]
+
 
     def get_item(self, index):
         """
@@ -191,7 +194,9 @@ class PlaydataSequenceDataset(SequenceDataset):
             keys=self.obs_keys,
             num_frames_to_stack=self.n_frame_stack - 1,
             seq_length=self.seq_length,
-            prefix="obs"
+            prefix="obs",
+            dont_load_fut=self.rgb_keys
+
         )
 
         if self.load_next_obs:
@@ -201,7 +206,8 @@ class PlaydataSequenceDataset(SequenceDataset):
                 keys=self.obs_keys,
                 num_frames_to_stack=self.n_frame_stack - 1,
                 seq_length=self.seq_length,
-                prefix="next_obs"
+                prefix="next_obs",
+                dont_load_fut=self.rgb_keys
             )
 
         if goal_index is not None:
@@ -212,6 +218,7 @@ class PlaydataSequenceDataset(SequenceDataset):
                 num_frames_to_stack=self.n_frame_stack - 1,
                 seq_length=self.seq_length,
                 prefix="obs",
+                dont_load_fut=self.rgb_keys
             )
 
         return meta

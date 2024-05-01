@@ -27,7 +27,7 @@ from robomimic.envs.wrappers import EnvWrapper
 import mimicplay
 from mimicplay.algo import RolloutPolicy
 
-def get_exp_dir(config, auto_remove_exp_dir=False):
+def get_exp_dir(config, auto_remove_exp_dir=False, rank=0):
     """
     Create experiment directory from config. If an identical experiment directory
     exists and @auto_remove_exp_dir is False (default), the function will prompt 
@@ -67,15 +67,17 @@ def get_exp_dir(config, auto_remove_exp_dir=False):
     output_dir = None
     if config.experiment.save.enabled:
         output_dir = os.path.join(base_output_dir, time_str, "models")
-        os.makedirs(output_dir)
 
     # tensorboard directory
     log_dir = os.path.join(base_output_dir, time_str, "logs")
-    os.makedirs(log_dir)
 
     # video directory
     video_dir = os.path.join(base_output_dir, time_str, "videos")
-    os.makedirs(video_dir)
+    if rank == 0:
+        os.makedirs(output_dir)
+        os.makedirs(log_dir)
+        os.makedirs(video_dir)
+
     return log_dir, output_dir, video_dir, time_str
 
 
