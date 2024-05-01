@@ -40,6 +40,18 @@ def convert_qpos_to_eef(qpos):
     T_obs = FKinSpace(M, Slist, qpos)
     return T_obs
 
+def get_future_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
+    future_traj = []
+
+    for i in range(POINT_GAP, (FUTURE_POINTS_COUNT + 1) * POINT_GAP, POINT_GAP):
+        # Identify the indices for the current and prior points
+        index_current = min(len(arr) - 1, i)
+
+        current_point = arr[index_current]
+        future_traj.extend(current_point)
+
+    return future_traj
+
 def is_valid_path(path):
     return not os.path.isdir(path) and "episode" in path
 
@@ -65,7 +77,13 @@ if __name__ == "__main__":
         type=str,
         help="path to output dataset: /coc/flash7/datasets/oboov2/<ds_name>.hdf5"
     )
-
+    parser.add_argument(
+        "--data-type",
+        type=str,
+        required=True,
+        choices=['hand', 'robot'],  # Restrict to only 'hand' or 'robot'
+        help="Choose which data-type - hand or robot"
+    )
     args = parser.parse_args()
 
     chain = pk.build_serial_chain_from_urdf(open("/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf").read(), "vx300s/ee_gripper_link")
@@ -91,6 +109,10 @@ if __name__ == "__main__":
             with h5py.File(aloha_demo_path, "r") as aloha_hdf5:
                 demo_number = aloha_demo.split("_")[1].split(".")[0]
                 demo_i_group = data_group.create_group(f"demo_{demo_number}")
+                if args.data_type == "hand":
+                    demo_i_group['label'] = np.array([1])
+                elif args.data_type == "robot":
+                    demo_i_group['label'] = np.array([0])
                 demo_i_group.attrs["num_samples"] = aloha_hdf5["action"].shape[0]
                 demo_i_obs_group = demo_i_group.create_group("obs")
 
@@ -108,7 +130,21 @@ if __name__ == "__main__":
 
                 demo_i_obs_group.create_dataset("ee_pose", data=fk_positions)
 
+                # breakpoint()
+                if args.data_type == "hand":
+                    POINT_GAP=4
+                    FUTURE_POINTS_COUNT=10
+                elif args.data_type == "robot":
+                    POINT_GAP=15
+                    FUTURE_POINTS_COUNT=10
+
+                future_traj_data = np.array([
+                    get_future_points(fk_positions[j:], POINT_GAP, FUTURE_POINTS_COUNT) for j in range(len(fk_positions))
+                ])
+
+                # breakpoint()
                 # actions
+                demo_i_group.create_dataset("actions", data=future_traj_data)
                 demo_i_group.create_dataset("actions_joints", data=aloha_hdf5["action"][:, 7:])
                 fk_positions = chain.forward_kinematics(torch.from_numpy(aloha_hdf5["action"][:, 7:13]), end_only=True).get_matrix()[:, :3, 3]
                 fk_positions = ee_pose_to_cam_frame(fk_positions, EXTRINSICS[args.extrinsics])[:, :3]
