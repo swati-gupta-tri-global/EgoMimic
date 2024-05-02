@@ -169,33 +169,33 @@ class ModelWrapper(LightningModule):
     # def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
     #     optimizer.zero_grad(optimizer_idx)
 
-    def on_train_epoch_end(self):
-        # Finally, log memory usage in MB
-        process = psutil.Process(os.getpid())
-        mem_usage = process.memory_info().rss / int(1e9)
-        self.log("System/RAM Usage (GB)", mem_usage, sync_dist=True)
-        print("\nEpoch {} Memory Usage: {} GB\n".format(self.current_epoch, mem_usage))
-        # self.log('epoch', self.trainer.current_epoch)
-
-        
-        # if rank 0
+    def on_train_epoch_start(self):
+        valid_step_log = {"final_mse_avg": 0.0}
         if self.global_rank == 0:
             # Perform custom validation
             val_freq = self.model.global_config.experiment.validation_freq
             video_freq = self.model.global_config.experiment.save.video_freq
 
-            self.eval()
-            self.zero_grad()
+
             with torch.no_grad():
                 if self.current_epoch % val_freq == 0 and self.current_epoch != 0:
+                    self.eval()
+                    self.zero_grad()
                     pass_vid = os.path.join(self.trainer.default_root_dir, "videos") if self.current_epoch % video_freq == 0 else None
                     valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.val_dataloader(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples) #save vid only once every video_freq epochs
-                    self.log("final_mse_avg", valid_step_log["final_mse_avg"])
-                
-            self.train()
-        # self.trainer.save_checkpoint(os.path.join(self.trainer.default_root_dir, "models/curr_ckpt.ckpt"))
+                    self.train()
 
-        return super().on_train_epoch_end()
+        self.log("final_mse_avg", valid_step_log["final_mse_avg"], sync_dist=True, reduce_fx="max")
+
+
+        # Finally, log memory usage in MB
+        process = psutil.Process(os.getpid())
+        mem_usage = process.memory_info().rss / int(1e9)
+        print("\nEpoch {} Memory Usage: {} GB\n".format(self.current_epoch, mem_usage))
+        # self.log('epoch', self.trainer.current_epoch)
+        self.log("System/RAM Usage (GB)", mem_usage, sync_dist=True)
+
+        return super().on_train_epoch_start()
 
     def lr_scheduler_step(self, scheduler, optimizer_idx):
         if False and self.model.lr_warmup:
@@ -463,7 +463,7 @@ def main(args):
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
 
-        config.experiment.validation_max_samples = 200
+        config.experiment.validation_max_samples = 1000
         config.experiment.validation_freq = 2
         config.experiment.save.every_n_epochs = 2
         config.experiment.save.video_freq = 2
