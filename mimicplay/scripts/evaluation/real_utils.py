@@ -1,4 +1,14 @@
-def get_image(ts, camera_names):
+import types
+import numpy as np
+import torch
+from mimicplay.scripts.aloha_process.simarUtils import ee_pose_to_cam_pixels, draw_dot_on_frame
+from einops import rearrange
+import cv2
+import torchvision.transforms.functional as TVF
+import matplotlib.pyplot as plt
+import os
+
+def get_image(ts, camera_names, device):
     curr_images = []
     for cam_name in camera_names:
         curr_image = rearrange(ts.observation['images'][cam_name], 'h w c -> c h w')
@@ -91,3 +101,26 @@ def plot_joint_pos(ax, joint_pos, linestyle="solid"):
         ax.plot(joint_pos[0, :, i], color=color, linestyle=linestyle)
     
     return ax
+
+def make_fake_env(init_node=True, arm_left=False, arm_right=True):
+    return FakeEnv()
+
+class FakeEnv:
+    def __init__(self):
+        pass
+
+    def reset(self):
+        return self.step(None)
+
+    def step(self, action):
+        ts = types.SimpleNamespace()
+        # make random image of size (480, 640, 3) with values between 0 and 255
+        ts.observation = {
+            "images": {
+                "cam_high": np.random.randint(0, 255, (480, 640, 3)),
+                "cam_right_wrist": np.random.randint(0, 255, (480, 640, 3))
+            },
+            "qpos": np.random.rand(14),
+        }
+
+        return ts

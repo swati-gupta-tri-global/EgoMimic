@@ -95,7 +95,8 @@ class ACT(BC_VAE):
         input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"] if k != 'pad_mask'}
         input_batch["obs"]['pad_mask'] = batch["obs"]['pad_mask']
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
-        input_batch["actions"] = batch[self.ac_key]
+        if self.ac_key in batch:
+            input_batch["actions"] = batch[self.ac_key]
         
         # we move to device first before float conversion because image observation modalities will be uint8 -
         # this minimizes the amount of data transferred to GPU
