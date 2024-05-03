@@ -157,7 +157,7 @@ def train(config, device):
     # FIXED_GOAL_RANGE = [150, 150]
     # config["algo"]["playdata"]["goal_image_range"] = FIXED_GOAL_RANGE
     trainset, validset = load_data_for_training(
-        config, obs_keys=shape_meta["all_obs_keys"])
+        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path)
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
     print(trainset)
@@ -220,6 +220,7 @@ def main(args):
         # update config with external json - this will throw errors if
         # the external config has keys not present in the base algo config
         with config.values_unlocked():
+            config.unlock()
             config.update(ext_cfg)
     else:
         config = config_factory(args.algo)

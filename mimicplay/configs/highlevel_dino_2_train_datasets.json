@@ -98,7 +98,7 @@
             "low_noise_eval": false,
             "kl_weight": 10,
             "kl": false,
-            "cotrain": true,
+            "cotrain": false,
             "domain_discriminator": false
         },
         "vae": {
