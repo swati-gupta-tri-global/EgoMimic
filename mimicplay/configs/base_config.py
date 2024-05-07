@@ -88,7 +88,6 @@ class BaseConfig(Config):
         self.experiment.logging.log_tb = True                       # enable tensorboard logging
         self.experiment.logging.log_wandb = False                   # enable wandb logging
         self.experiment.logging.wandb_proj_name = "debug"           # project name if using wandb
-        self.experiment.use_ddp = False                             # wether to use multiple GPUs for training
 
 
         ## save config - if and when to save model checkpoints ##
