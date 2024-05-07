@@ -50,7 +50,6 @@ from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
 
 import mimicplay.utils.val_utils as ValUtils
-from mimicplay.scripts.ddp_utils import convert_groupnorm_model, init_distrib_slurm, EXIT
 
 def get_gpu_usage_mb(index=0):
     """Returns the GPU usage in B."""
@@ -537,11 +536,6 @@ def train_argparse():
         "--no-wandb",
         action='store_true',
         help="set this flag to run without wandb"
-    )
-    parser.add_argument(
-        "--use-ddp",
-        action='store_true',
-        help="set this flag to run on multiple gpus"
     )
 
     parser.add_argument(
