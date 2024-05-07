@@ -61,6 +61,7 @@ def get_gpu_usage_mb(index=0):
 
     return info.used / 1024 / 1024
 
+
 def train(config, device):
     """
     Train a model using the algorithm.
@@ -90,9 +91,16 @@ def train(config, device):
     dataset_path = os.path.expanduser(config.train.data)
     if not os.path.exists(dataset_path):
         raise Exception("Dataset at provided path {} not found!".format(dataset_path))
+    
+    dataset_path_2 = None if config.train.data_2 is None else os.path.expanduser(config.train.data_2)
+    # if not os.path.exists(dataset_path_2):
+    #     raise Exception("Dataset_2 at provided path {} not found!".format(dataset_path_2))
 
     # load basic metadata from training file
     print("\n============= Loaded Environment Metadata =============")
+    print("DATASET_PATH -1 ", dataset_path)
+    print("DATASET_PATH -2 ", dataset_path_2)
+
     h5py_file = h5py.File(dataset_path, "r+")
     if h5py_file["data"].get("env_args") == None:
         h5py_file["data"].attrs["env_args"] = json.dumps({})
@@ -171,18 +179,31 @@ def train(config, device):
     # load training data
     trainset, validset = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path)
+    trainset_2 = None
+    validset_2 = None
+    train_sampler_2 = None
+    if dataset_path_2 is not None:
+        trainset_2, validset_2 = load_data_for_training(
+            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2)
+        train_sampler_2 = trainset_2.get_dataset_sampler()
+
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
     print(trainset)
+    print(trainset_2)
     print("")
 
     # maybe retreve statistics for normalizing observations
     obs_normalization_stats = None
     if config.train.hdf5_normalize_obs:
         obs_normalization_stats = trainset.get_obs_normalization_stats()
+        obs_normalization_stats_2 = None if trainset_2 is None else trainset_2.get_obs_normalization_stats()
+    
 
-    # initialize data loaders
-    train_loader = DataLoader(
+    ## To check which loader is robot and which is hand
+    is_first_loader_hand = False
+    sampler = trainset.get_dataset_sampler()
+    loader = DataLoader(
         dataset=trainset,
         sampler=train_sampler,
         batch_size=config.train.batch_size,
@@ -190,31 +211,125 @@ def train(config, device):
         num_workers=config.train.num_data_workers,
         drop_last=True
     )
+    iterator = iter(loader)
+    sample = next(iterator)
+    # breakpoint()
+    if torch.all(sample['obs']['type'] == 1):
+        is_first_loader_hand = True
+    ## To check which loader is robot and which is hand
+
+    if trainset_2 is not None:
+        if is_first_loader_hand:
+            # initialize data loaders
+            train_loader = DataLoader(
+                dataset=trainset,
+                sampler=train_sampler,
+                batch_size=config.train.batch_size,
+                shuffle=(train_sampler is None),
+                num_workers=config.train.num_data_workers,
+                drop_last=True
+            )
+
+            train_loader_2 = DataLoader(
+                dataset=trainset_2,
+                sampler=train_sampler_2,
+                batch_size=config.train.batch_size,
+                shuffle=(train_sampler_2 is None),
+                num_workers=config.train.num_data_workers,
+                drop_last=True
+            )
+        else:
+            train_loader = DataLoader(
+                dataset=trainset_2,
+                sampler=train_sampler_2,
+                batch_size=config.train.batch_size,
+                shuffle=(train_sampler_2 is None),
+                num_workers=config.train.num_data_workers,
+                drop_last=True
+            )
+                    
+            # initialize data loaders
+            train_loader_2 = DataLoader(
+                dataset=trainset,
+                sampler=train_sampler,
+                batch_size=config.train.batch_size,
+                shuffle=(train_sampler is None),
+                num_workers=config.train.num_data_workers,
+                drop_last=True
+            )
+    else:
+        train_loader = DataLoader(
+            dataset=trainset,
+            sampler=train_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=(train_sampler is None),
+            num_workers=config.train.num_data_workers,
+            drop_last=True
+        )
+        train_loader_2 = None        
 
     if config.experiment.validate:
         # cap num workers for validation dataset at 1
         num_workers = min(config.train.num_data_workers, 1)
         valid_sampler = validset.get_dataset_sampler()
-        valid_loader = DataLoader(
-            dataset=validset,
-            sampler=valid_sampler,
-            batch_size=config.train.batch_size,
-            # shuffle=(valid_sampler is None),
-            shuffle=False,
-            num_workers=num_workers,
-            drop_last=True
-        )
+        valid_sampler_2 = None if validset_2 is None else validset_2.get_dataset_sampler()
 
-        # video_valid_loader = DataLoader(
-        #     dataset=validset,
-        #     sampler=valid_sampler,
-        #     batch_size=1,
-        #     shuffle=False,
-        #     num_workers=1,
-        #     drop_last=True
-        # )
+        if validset_2 is not None:
+            if is_first_loader_hand:
+                valid_loader = DataLoader(
+                    dataset=validset,
+                    sampler=valid_sampler,
+                    batch_size=config.train.batch_size,
+                    # shuffle=(valid_sampler is None),
+                    shuffle=False,
+                    num_workers=num_workers,
+                    drop_last=True
+                )
+
+                valid_loader_2 = DataLoader(
+                    dataset=validset_2,
+                    sampler=valid_sampler_2,
+                    batch_size=config.train.batch_size,
+                    # shuffle=(valid_sampler is None),
+                    shuffle=False,
+                    num_workers=num_workers,
+                    drop_last=True
+                )
+            else:
+                valid_loader_2 = DataLoader(
+                    dataset=validset,
+                    sampler=valid_sampler,
+                    batch_size=config.train.batch_size,
+                    # shuffle=(valid_sampler is None),
+                    shuffle=False,
+                    num_workers=num_workers,
+                    drop_last=True
+                )
+
+                valid_loader = DataLoader(
+                    dataset=validset_2,
+                    sampler=valid_sampler_2,
+                    batch_size=config.train.batch_size,
+                    # shuffle=(valid_sampler is None),
+                    shuffle=False,
+                    num_workers=num_workers,
+                    drop_last=True
+                )
+        else:
+            valid_loader = DataLoader(
+                dataset=validset,
+                sampler=valid_sampler,
+                batch_size=config.train.batch_size,
+                # shuffle=(valid_sampler is None),
+                shuffle=False,
+                num_workers=num_workers,
+                drop_last=True
+            )
+
+            valid_loader_2 = None
     else:
         valid_loader = None
+        valid_loader_2 =None
 
     # main training loop
     n_best_val = []
@@ -227,7 +342,7 @@ def train(config, device):
     valid_num_steps = config.experiment.validation_epoch_every_n_steps
 
     for epoch in range(1, config.train.num_epochs + 1):  # epoch numbers start at 1
-        step_log = TrainUtils.run_epoch(model=model, data_loader=train_loader, epoch=epoch, num_steps=train_num_steps)
+        step_log = TrainUtils.run_epoch_2_dataloaders(model=model, data_loader=train_loader, epoch=epoch, data_loader_2=train_loader_2, num_steps=train_num_steps)
         model.on_epoch_end(epoch)
 
         # setup checkpoint path
@@ -258,13 +373,21 @@ def train(config, device):
         # Evaluate the model on validation set
         if config.experiment.validate and (epoch % config.experiment.validation_freq == 0):
             with torch.no_grad():
-                step_log = TrainUtils.run_epoch(model=model, data_loader=valid_loader, epoch=epoch, validate=True,
+                # step_log = TrainUtils.run_epoch(model=model, data_loader=valid_loader, epoch=epoch, validate=True,
+                #                                 num_steps=valid_num_steps)
+                step_log = TrainUtils.run_epoch_2_dataloaders(model=model, data_loader=valid_loader, epoch=epoch, data_loader_2=valid_loader_2, validate=True,
                                                 num_steps=valid_num_steps)
-
                 model.set_eval()
 
                 pass_vid = video_dir if config.experiment.save.video_freq is not None and epoch % config.experiment.save.video_freq == 0 else None
-                valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid) #save vid only once every video_freq epochs
+                valid_step_log = None
+                valid_step_log_2 = None
+                if valid_loader_2 is not None:
+                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, type="hand") #save vid only once every video_freq epochs
+                    valid_step_log_2 = ValUtils.evaluate_high_level_policy(model, valid_loader_2, pass_vid, type="robot") #save vid only once every video_freq epochs
+                else:
+                    type = "hand" if is_first_loader_hand else "robot"
+                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, type=type) #save vid only once every video_freq epochs
 
                 model.set_train()
             for k, v in step_log.items():
@@ -274,7 +397,10 @@ def train(config, device):
                     data_logger.record("Valid/{}".format(k), v, epoch)
             for k, v in valid_step_log.items():
                 data_logger.record(f"Valid/{k}", v, epoch)
-
+            if valid_step_log_2 is not None:
+                for k, v in valid_step_log_2.items():
+                    data_logger.record(f"Valid/{k}", v, epoch)
+            
             print("Validation Epoch {}".format(epoch))
             print(json.dumps(step_log, sort_keys=True, indent=4))
 
@@ -409,7 +535,10 @@ def main(args):
 
     if args.dataset is not None:
         config.train.data = args.dataset
-
+    
+    config.unlock()
+    config.train.data_2 = args.dataset_2
+    
     if args.name is not None:
         config.experiment.name = args.name
     
@@ -455,12 +584,12 @@ def main(args):
     if args.lr:
         config.algo.optim_params.policy.learning_rate.initial = args.lr
 
-
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
 
     # catch error during training and print it
     res_str = "finished run successfully!"
+
 
     try:
         train(config, device=device)
@@ -512,6 +641,15 @@ def train_argparse():
         help="(optional) if provided, override the dataset path defined in the config",
     )
 
+    # 2nd Dataset path, to override the one in the config
+    parser.add_argument(
+        "--dataset_2",
+        type=str,
+        default=None,
+        help="(optional) if provided, override the dataset path defined in the config",
+    )
+
+
     parser.add_argument(
         "--bddl_file",
         type=str,
@@ -535,15 +673,13 @@ def train_argparse():
     parser.add_argument(
         "--no-wandb",
         action='store_true',
-        help="set this flag to run without wandb"
+        help="set this flag to run a without wandb"
     )
-
     parser.add_argument(
         "--non-goal-cond",
         action='store_true',
         help="edits config to remove rgb goal conditioning"
     )
-
     parser.add_argument(
         "--lr",
         type=float,
