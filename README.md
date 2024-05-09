@@ -277,3 +277,6 @@ Remember `conda activate eplay2`
 Dirty laundry
 - Hardcoded path to urdf in SimarUtils.py
 - hardcoded extrinsics in val_utils.py
+
+Eval real:
+`python scripts/evaluation/eval_real.py --config configs/act.json --eval-path /home/rl2-aloha/Documents/EgoplaySP/EgoPlay/trained_models_highlevel/1GBS32LR5e5_DT_2024-05-01-11-47-59/1GBS32LR5e5_DT_2024-05-01-11-47-59/models/model_epoch_epoch=599.ckpt`
