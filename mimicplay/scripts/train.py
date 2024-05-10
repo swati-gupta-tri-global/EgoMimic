@@ -584,6 +584,7 @@ def main(args):
     if args.lr:
         config.algo.optim_params.policy.learning_rate.initial = args.lr
 
+
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
 
@@ -680,6 +681,20 @@ def train_argparse():
         action='store_true',
         help="edits config to remove rgb goal conditioning"
     )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=None,
+        help="learning rate"
+    )
+
+
+    parser.add_argument(
+        "--non-goal-cond",
+        action='store_true',
+        help="edits config to remove rgb goal conditioning"
+    )
+
     parser.add_argument(
         "--lr",
         type=float,

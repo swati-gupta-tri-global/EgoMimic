@@ -82,8 +82,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir, type=None):
             if GOAL_COND:
                 goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
                 frame = miniviewer(frame, goal_frame)
-            #import cv2
-            #cv2.imwrite(f"/nethome/pmathur39/flash/EgoPlay/mimicplay/image{count}.png", frame)
+
 
             if count == T:
                 if video_dir is not None:
