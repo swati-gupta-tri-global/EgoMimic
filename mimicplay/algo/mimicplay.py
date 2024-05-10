@@ -34,12 +34,19 @@ def algo_config_to_class(algo_config):
         algo_class: subclass of Algo
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
-
     if algo_config.highlevel.enabled:
         if algo_config.lowlevel.enabled:
             return Lowlevel_GPT_mimicplay, {}
         else:
-            return Highlevel_GMM_pretrain, {}
+            if algo_config.gmm.kl == True and algo_config.gmm.domain_discriminator == False:
+                return KLDiv_Highlevel_GMM_pretrain, {}
+            elif algo_config.gmm.kl == False and algo_config.gmm.domain_discriminator == True:
+                return DomainDiscriminator_Highlevel_GMM_pretrain, {}
+            elif algo_config.gmm.kl == False and algo_config.gmm.domain_discriminator == False:
+                return Highlevel_GMM_pretrain, {}
+            else:
+                Exception("Invalid config for highlevel training")
+            return Highlevel_GMM_pretrain, {} #Highlevel_GMM_pretrain, {}
     else:
         if algo_config.lowlevel.enabled:
             return Baseline_GPT_from_scratch, {}
@@ -61,6 +68,7 @@ class Domain_Discriminator(nn.Module):
     
     def forward(self, x):
         return self.model(x)
+
 
 class Highlevel_GMM_pretrain(BC_Gaussian):
     """
@@ -91,24 +99,11 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
         )
 
-        ## domain discriminator
-        self.discriminator = Domain_Discriminator()
-        self.discriminator = self.discriminator.float().to(self.device)
-        # Parameters for the optimizer
-        learning_rate = 0.0002  # Common starting learning rate for Adam in GANs
-        betas = (0.5, 0.999)    # Betas used typically in GANs to control the moving averages
-        self.discriminator_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.1*learning_rate, betas=betas)
-        self.generator_optimizer = torch.optim.Adam(self.nets["policy"]._modules['nets']['encoder'].parameters(), lr=10*learning_rate, betas=betas)
-        self.training_step = 0
-
         self.save_count = 0
 
         self.nets = self.nets.float().to(self.device)
 
-        ## KL div
-        self.kl_weight=self.algo_config.gmm.kl_weight
-
-        self.both_human_robot = True
+        self.both_human_robot = False
 
     def postprocess_batch_for_training(self, batch, obs_normalization_stats):
         """
@@ -233,30 +228,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
                 obs_dict=batch["obs"],
                 goal_dict=batch["goal_obs"],
                 return_latent=True
-            )
-            ## SAVE FEATURES FOR TSNE PLOT ##
-            # breakpoint()
-            '''
-            import numpy as np
-            import pandas as pd
-            features = latent.detach().cpu().numpy()
-            features_df = pd.DataFrame(features)
-            if torch.all(batch['obs']['type'] == 1):
-                np.save('human_features.npy', features)
-                features_df.to_csv('human_features_tsv.tsv', sep='\t', index=False, header=False)
-                labels = [1]*32
-                labels_df = pd.DataFrame(labels)
-                labels_df.to_csv('human_features_metadata.tsv', sep='\t', index=False)
-
-            else:
-                np.save('robot_features.npy', features)
-                features_df.to_csv('robot_features_tsv.tsv', sep='\t', index=False, header=False)
-                labels = [0]*32
-                labels_df = pd.DataFrame(labels)
-                labels_df.to_csv('robot_features_metadata.tsv', sep='\t', index=False)
-            '''
-            ## SAVE FEATURES FOR TSNE PLOT ##
-                        
+            )           
             return dists
 
     def _forward_training(self, batch):
@@ -274,6 +246,8 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         ## Check if data from single data source (Robot or Human)
         if isinstance(batch, dict):
             self.both_human_robot = False
+        elif isinstance(batch, list):
+            self.both_human_robot = True
 
         if self.both_human_robot:
             ## Set batch_1 => Hand and batch_2 => Robot
@@ -341,57 +315,12 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         Returns:
             losses (dict): dictionary of losses computed over the batch
         """
-        if self.both_human_robot:
-            # loss is just negative log-likelihood of action targets
-            input_kl = F.log_softmax(predictions["enc_out_2"], dim=1) # robot
-            target_kl = F.softmax(predictions["enc_out"], dim=1) # human
-            kl_div_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
-            if self.algo_config.gmm.kl == True:
-                kl_div_loss = self.kl_weight*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
 
-            ## Domain Discriminator
-            generator_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
-            discriminator_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
-
-            if self.algo_config.gmm.domain_discriminator == True:
-                human_latent, robot_latent = predictions["enc_out"], predictions["enc_out_2"]
-                real_labels = torch.ones(human_latent.size(0), 1, device=self.device)
-                fake_labels = torch.zeros(robot_latent.size(0), 1, device=self.device)
-
-                real_loss = F.binary_cross_entropy(self.discriminator(human_latent.detach()), real_labels)
-                fake_loss = F.binary_cross_entropy(self.discriminator(robot_latent.detach()), fake_labels)
-                discriminator_loss = (real_loss + fake_loss) / 2
-                # breakpoint()
-                if self.nets.training:
-                    self.training_step += 1
-                    # breakpoint()
-                    if self.training_step % 100 == 0:
-                        print("Backproping discriminator")
-                        self.discriminator_optimizer.zero_grad()  # Reset gradients
-                        discriminator_loss.backward()        # Compute gradients
-                        self.discriminator_optimizer.step()       # Update weights
-
-                    generator_loss =  10*F.binary_cross_entropy(self.discriminator(robot_latent), real_labels)
-                    self.generator_optimizer.zero_grad()
-                    generator_loss.backward()
-                    self.generator_optimizer.step()
-                
-            ##
-            action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean() #+ generator_loss.mean()
-
-            return OrderedDict(
-                log_probs=-action_loss,
-                action_loss=action_loss,
-                kl_div_loss=kl_div_loss,
-                generator_loss=generator_loss,
-                discriminator_loss=discriminator_loss
-            )
-        else:
-            action_loss = -predictions["log_probs"].mean()
-            return OrderedDict(
-                log_probs=-action_loss,
-                action_loss=action_loss,
-            )
+        action_loss = -predictions["log_probs"].mean()
+        return OrderedDict(
+            log_probs=-action_loss,
+            action_loss=action_loss,
+        )
 
     def log_info(self, info):
         """
@@ -407,14 +336,85 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         log = PolicyAlgo.log_info(self, info)
         log["Loss"] = info["losses"]["action_loss"].item()
         log["Log_Likelihood"] = info["losses"]["log_probs"].item()
-        if self.both_human_robot:
-            log["kl_div_loss"] = info["losses"]["kl_div_loss"].item()
-            log["generator_loss"]=info["losses"]["generator_loss"].item()
-            log["discriminator_loss"]=info["losses"]["discriminator_loss"].item()
-        # breakpoint()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
+
+
+class KLDiv_Highlevel_GMM_pretrain(Highlevel_GMM_pretrain):
+    def _create_networks(self):
+        super()._create_networks()
+        assert self.algo_config.gmm.kl == True, "KL must be enabled in config to call KL_Div_Highlevel_GMM_pretrain class"
+        self.kl_weight=self.algo_config.gmm.kl_weight
+
+    def _compute_losses(self, predictions, batch):
+        assert self.algo_config.gmm.kl == True, "KL must be enabled in config to call KL_Div_Highlevel_GMM_pretrain class"
+        assert self.both_human_robot == True, "Batched data from dual source (robot and human) not provided"
+        base_losses = super()._compute_losses(predictions, batch)
+        
+        input_kl = F.log_softmax(predictions["enc_out_2"], dim=1) # robot
+        target_kl = F.softmax(predictions["enc_out"], dim=1) # human
+        kl_div_loss = self.kl_weight*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
+        base_losses["kl_div_loss"] = kl_div_loss
+
+        action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean()
+        base_losses["log_probs"] = -action_loss
+        base_losses["action_loss"] = action_loss
+        return base_losses
+
+    def log_info(self, info):
+        base_logs = super().log_info(info)
+        base_logs["kl_div_loss"] = info["losses"]["kl_div_loss"].item()
+        return base_logs
+    
+class DomainDiscriminator_Highlevel_GMM_pretrain(Highlevel_GMM_pretrain):
+    def _create_networks(self):
+        super()._create_networks()
+        assert self.algo_config.gmm.domain_discriminator == True, "Domain Discriminator must be enabled in config to call DomainDiscriminator_Highlevel_GMM_pretrain class"
+
+        self.discriminator = Domain_Discriminator()
+        self.discriminator = self.discriminator.float().to(self.device)
+        # Parameters for the optimizer
+        learning_rate = 0.0002  # Common starting learning rate for Adam in GANs
+        betas = (0.5, 0.999)    # Betas used typically in GANs to control the moving averages
+        self.discriminator_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.1*learning_rate, betas=betas)
+        self.generator_optimizer = torch.optim.Adam(self.nets["policy"]._modules['nets']['encoder'].parameters(), lr=10*learning_rate, betas=betas)
+        self.training_step = 0
+
+    def _compute_losses(self, predictions, batch):
+        assert self.algo_config.gmm.domain_discriminator == True, "Domain Discriminator must be enabled in config to call DomainDiscriminator_Highlevel_GMM_pretrain class"
+        assert self.both_human_robot == True, "Batched data from dual source (robot and human) not provided"
+
+        base_losses = super()._compute_losses(predictions, batch)
+        human_latent, robot_latent = predictions["enc_out"], predictions["enc_out_2"]
+        real_labels = torch.ones(human_latent.size(0), 1, device=self.device)
+        fake_labels = torch.zeros(robot_latent.size(0), 1, device=self.device)
+
+        real_loss = F.binary_cross_entropy(self.discriminator(human_latent.detach()), real_labels)
+        fake_loss = F.binary_cross_entropy(self.discriminator(robot_latent.detach()), fake_labels)
+        discriminator_loss = (real_loss + fake_loss) / 2
+        if self.nets.training:
+            self.training_step += 1
+            if self.training_step % 100 == 0:
+                print("Backproping discriminator")
+                self.discriminator_optimizer.zero_grad()  # Reset gradients
+                discriminator_loss.backward()        # Compute gradients
+                self.discriminator_optimizer.step()       # Update weights
+
+            generator_loss =  10*F.binary_cross_entropy(self.discriminator(robot_latent), real_labels)
+            self.generator_optimizer.zero_grad()
+            generator_loss.backward()
+            self.generator_optimizer.step()
+        
+        base_losses["discriminator_loss"] = discriminator_loss
+        base_losses["generator_loss"] = generator_loss
+        return base_losses
+    
+    def log_info(self, info):
+        base_logs = super().log_info(info)
+        base_logs["discriminator_loss"] = info["losses"]["discriminator_loss"].item()
+        base_logs["generator_loss"] = info["losses"]["generator_loss"].item()
+        return base_logs                       
 
 
 class Lowlevel_GPT_mimicplay(BC_RNN):
