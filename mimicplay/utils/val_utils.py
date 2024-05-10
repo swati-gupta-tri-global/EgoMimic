@@ -6,14 +6,6 @@ import os
 from mimicplay.algo.act import ACT
 CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
 
-def visualize_ACT(preds, actions, frame):
-    """
-    preds: (T, 3) array of predicted actions
-    actions: (T, 3) array of ground truth actions
-    frame: (H, W, C) numpy array
-    return frame with actions and preds drawn on it
-    """
-
 
 def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None):
     """
@@ -76,7 +68,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None):
                 actions = input_batch["actions"][b].cpu().numpy()
             else:
                 pred_values = info.mean[b].view((10,3)).cpu().numpy()
-                actions = input_batch["actions"][b, 0].view((10, 3)).cpu().numpy()
+                actions = input_batch["actions"][b].view((10, 3)).cpu().numpy()
 
             if model.ac_key == "actions_joints":
                 pred_values_drawable, actions_drawable = aloha_fk.fk(pred_values[:, :6]), aloha_fk.fk(actions[:, :6])

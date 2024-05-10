@@ -45,7 +45,6 @@ class ACT(BC_VAE):
         self.camera_keys = self.obs_config['modalities']['obs']['rgb'].copy()
         self.proprio_keys = self.obs_config['modalities']['obs']['low_dim'].copy()
         self.obs_keys = self.proprio_keys + self.camera_keys
-        self.ac_key = self.global_config.train.ac_key
 
         self.proprio_dim = 0
         for k in self.proprio_keys:

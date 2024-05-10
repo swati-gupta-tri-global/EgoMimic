@@ -467,6 +467,7 @@ def main(args):
         config.experiment.validation_freq = 2
         config.experiment.save.every_n_epochs = 2
         config.experiment.save.video_freq = 2
+        config.experiment.name = "debug_run"
     elif args.profiler != "none":
         # shrink length of training to test whether this run is likely to crash
         config.unlock()
