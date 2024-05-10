@@ -5,6 +5,8 @@ import torchvision.transforms.functional as TF
 import torch
 from scipy.spatial.transform import Rotation
 import pytorch_kinematics as pk
+import mimicplay
+import os
 
 REALSENSE_INTRINSICS = np.array([
     [616.0, 0.0, 313.4, 0.0],
@@ -224,10 +226,13 @@ def transformation_matrix_to_pose(T):
         return pose_array
 
 
-def aloha_fk(qpos):
-    chain = pk.build_serial_chain_from_urdf(open("/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf").read(), "vx300s/ee_gripper_link")
+class AlohaFK():
+    def __init__(self):
+        urdf_path = os.path.join(os.path.dirname(mimicplay.__file__), "scripts/aloha_process/model.urdf")
+        self.chain = pk.build_serial_chain_from_urdf(open(urdf_path).read(), "vx300s/ee_gripper_link")
     
-    if isinstance(qpos, np.ndarray):
-        qpos = torch.from_numpy(qpos)
-    
-    return chain.forward_kinematics(qpos, end_only=True).get_matrix()[:, :3, 3]
+    def fk(self, qpos):
+        if isinstance(qpos, np.ndarray):
+            qpos = torch.from_numpy(qpos)
+        
+        return self.chain.forward_kinematics(qpos, end_only=True).get_matrix()[:, :3, 3]

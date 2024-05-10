@@ -44,7 +44,7 @@ from mimicplay.utils.file_utils import policy_from_checkpoint
 from torchvision.utils import save_image
 import cv2
 
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, AlohaFK
 import torchvision
 
 
@@ -53,7 +53,6 @@ from mimicplay.algo import algo_factory, RolloutPolicy
 from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
 from mimicplay.utils.val_utils import evaluate_high_level_policy
 from mimicplay.scripts.pl_train import ModelWrapper
-from mimicplay.scripts.aloha_process.simarUtils import aloha_fk
 import datetime
 
 # from aloha_scripts.robot_utils import move_grippers # requires aloha
@@ -66,6 +65,7 @@ def eval_real(model, config, env):
     device = torch.device("cuda")
     #TODO get camnames from config
     camera_names = ['cam_high', 'cam_right_wrist']
+    aloha_fk = AlohaFK()
 
     # query_frequency = policy_config['num_queries']
     # if temporal_agg:
@@ -146,7 +146,7 @@ def eval_real(model, config, env):
                         "obs": {
                             "front_img_1": curr_image[:, [0]].permute((0, 1, 3, 4, 2)),
                             "right_wrist_img": curr_image[:, [1]].permute((0, 1, 3, 4, 2)),
-                            "ee_pose": aloha_fk(qpos[:, 7:13]).to(device)[:, None, :], #TODO: Switch this to actual qpos (and make corresponding change in config)
+                            "ee_pose": aloha_fk.fk(qpos[:, 7:13]).to(device)[:, None, :], #TODO: Switch this to actual qpos (and make corresponding change in config)
                             "pad_mask": torch.ones((1, 100, 1)).to(device)
                         }
                     }

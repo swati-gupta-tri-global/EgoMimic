@@ -1,4 +1,4 @@
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, EXTRINSICS, WIDE_LENS_ROBOT_LEFT_K, aloha_fk, ee_pose_to_cam_frame
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, EXTRINSICS, WIDE_LENS_ROBOT_LEFT_K, ee_pose_to_cam_frame, AlohaFK
 import torchvision
 import numpy as np
 import torch
@@ -51,6 +51,8 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None):
 
     GOAL_COND = model.global_config.train.goal_mode
 
+    aloha_fk = AlohaFK()
+
     for i, data in enumerate(data_loader):
         B = data["obs"]["front_img_1"].shape[0]
         if max_samples is not None and i * B > max_samples:
@@ -77,7 +79,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None):
                 actions = input_batch["actions"][b, 0].view((10, 3)).cpu().numpy()
 
             if model.ac_key == "actions_joints":
-                pred_values_drawable, actions_drawable = aloha_fk(pred_values[:, :6]), aloha_fk(actions[:, :6])
+                pred_values_drawable, actions_drawable = aloha_fk.fk(pred_values[:, :6]), aloha_fk.fk(actions[:, :6])
                 pred_values_drawable, actions_drawable = ee_pose_to_cam_frame(pred_values_drawable, CURR_EXTRINSICS), ee_pose_to_cam_frame(actions_drawable, CURR_EXTRINSICS)
             else:
                 pred_values_drawable, actions_drawable = pred_values, actions
