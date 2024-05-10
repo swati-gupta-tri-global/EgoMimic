@@ -44,7 +44,9 @@ from mimicplay.utils.file_utils import policy_from_checkpoint
 from torchvision.utils import save_image
 import cv2
 
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, AlohaFK
+PUPPET_GRIPPER_JOINT_OPEN=1.4910
+
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, WIDE_LENS_ROBOT_LEFT_K, EXTRINSICS, ee_pose_to_cam_frame, AlohaFK
 import torchvision
 
 
@@ -55,12 +57,19 @@ from mimicplay.utils.val_utils import evaluate_high_level_policy
 from mimicplay.scripts.pl_train import ModelWrapper
 import datetime
 
-# from aloha_scripts.robot_utils import move_grippers # requires aloha
-# from aloha_scripts.real_env import make_real_env # requires aloha
+from aloha_scripts.robot_utils import move_grippers # requires aloha
+from aloha_scripts.real_env import make_real_env # requires aloha
 
 from mimicplay.scripts.evaluation.real_utils import *
+import matplotlib.pyplot as plt
+from mimicplay.algo.act import ACT
 
-def eval_real(model, config, env):
+
+
+CURR_INTRINSICS = WIDE_LENS_ROBOT_LEFT_K
+CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
+
+def eval_real(model, config, env, rollout_dir):
     real_robot = True
     device = torch.device("cuda")
     #TODO get camnames from config
@@ -115,39 +124,20 @@ def eval_real(model, config, env):
                 qpos = torch.from_numpy(qpos).float().unsqueeze(0).to(device)
                 # qpos_history[:, t] = qpos
                 curr_image = get_image(ts, camera_names, device)
-                curr_image = resize_curr_img(curr_image)
+                # curr_image = resize_curr_img(curr_image)
 
                 ### query policy
                 if t % query_frequency == 0:
-                    # target_frame = int((time.time() - t0) * (1/DT) + 150) # linear extrap
-
-                    # _, target_frame = kd_tree.query(qpos_numpy[7:], 40)
-                    # print("possible target frames: ", target_frame)
-                    # target_frame = np.min(target_frame)
-                    
-                    # target_frame = min(699, target_frame + 150) #set goal to 150 frames ahead of closest match
-                    # print("target frame: ", target_frame)
-                    # target_frame = 200
-
-
-                    # goal_im = torch.from_numpy(prompt_data["observations/images/cam_high"][target_frame]).float().permute((2, 0, 1))[None, None, :] / 255
-                    # goal_im = resize_curr_img(goal_im)
-
-                    # dict with keys:  dict_keys(['actions_xyz', 'actions_joints', 'pad_mask', 'obs'])
-                    # actions_xyz: torch.Size([8, 100, 3])
-                    # actions_joints: torch.Size([8, 100, 7])
-                    # pad_mask: torch.Size([8, 100, 1])
-                    # obs: dict with keys:  dict_keys(['ee_pose', 'front_img_1', 'right_wrist_img', 'pad_mask'])
-                    #         ee_pose: torch.Size([8, 100, 3])
-                    #         front_img_1: torch.Size([8, 1, 480, 640, 3])
-                    #         right_wrist_img: torch.Size([8, 1, 480, 640, 3])
-                    #         pad_mask: torch.Size([8, 100, 1])
+                    ee_pose_input = aloha_fk.fk(qpos[:, 7:13]).to(device)
+                    cv2.imwrite(os.path.join(rollout_dir, "wrist_rgb.png"), curr_image[:, [1]][0][0].permute(1, 2, 0).cpu().numpy()*255.0)
+                    ee_pose_cam_frame= ee_pose_to_cam_frame(ee_pose_input.cpu().numpy(), CURR_EXTRINSICS)[:, None, :]
+                    ee_pose_pixels = cam_frame_to_cam_pixels(ee_pose_cam_frame[0], CURR_INTRINSICS)
                     data = {
                         "obs": {
-                            "front_img_1": curr_image[:, [0]].permute((0, 1, 3, 4, 2)),
-                            "right_wrist_img": curr_image[:, [1]].permute((0, 1, 3, 4, 2)),
-                            "ee_pose": aloha_fk.fk(qpos[:, 7:13]).to(device)[:, None, :], #TODO: Switch this to actual qpos (and make corresponding change in config)
-                            "pad_mask": torch.ones((1, 100, 1)).to(device)
+                            "front_img_1": (curr_image[:, [0]].permute((0, 1, 3, 4, 2))*255).to(torch.uint8),
+                            "right_wrist_img": (curr_image[:, [1]].permute((0, 1, 3, 4, 2))*255).to(torch.uint8),
+                            "ee_pose": torch.from_numpy(ee_pose_cam_frame), #torch.tensor([[[0.2889, 0.1556, 0.4028]]]), #ee_pose_input[:, None, :], #TODO: Switch this to actual qpos (and make corresponding change in config)
+                            "pad_mask": torch.ones((1, 100, 1)).to(device).bool()
                         }
                     }
 
@@ -157,12 +147,42 @@ def eval_real(model, config, env):
                     #     del input_batch["goal_obs"]["ee_pose"]
                     # del input_batch["actions"]
                     info = model.forward_eval(input_batch)
+
+                    ##### DHRUV ######
+                    im = data["obs"]["front_img_1"][0, 0].cpu().numpy()
+                    if isinstance(model, ACT):
+                        pred_values = info["actions"][0].cpu().numpy()
+                        actions = info["actions"][0].cpu().numpy()
+                        # actions = input_batch["actions"][0].cpu().numpy()
+                    else:
+                        pred_values = info.mean[0].view((10,3)).cpu().numpy()
+                        actions = input_batch["actions"][0, 0].view((10, 3)).cpu().numpy()
+
+                    if model.ac_key == "actions_joints":
+                        pred_values_drawable, actions_drawable = aloha_fk.fk(pred_values[:, :6]), aloha_fk.fk(actions[:, :6])
+                        pred_values_drawable, actions_drawable = ee_pose_to_cam_frame(pred_values_drawable, CURR_EXTRINSICS), ee_pose_to_cam_frame(actions_drawable, CURR_EXTRINSICS)
+                        actions_base_frame = aloha_fk.fk(actions[:, :6])
+
+                        actions_pixels = ee_pose_to_cam_pixels(actions_base_frame, CURR_EXTRINSICS, CURR_INTRINSICS/2)/2
+                    else:
+                        pred_values_drawable, actions_drawable = pred_values, actions
+
+
                     all_actions = info["actions"]
+                    # breakpoint()
+                    pred_values_drawable = cam_frame_to_cam_pixels(pred_values_drawable, CURR_INTRINSICS)
+                    actions_drawable = cam_frame_to_cam_pixels(actions_drawable, CURR_INTRINSICS)
+                    # frame = draw_dot_on_frame(im, actions_pixels, show=False, palette="Purples")
+                    im = np.array(im, dtype='uint8')
+                    frame = draw_dot_on_frame(im, actions_drawable, show=False, palette="Greens")
+                    frame =  draw_dot_on_frame(frame, ee_pose_pixels, show=False, palette="Set1")
 
+                    # plt.imshow(frame)
+                    # plt.show()
+                    rollout_images.append(frame)
+                    # viz_dir = os.path.join(rollout_dir, f"rolloutViz_{rollout_id}")
+                    plt.imsave(os.path.join(rollout_dir, "viz.png"), frame)
 
-                    # all_actions = info
-
-                    
                     if True:
                         all_actions_numpy = all_actions.cpu().numpy()
                         # fig, ax = plt.subplots()
@@ -171,44 +191,8 @@ def eval_real(model, config, env):
                         # ax = plot_joint_pos(ax, all_actions_numpy, linestyle="dotted")
                         # fig.savefig(os.path.join(ckpt_dir, f"rolloutViz_{rollout_id}", "actions.png"))
                         all_actions = torch.from_numpy(all_actions_numpy).to(all_actions.device)
-                if False and t % query_frequency == 0:
-                    rend_imgs, _ = render_trajs_batch(
-                        img_data=curr_image.cpu().numpy(),
-                        traj_dict=forward_dict,
-                        cam2base=CURR_EXTRINSICS,
-                        K=CURR_INTRINSICS,
-                        colors={
-                            "guide_traj_base_frame": "Reds",
-                            "right_pred_eef_base_frame": "Purples", 
-                            "r_ee_pos": "Greens"
-                        }
-                    )
-                    
-                    
-                    rend_imgs[0] = miniviewer(rend_imgs[0], (255 * goal_im[0, 0].cpu().numpy().transpose((1, 2, 0))).astype(np.uint8))
-                    rend_imgs[0] = miniviewer(rend_imgs[0], (255*curr_image[0, 1].cpu().numpy().transpose(1, 2, 0)).astype(np.uint8), location="top_left")
-                    if not onscreen_render:
-                        rollout_images += rend_imgs
-                    viz_dir = os.path.join(ckpt_dir, f"rolloutViz_{rollout_id}")
-                    # breakpoint()
 
-                    ### update onscreen render and wait for DT
-                    if onscreen_render:
-                        plt_img.set_data(rend_imgs[0])
-                        plt.pause(DT)
-                
-                if False and temporal_agg:
-                    all_time_actions[[t], t:t + num_queries] = all_actions
-                    actions_for_curr_step = all_time_actions[:, t]
-                    actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
-                    actions_for_curr_step = actions_for_curr_step[actions_populated]
-                    k = 0.01
-                    exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
-                    exp_weights = exp_weights / exp_weights.sum()
-                    exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
-                    raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
-                else:
-                    raw_action = all_actions[:, t % query_frequency]
+                raw_action = all_actions[:, t % query_frequency]
 
                 ### post-process actions
                 raw_action = raw_action.squeeze(0).cpu().numpy()
@@ -217,24 +201,22 @@ def eval_real(model, config, env):
                 # target_qpos = action
 
                 ### step the environment
+                target_qpos = np.concatenate([np.zeros(7), target_qpos])
                 ts = env.step(target_qpos)
 
                 ### for visualization
                 qpos_list.append(qpos_numpy)
                 target_qpos_list.append(target_qpos)
+                #####       ######
 
-                # if real_robot and 
-
-            plt.close()
-        save_images(rollout_images, viz_dir)
+        # save_images(rollout_images, viz_dir)
         # write_vid(rollout_images, os.path.join(viz_dir, "video_0.mp4"))
         rollout_images = []
         if real_robot:
             print("moving robot")
-            move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2,
+            move_grippers([env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2,
                           move_time=0.5)  # open
             pass
-
     return
 
 def init_robomimic_alg(config):
@@ -291,10 +273,14 @@ def main(args):
     model = init_robomimic_alg(config)
     model = ModelWrapper.load_from_checkpoint(args.eval_path, model=model, datamodule=None)
     
-    env = make_fake_env(init_node=True, arm_left=False, arm_right=True)
+    env = make_real_env(init_node=True, arm_left=False, arm_right=True)
     model.eval()
+    rollout_dir = os.path.dirname(os.path.dirname(args.eval_path))
+    rollout_dir = os.path.join(rollout_dir, "rollouts")
+    if not os.path.exists(rollout_dir):
+        os.mkdir(rollout_dir)
 
-    eval_real(model.model, config, env)
+    eval_real(model.model, config, env, rollout_dir)
 
 
 # def main(args):
