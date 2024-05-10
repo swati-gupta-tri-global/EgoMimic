@@ -137,13 +137,12 @@ class PlaydataSequenceDataset(SequenceDataset):
                 dataset_keys=self.dataset_keys,
                 load_next_obs=self.load_next_obs
             )
-
+            
             if self.hdf5_cache_mode == "all":
                 # cache getitem calls for even more speedup. We don't do this for
                 # "low-dim" since image observations require calls to getitem anyways.
                 print("SequenceDataset: caching get_item calls...")
                 self.getitem_cache = [self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))]
-
                 # don't need the previous cache anymore
                 del self.hdf5_cache
                 self.hdf5_cache = None
@@ -155,6 +154,32 @@ class PlaydataSequenceDataset(SequenceDataset):
         self.close_and_delete_hdf5_handle()
 
 
+        self.robot_keys = [] #self.hdf5_file['mask']['robot_demos']
+        self.human_keys = [] #self.hdf5_file['mask']['human_demos']
+        
+        if self.filter_by_attribute == 'train':
+            # for k in self.hdf5_file['data'].keys():
+            key_list = self.hdf5_file['mask/train'][:].tolist()
+            decoded_key_list = [item.decode('utf-8') for item in key_list]
+            for k in decoded_key_list:
+                label = self.hdf5_file['data'][k]['label']
+                label = label[()][0]
+                if label == 1:
+                    self.human_keys.append(k)
+                else:
+                    self.robot_keys.append(k)
+        elif self.filter_by_attribute == 'valid':
+            # for k in self.hdf5_file['data'].keys():
+            key_list = self.hdf5_file['mask/valid'][:].tolist()
+            decoded_key_list = [item.decode('utf-8') for item in key_list]
+            for k in decoded_key_list:
+                label = self.hdf5_file['data'][k]['label']
+                label = label[()][0]
+                if label == 1:
+                    self.human_keys.append(k)
+                else:
+                    self.robot_keys.append(k)
+        
     def get_item(self, index):
         """
         Main implementation of getitem when not using cache.
@@ -214,4 +239,18 @@ class PlaydataSequenceDataset(SequenceDataset):
                 prefix="obs",
             )
 
+        if demo_id in self.human_keys:
+            meta['obs']['type'] = 1 #'human'
+            if self.goal_mode is not None:
+                meta['goal_obs']['type'] = 1 #'human'
+        elif demo_id in self.robot_keys:
+            meta['obs']['type'] = 0 #'robot'
+            if self.goal_mode is not None:
+                meta['goal_obs']['type'] = 0 #'robot'
+
+        ## check meta for zero front_img and sample safe_index
+        # if not meta["obs"]["front_img_1"].any():
+        #     return self.get_item(0)
+        # if not meta["goal_obs"]["front_img_1"].any():
+        #     return self.get_item(0)
         return meta

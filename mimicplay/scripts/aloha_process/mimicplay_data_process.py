@@ -41,7 +41,7 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
     add_data_dir(h5py_file)
     
-    fix_demo_underscores(h5py_file)
+    ##fix_demo_underscores(h5py_file)
 
     if data_type == "hand":
         print("Renaming front_image_1 and front_image_2 keys")
@@ -50,10 +50,11 @@ def prep_for_mimicplay(hdf5_path, data_type):
 
         replace_key_names(h5py_file, key_dict)
 
-        scale_by_factor(h5py_file, 100)
+        scale_by_factor(h5py_file, 1)
 
         remove_corrupted_entries(h5py_file)
 
+        #convert_bgr_to_rgb(h5py_file)
     # NOTE: temp stub put back
     # if data_type == "hand":
     remove_eepose_quat(h5py_file)
@@ -76,6 +77,11 @@ def prep_for_mimicplay(hdf5_path, data_type):
     # set num samples for each demo in data
     for demo_key in demo_keys:
         h5py_file[f"data/{demo_key}"].attrs["num_samples"] = h5py_file[f"data/{demo_key}/actions"].shape[0]
+
+        if  data_type == "hand":
+            h5py_file[f"data/{demo_key}"]['label'] = np.array([1])
+        elif data_type == "robot":
+            h5py_file[f"data/{demo_key}"]['label'] = np.array([0])
 
         # It seems like robomimic wants (..., C, H, W) instead of (..., H, W, C)
         # for im_number in range(1, 3):
@@ -132,7 +138,7 @@ def normalize_obs(h5py_file):
         del h5py_file[f"data/{demo_key}/obs/ee_pose_norm"]
 
 
-def get_future_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
+def get_future_points(arr, POINT_GAP=4, FUTURE_POINTS_COUNT=10):
     future_traj = []
 
     for i in range(POINT_GAP, (FUTURE_POINTS_COUNT + 1) * POINT_GAP, POINT_GAP):
@@ -169,8 +175,7 @@ def chunk_actions(h5py_file, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
 def remove_eepose_quat(h5py_file):
     demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
     DEMO_COUNT = len(demo_keys)
-
-    # breakpoint()
+    #breakpoint()
 
     for demo_key in demo_keys:
         h5py_file[f"data/{demo_key}/obs/ee_pose_full_unnorm"] = h5py_file[f"data/{demo_key}/obs/ee_pose"]
@@ -311,6 +316,17 @@ def remove_corrupted_entries(h5py_file):
             h5py_file.create_dataset(f'data/{demo_key}/actions', data=filtered_actions)
         except:
             print("Could not remove corrupted entries!")
+
+def convert_bgr_to_rgb(h5py_file):
+    """
+    Convert BGR to RGB
+    """
+    demo_keys = [key for key in h5py_file['data'].keys() if 'demo' in key]
+    for demo_key in demo_keys:
+        print(f"Converting BGR to RGB images for {demo_key}")
+        front_img_ = h5py_file[f'data/{demo_key}/obs/front_img_1']
+        h5py_file[f'data/{demo_key}/obs/front_img_1'][...,0]=front_img_[...,2]
+        h5py_file[f'data/{demo_key}/obs/front_img_1'][...,2]=front_img_[...,0]
 
 if __name__ == '__main__':
     prep_for_mimicplay(args.hdf5_path, args.data_type)

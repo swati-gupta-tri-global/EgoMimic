@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import os
 
-def evaluate_high_level_policy(model, data_loader, video_dir):
+def evaluate_high_level_policy(model, data_loader, video_dir, type=None):
     """
     Evaluate high level trajectory prediciton policy.
     model: model loaded from checkpoint
@@ -33,6 +33,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
 
     count = 0
     vids_written = 0
+
     T = 700
     video = torch.zeros((T, 480, 640, 3))
 
@@ -47,7 +48,8 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
         if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
             del input_batch["goal_obs"]["ee_pose"]
-        del input_batch["actions"]
+        if "actions" in input_batch:
+            del input_batch["actions"]
         info = model.forward_eval(input_batch)
 
         print(i)
@@ -81,10 +83,10 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
                 goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
                 frame = miniviewer(frame, goal_frame)
 
-            # cv2.imwrite(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{count}.png", frame)
+
             if count == T:
                 if video_dir is not None:
-                    torchvision.io.write_video(os.path.join(video_dir, f"_{vids_written}.mp4"), video[1:count], fps=30)
+                    torchvision.io.write_video(os.path.join(video_dir, f"{type}_{vids_written}.mp4"), video[1:count], fps=30)
                 # exit()
                 count = 0
                 vids_written += 1
@@ -93,7 +95,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
 
             count += 1
     
-    torchvision.io.write_video(os.path.join(video_dir, f"_{vids_written}.mp4"), video[1:count], fps=30)
+    torchvision.io.write_video(os.path.join(video_dir, f"{type}_{vids_written}.mp4"), video[1:count], fps=30)
     # summarize metrics
     summary_metrics = {}
     for key in metrics:
@@ -104,14 +106,14 @@ def evaluate_high_level_policy(model, data_loader, video_dir):
         summary_metrics[key] = mean_stat
 
     to_return = {
-        "paired_mse x": summary_metrics["paired_mse"][0],
-        "paired_mse y": summary_metrics["paired_mse"][1],
-        "paired_mse z": summary_metrics["paired_mse"][2],
-        "paired_mse avg": np.mean(summary_metrics["paired_mse"]),
-        "final_mse x": summary_metrics["final_mse"][0],
-        "final_mse y": summary_metrics["final_mse"][1],
-        "final_mse z": summary_metrics["final_mse"][2],
-        "final_mse avg": np.mean(summary_metrics["final_mse"]),
+        f"{type}_paired_mse x": summary_metrics["paired_mse"][0],
+        f"{type}_paired_mse y": summary_metrics["paired_mse"][1],
+        f"{type}_paired_mse z": summary_metrics["paired_mse"][2],
+        f"{type}_paired_mse avg": np.mean(summary_metrics["paired_mse"]),
+        f"{type}_final_mse x": summary_metrics["final_mse"][0],
+        f"{type}_final_mse y": summary_metrics["final_mse"][1],
+        f"{type}_final_mse z": summary_metrics["final_mse"][2],
+        f"{type}_final_mse avg": np.mean(summary_metrics["final_mse"]),
     }
     
     return to_return
