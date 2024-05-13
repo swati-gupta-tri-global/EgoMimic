@@ -271,3 +271,25 @@ With dinov2 non goal cond
 `python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/one_bowl_one_object_robot_apr9/robomimic/oboo_apr9Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
 
 Use `--debug` to check that the pipeline works
+
+
+### Training on multiple datasets
+```bash
+python train.py --config ../configs/highlevel_dino_2_train_datasets.json --dataset <path-to-hand-dataset> --dataset_2 <path-to-robot-dataset> --name <exp-name> --description no_goal --non-goal-cond
+```
+
+- #### Co-train
+Set `cotrain=true` in `../configs/highlevel_dino_2_train_datasets.json`
+
+- #### Co-train+KL 
+Set `cotrain=true` and `KL=true` in `../configs/highlevel_dino_2_train_datasets.json`
+
+- #### Co-train + Domain Discriminator
+Set `cotrain=true` and `domain_discriminator=true` in  `../configs/highlevel_dino_2_train_datasets.json`
+
+### Training on single dataset
+```bash
+python train.py --config ../configs/highlevel_dino_2_train_datasets.json --dataset <path-to-dataset> --name <exp-name> --description no_goal --non-goal-cond
+```
+
+Set `co-train`, `kl`, `domain_discriminator` as `false` in  `../configs/highlevel_dino_2_train_datasets.json`
