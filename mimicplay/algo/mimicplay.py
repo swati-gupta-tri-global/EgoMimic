@@ -7,6 +7,7 @@ import copy
 import h5py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import robomimic.models.base_nets as BaseNets
 import mimicplay.models.policy_nets as PolicyNets
@@ -33,17 +34,41 @@ def algo_config_to_class(algo_config):
         algo_class: subclass of Algo
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
-
     if algo_config.highlevel.enabled:
         if algo_config.lowlevel.enabled:
             return Lowlevel_GPT_mimicplay, {}
         else:
-            return Highlevel_GMM_pretrain, {}
+            if algo_config.gmm.kl == True and algo_config.gmm.domain_discriminator == False:
+                return KLDiv_Highlevel_GMM_pretrain, {}
+            elif algo_config.gmm.kl == False and algo_config.gmm.domain_discriminator == True:
+                return DomainDiscriminator_Highlevel_GMM_pretrain, {}
+            elif algo_config.gmm.kl == False and algo_config.gmm.domain_discriminator == False:
+                return Highlevel_GMM_pretrain, {}
+            else:
+                Exception("Invalid config for highlevel training")
+            return Highlevel_GMM_pretrain, {} #Highlevel_GMM_pretrain, {}
     else:
         if algo_config.lowlevel.enabled:
             return Baseline_GPT_from_scratch, {}
         else:
             return BC_RNN_GMM, {}
+
+class Domain_Discriminator(nn.Module):
+    def __init__(self, in_features=67):
+        super(Domain_Discriminator, self).__init__()
+        self.in_features = in_features
+        self.model = nn.Sequential(
+            nn.Linear(67, 64),
+            nn.ReLU(),
+            nn.Linear(64, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        return self.model(x)
+
 
 class Highlevel_GMM_pretrain(BC_Gaussian):
     """
@@ -78,6 +103,8 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         self.nets = self.nets.float().to(self.device)
 
+        self.both_human_robot = False
+
     def postprocess_batch_for_training(self, batch, obs_normalization_stats):
         """
         Processes input batch from a data loader to filter out
@@ -105,11 +132,14 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             Apply process_obs_dict to values in nested dictionary d that match a key in obs_keys.
             """
             for k in d:
+                # breakpoint()
                 if k in obs_keys:
                     # found key - stop search and process observation
                     if d[k] is not None:
+                        # breakpoint()
                         d[k] = ObsUtils.process_obs_dict(d[k])
                         if obs_normalization_stats is not None:
+                            # breakpoint()
                             d[k] = ObsUtils.normalize_obs(d[k], obs_normalization_stats=obs_normalization_stats)
                 elif isinstance(d[k], dict):
                     # search down into dictionary
@@ -194,10 +224,11 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
     def forward_eval(self, batch):
         with torch.no_grad():
-            dists = self.nets["policy"].forward_train(
+            dists, latent, _ = self.nets["policy"].forward_train(
                 obs_dict=batch["obs"],
-                goal_dict=batch["goal_obs"]
-            )
+                goal_dict=batch["goal_obs"],
+                return_latent=True
+            )           
             return dists
 
     def _forward_training(self, batch):
@@ -212,20 +243,63 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         Returns:
             predictions (dict): dictionary containing network outputs
         """
+        ## Check if data from single data source (Robot or Human)
+        if isinstance(batch, dict):
+            self.both_human_robot = False
+        elif isinstance(batch, list):
+            self.both_human_robot = True
 
-        dists = self.nets["policy"].forward_train(
-            obs_dict=batch["obs"],
-            goal_dict=batch["goal_obs"]
-        )
+        if self.both_human_robot:
+            ## Set batch_1 => Hand and batch_2 => Robot
+            if torch.all(batch[0]['obs']['type'] == 1):
+                batch_hand = batch[0]
+                batch_robot = batch[1]
+            elif torch.all(batch[1]['obs']['type'] == 1):
+                batch_hand = batch[1]
+                batch_robot = batch[0]
 
-        # make sure that this is a batch of multivariate action distributions, so that
-        # the log probability computation will be correct
-        assert len(dists.batch_shape) == 1
-        log_probs = dists.log_prob(batch["actions"])
+            dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+                obs_dict=batch_hand["obs"],
+                goal_dict=batch_hand["goal_obs"],
+                return_latent=True
+            )
 
-        predictions = OrderedDict(
-            log_probs=log_probs,
-        )
+            dists_2, enc_out_2, mlp_out_2 = self.nets["policy"].forward_train(
+                obs_dict=batch_robot["obs"],
+                goal_dict=batch_robot["goal_obs"],
+                return_latent=True
+            )
+            
+            # make sure that this is a batch of multivariate action distributions, so that
+            # the log probability computation will be correct
+            # breakpoint()
+            assert len(dists.batch_shape) == 1
+            # log_probs = dists.log_prob(batch["actions"])
+            log_probs = dists.log_prob(batch_hand["actions"])
+            
+            if self.algo_config.gmm.cotrain == True:
+                log_probs = torch.cat((dists.log_prob(batch_hand["actions"]), dists_2.log_prob(batch_robot["actions"])))
+
+            predictions = OrderedDict(
+                log_probs=log_probs,
+                enc_out=enc_out,
+                enc_out_2=enc_out_2
+            )
+        else:
+            dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+                obs_dict=batch["obs"],
+                goal_dict=batch["goal_obs"],
+                return_latent=True
+            )
+
+            assert len(dists.batch_shape) == 1
+            # log_probs = dists.log_prob(batch["actions"])
+            log_probs = dists.log_prob(batch["actions"])
+
+            predictions = OrderedDict(
+                log_probs=log_probs,
+                enc_out=enc_out,
+            )
         return predictions
 
     def _compute_losses(self, predictions, batch):
@@ -242,7 +316,6 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             losses (dict): dictionary of losses computed over the batch
         """
 
-        # loss is just negative log-likelihood of action targets
         action_loss = -predictions["log_probs"].mean()
         return OrderedDict(
             log_probs=-action_loss,
@@ -266,6 +339,82 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
+
+
+class KLDiv_Highlevel_GMM_pretrain(Highlevel_GMM_pretrain):
+    def _create_networks(self):
+        super()._create_networks()
+        assert self.algo_config.gmm.kl == True, "KL must be enabled in config to call KL_Div_Highlevel_GMM_pretrain class"
+        self.kl_weight=self.algo_config.gmm.kl_weight
+
+    def _compute_losses(self, predictions, batch):
+        assert self.algo_config.gmm.kl == True, "KL must be enabled in config to call KL_Div_Highlevel_GMM_pretrain class"
+        assert self.both_human_robot == True, "Batched data from dual source (robot and human) not provided"
+        base_losses = super()._compute_losses(predictions, batch)
+        
+        input_kl = F.log_softmax(predictions["enc_out_2"], dim=1) # robot
+        target_kl = F.softmax(predictions["enc_out"], dim=1) # human
+        kl_div_loss = self.kl_weight*torch.nn.KLDivLoss(reduction="batchmean")(input_kl, target_kl)
+        base_losses["kl_div_loss"] = kl_div_loss
+
+        action_loss = -predictions["log_probs"].mean() + kl_div_loss.mean()
+        base_losses["log_probs"] = -action_loss
+        base_losses["action_loss"] = action_loss
+        return base_losses
+
+    def log_info(self, info):
+        base_logs = super().log_info(info)
+        base_logs["kl_div_loss"] = info["losses"]["kl_div_loss"].item()
+        return base_logs
+    
+class DomainDiscriminator_Highlevel_GMM_pretrain(Highlevel_GMM_pretrain):
+    def _create_networks(self):
+        super()._create_networks()
+        assert self.algo_config.gmm.domain_discriminator == True, "Domain Discriminator must be enabled in config to call DomainDiscriminator_Highlevel_GMM_pretrain class"
+
+        self.discriminator = Domain_Discriminator()
+        self.discriminator = self.discriminator.float().to(self.device)
+        # Parameters for the optimizer
+        learning_rate = 0.0002  # Common starting learning rate for Adam in GANs
+        betas = (0.5, 0.999)    # Betas used typically in GANs to control the moving averages
+        self.discriminator_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.1*learning_rate, betas=betas)
+        self.generator_optimizer = torch.optim.Adam(self.nets["policy"]._modules['nets']['encoder'].parameters(), lr=10*learning_rate, betas=betas)
+        self.training_step = 0
+
+    def _compute_losses(self, predictions, batch):
+        assert self.algo_config.gmm.domain_discriminator == True, "Domain Discriminator must be enabled in config to call DomainDiscriminator_Highlevel_GMM_pretrain class"
+        assert self.both_human_robot == True, "Batched data from dual source (robot and human) not provided"
+
+        base_losses = super()._compute_losses(predictions, batch)
+        human_latent, robot_latent = predictions["enc_out"], predictions["enc_out_2"]
+        real_labels = torch.ones(human_latent.size(0), 1, device=self.device)
+        fake_labels = torch.zeros(robot_latent.size(0), 1, device=self.device)
+
+        real_loss = F.binary_cross_entropy(self.discriminator(human_latent.detach()), real_labels)
+        fake_loss = F.binary_cross_entropy(self.discriminator(robot_latent.detach()), fake_labels)
+        discriminator_loss = (real_loss + fake_loss) / 2
+        if self.nets.training:
+            self.training_step += 1
+            if self.training_step % 100 == 0:
+                print("Backproping discriminator")
+                self.discriminator_optimizer.zero_grad()  # Reset gradients
+                discriminator_loss.backward()        # Compute gradients
+                self.discriminator_optimizer.step()       # Update weights
+
+            generator_loss =  10*F.binary_cross_entropy(self.discriminator(robot_latent), real_labels)
+            self.generator_optimizer.zero_grad()
+            generator_loss.backward()
+            self.generator_optimizer.step()
+        
+        base_losses["discriminator_loss"] = discriminator_loss
+        base_losses["generator_loss"] = generator_loss
+        return base_losses
+    
+    def log_info(self, info):
+        base_logs = super().log_info(info)
+        base_logs["discriminator_loss"] = info["losses"]["discriminator_loss"].item()
+        base_logs["generator_loss"] = info["losses"]["generator_loss"].item()
+        return base_logs                       
 
 
 class Lowlevel_GPT_mimicplay(BC_RNN):

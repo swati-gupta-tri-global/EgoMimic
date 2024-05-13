@@ -25,6 +25,7 @@ from robomimic.models.base_nets import Module, Sequential, MLP, RNN_Base, ResNet
     FeatureAggregator
 from robomimic.models.obs_core import VisualCore, Randomizer
 from robomimic.models.transformers import PositionalEncoding, GPT_Backbone
+from robomimic.models.base_nets import Vit
 
 
 def obs_encoder_factory(

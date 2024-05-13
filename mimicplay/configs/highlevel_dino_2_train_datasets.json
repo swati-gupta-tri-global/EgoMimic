@@ -95,7 +95,11 @@
             "num_modes": 5,
             "min_std": 0.0001,
             "std_activation": "softplus",
-            "low_noise_eval": false
+            "low_noise_eval": false,
+            "kl_weight": 10,
+            "kl": false,
+            "cotrain": false,
+            "domain_discriminator": false
         },
         "vae": {
             "enabled": false,
@@ -166,8 +170,8 @@
         },
         "playdata": {
             "enabled": true,
-            "goal_image_range": [30, 40],
-            "eval_goal_gap": 35
+            "goal_image_range": [30, 50],
+            "eval_goal_gap": 40
         }
     },
     "observation": {
@@ -203,7 +207,7 @@
                 "core_kwargs": {
                     "feature_dimension": 64,
                     "flatten": true,
-                    "backbone_class": "ResNet18Conv",
+                    "backbone_class": "ViT_Rein",
                     "backbone_kwargs": {
                         "pretrained": false,
                         "input_coord_conv": false
