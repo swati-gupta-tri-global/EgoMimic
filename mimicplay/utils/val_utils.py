@@ -58,9 +58,6 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, 
         if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
             del input_batch["goal_obs"]["ee_pose"]
 
-        if "actions" in input_batch:
-            del input_batch["actions"]
-
         info = model.forward_eval(input_batch)
 
         print(i)

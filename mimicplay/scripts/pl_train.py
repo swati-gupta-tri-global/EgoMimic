@@ -306,7 +306,7 @@ def train(config, ckpt_path, resume_dir):
 
     # load training data
     trainset, validset = load_data_for_training(
-        config, obs_keys=shape_meta["all_obs_keys"]
+        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
     )
     print("\n============= Training Dataset =============")
     print(trainset)

@@ -695,20 +695,6 @@ def train_argparse():
         default=None,
         help="learning rate"
     )
-
-
-    parser.add_argument(
-        "--non-goal-cond",
-        action='store_true',
-        help="edits config to remove rgb goal conditioning"
-    )
-
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=None,
-        help="learning rate"
-    )
     
     parser.add_argument(
         "--ac-key",

@@ -165,8 +165,13 @@ class PlaydataSequenceDataset(SequenceDataset):
             key_list = self.hdf5_file['mask/train'][:].tolist()
             decoded_key_list = [item.decode('utf-8') for item in key_list]
             for k in decoded_key_list:
-                label = self.hdf5_file['data'][k]['label']
-                label = label[()][0]
+                if 'label' in self.hdf5_file['data'][k]:
+                    label = self.hdf5_file['data'][k]['label']
+                    label = label[()][0]
+                else:
+                    print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
+                    label = 0
+
                 if label == 1:
                     self.human_keys.append(k)
                 else:
@@ -176,8 +181,13 @@ class PlaydataSequenceDataset(SequenceDataset):
             key_list = self.hdf5_file['mask/valid'][:].tolist()
             decoded_key_list = [item.decode('utf-8') for item in key_list]
             for k in decoded_key_list:
-                label = self.hdf5_file['data'][k]['label']
-                label = label[()][0]
+                if 'label' in self.hdf5_file['data'][k]:
+                    label = self.hdf5_file['data'][k]['label']
+                    label = label[()][0]
+                else:
+                    print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
+                    label = 0
+
                 if label == 1:
                     self.human_keys.append(k)
                 else:

@@ -91,7 +91,7 @@ class ACT(BC_VAE):
         """
 
         input_batch = dict()
-        input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"] if k != 'pad_mask'}
+        input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"] if k != 'pad_mask' and k != 'type'}
         input_batch["obs"]['pad_mask'] = batch["obs"]['pad_mask']
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         if self.ac_key in batch:
