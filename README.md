@@ -86,3 +86,27 @@ Dirty laundry
 
 Eval real:
 `python scripts/evaluation/eval_real.py --config configs/act.json --eval-path /home/rl2-aloha/Documents/EgoplaySP/EgoPlay/trained_models_highlevel/1GBS32LR5e5_DT_2024-05-01-11-47-59/1GBS32LR5e5_DT_2024-05-01-11-47-59/models/model_epoch_epoch=599.ckpt`
+
+Use `--debug` to check that the pipeline works
+
+
+### Training on multiple datasets
+```bash
+python train.py --config ../configs/highlevel_dino_2_train_datasets.json --dataset <path-to-hand-dataset> --dataset_2 <path-to-robot-dataset> --name <exp-name> --description no_goal --non-goal-cond
+```
+
+- #### Co-train
+Set `cotrain=true` in `../configs/highlevel_dino_2_train_datasets.json`
+
+- #### Co-train+KL 
+Set `cotrain=true` and `KL=true` in `../configs/highlevel_dino_2_train_datasets.json`
+
+- #### Co-train + Domain Discriminator
+Set `cotrain=true` and `domain_discriminator=true` in  `../configs/highlevel_dino_2_train_datasets.json`
+
+### Training on single dataset
+```bash
+python train.py --config ../configs/highlevel_dino_2_train_datasets.json --dataset <path-to-dataset> --name <exp-name> --description no_goal --non-goal-cond
+```
+
+Set `co-train`, `kl`, `domain_discriminator` as `false` in  `../configs/highlevel_dino_2_train_datasets.json`
