@@ -95,7 +95,7 @@ Use `--debug` to check that the pipeline works
 
 ### Training on multiple datasets
 ```bash
-python train.py --config ../configs/highlevel_dino_2_train_datasets.json --dataset <path-to-hand-dataset> --dataset_2 <path-to-robot-dataset> --name <exp-name> --description no_goal --non-goal-cond
+python scripts/train.py --config configs/highlevel_dino_2_train_datasets.json --dataset /coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay_hand_yellow_black_table_with_type_label.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name debug --description debug --non-goal-cond --debug
 ```
 
 - #### Co-train
