@@ -13,6 +13,7 @@ git clone https://github.com/SimarKareer/robomimic
 cd robomimic
 git checkout <custom branch>
 pip install -e .
+pip install -r requirements.txt
 cd act/detr
 pip install -e .
 ```
@@ -65,7 +66,7 @@ Base High level:
 or via `python scripts/exps/submit.py`
 
 With dinov2 non goal cond
-`python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/one_bowl_one_object_robot_apr9/robomimic/oboo_apr9Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
+`python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/oboo_depth_apr22/oboo_robot_apr22_Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
 
 With ACT settings
 `python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACT --description joints --non-goal-cond --ac-key actions_joints --obs-rgb front_img_1 right_wrist_img`
@@ -83,6 +84,8 @@ Remember `conda activate eplay2`
 Dirty laundry
 - Hardcoded path to urdf in SimarUtils.py
 - hardcoded extrinsics in val_utils.py
+- Added ac_key under base Algo in robomimic, I suppose this could just access the model.global_config
+- I haven't tested whether aloha_to_robomimic_v2 works with highlevelGMMPretrain
 
 Eval real:
 `python scripts/evaluation/eval_real.py --config configs/act.json --eval-path /home/rl2-aloha/Documents/EgoplaySP/EgoPlay/trained_models_highlevel/1GBS32LR5e5_DT_2024-05-01-11-47-59/1GBS32LR5e5_DT_2024-05-01-11-47-59/models/model_epoch_epoch=599.ckpt`
