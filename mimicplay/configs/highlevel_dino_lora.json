@@ -92,6 +92,8 @@
         },
         "gmm": {
             "enabled": true,
+            "kl": false,
+            "domain_discriminator": false,
             "num_modes": 5,
             "min_std": 0.0001,
             "std_activation": "softplus",

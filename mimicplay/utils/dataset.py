@@ -9,6 +9,7 @@ import time
 
 from cProfile import Profile
 from pstats import SortKey, Stats
+from mimicplay.scripts.aloha_process.simarUtils import nds
 
 class PlaydataSequenceDataset(SequenceDataset):
     def __init__(
@@ -153,6 +154,8 @@ class PlaydataSequenceDataset(SequenceDataset):
 
         self.close_and_delete_hdf5_handle()
 
+        self.rgb_keys = [k for k in self.obs_keys if ObsUtils.key_is_obs_modality(k, "rgb")]
+
 
         self.robot_keys = [] #self.hdf5_file['mask']['robot_demos']
         self.human_keys = [] #self.hdf5_file['mask']['human_demos']
@@ -162,8 +165,13 @@ class PlaydataSequenceDataset(SequenceDataset):
             key_list = self.hdf5_file['mask/train'][:].tolist()
             decoded_key_list = [item.decode('utf-8') for item in key_list]
             for k in decoded_key_list:
-                label = self.hdf5_file['data'][k]['label']
-                label = label[()][0]
+                if 'label' in self.hdf5_file['data'][k]:
+                    label = self.hdf5_file['data'][k]['label']
+                    label = label[()][0]
+                else:
+                    print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
+                    label = 0
+
                 if label == 1:
                     self.human_keys.append(k)
                 else:
@@ -173,8 +181,13 @@ class PlaydataSequenceDataset(SequenceDataset):
             key_list = self.hdf5_file['mask/valid'][:].tolist()
             decoded_key_list = [item.decode('utf-8') for item in key_list]
             for k in decoded_key_list:
-                label = self.hdf5_file['data'][k]['label']
-                label = label[()][0]
+                if 'label' in self.hdf5_file['data'][k]:
+                    label = self.hdf5_file['data'][k]['label']
+                    label = label[()][0]
+                else:
+                    print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
+                    label = 0
+
                 if label == 1:
                     self.human_keys.append(k)
                 else:
@@ -216,7 +229,9 @@ class PlaydataSequenceDataset(SequenceDataset):
             keys=self.obs_keys,
             num_frames_to_stack=self.n_frame_stack - 1,
             seq_length=self.seq_length,
-            prefix="obs"
+            prefix="obs",
+            dont_load_fut=self.rgb_keys
+
         )
 
         if self.load_next_obs:
@@ -226,7 +241,8 @@ class PlaydataSequenceDataset(SequenceDataset):
                 keys=self.obs_keys,
                 num_frames_to_stack=self.n_frame_stack - 1,
                 seq_length=self.seq_length,
-                prefix="next_obs"
+                prefix="next_obs",
+                dont_load_fut=self.rgb_keys
             )
 
         if goal_index is not None:
@@ -237,6 +253,7 @@ class PlaydataSequenceDataset(SequenceDataset):
                 num_frames_to_stack=self.n_frame_stack - 1,
                 seq_length=self.seq_length,
                 prefix="obs",
+                dont_load_fut=self.rgb_keys
             )
 
         if demo_id in self.human_keys:

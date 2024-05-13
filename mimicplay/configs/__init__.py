@@ -3,3 +3,4 @@ from mimicplay.configs.base_config import config_factory, get_all_registered_con
 
 # note: these imports are needed to register these classes in the global config registry
 from mimicplay.configs.mimicplay_config import MimicPlayConfig
+from mimicplay.configs.act_config import ACTConfig

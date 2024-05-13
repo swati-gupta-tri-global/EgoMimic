@@ -16,3 +16,8 @@ mimicplay/scripts/hand_process/triangulation.py
 mimicplay/scripts/hand_process/left_0.jpg
 mimicplay/scripts/hand_process/right_0.jpg
 mimicplay/scripts/calibrate_camera/calibration_imgs
+mimicplay/scripts/aloha_process/aria_content/hand_img.png
+mimicplay/scripts/aloha_process/aria_content/robot_traj_2.png
+mimicplay/scripts/aloha_process/aria_content/robot_traj_150.png
+mimicplay/scripts/aloha_process/aria_content/robot_traj_250.png
+mimicplay/scripts/aloha_process/aria_content/robot_traj.png

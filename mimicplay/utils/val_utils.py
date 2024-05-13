@@ -1,16 +1,20 @@
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, EXTRINSICS, WIDE_LENS_ROBOT_LEFT_K
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, EXTRINSICS, WIDE_LENS_ROBOT_LEFT_K, ee_pose_to_cam_frame, AlohaFK
 import torchvision
 import numpy as np
 import torch
 import os
+from mimicplay.algo.act import ACT
+CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
 
-def evaluate_high_level_policy(model, data_loader, video_dir, type=None):
+def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, type=None):
     """
     Evaluate high level trajectory prediciton policy.
     model: model loaded from checkpoint
     data_loader: validation data loader
     goal_distance: number of steps forward to predict
     video_path: path to save rendered video
+    acton_type: "xyz" or "joints"
+    max_samples: maximum number of samples to evaluate
     """
 
     vid_dir_count = 0
@@ -39,7 +43,12 @@ def evaluate_high_level_policy(model, data_loader, video_dir, type=None):
 
     GOAL_COND = model.global_config.train.goal_mode
 
+    aloha_fk = AlohaFK()
+
     for i, data in enumerate(data_loader):
+        B = data["obs"]["front_img_1"].shape[0]
+        if max_samples is not None and i * B > max_samples:
+            break
         # import matplotlib.pyplot as plt
         # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
@@ -48,36 +57,31 @@ def evaluate_high_level_policy(model, data_loader, video_dir, type=None):
         input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
         if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
             del input_batch["goal_obs"]["ee_pose"]
-        if "actions" in input_batch:
-            del input_batch["actions"]
+
         info = model.forward_eval(input_batch)
 
         print(i)
-        for b in range(data["obs"]["front_img_1"].shape[0]):
+        for b in range(B):
             im = data["obs"]["front_img_1"][b, 0].numpy()
+            if isinstance(model, ACT):
+                pred_values = info["actions"][b].cpu().numpy()
+                actions = input_batch["actions"][b].cpu().numpy()
+            else:
+                pred_values = info.mean[b].view((10,3)).cpu().numpy()
+                actions = input_batch["actions"][b].view((10, 3)).cpu().numpy()
+
+            if model.ac_key == "actions_joints":
+                pred_values_drawable, actions_drawable = aloha_fk.fk(pred_values[:, :6]), aloha_fk.fk(actions[:, :6])
+                pred_values_drawable, actions_drawable = ee_pose_to_cam_frame(pred_values_drawable, CURR_EXTRINSICS), ee_pose_to_cam_frame(actions_drawable, CURR_EXTRINSICS)
+            else:
+                pred_values_drawable, actions_drawable = pred_values, actions
             
-            pred_values = np.ones((10, 3))
-            for t in range(10):
-                means = info.mean[b, t*3:3*(t+1)].cpu().numpy()
-                # means = general_unnorm(means, -110.509903, 624.081421, -1, 1)
-                # means[0] = general_unnorm(means[0], mins[0], maxs[0], -1, 1)
-                # means[1] = general_unnorm(means[1], mins[1], maxs[1], -1, 1)
-                # means[2] = general_unnorm(means[2], mins[2], maxs[2], -1, 1)
-                px_val = cam_frame_to_cam_pixels(means[None, :], intrinsics)
-                pred_values[t] = px_val
+            pred_values_drawable = cam_frame_to_cam_pixels(pred_values_drawable, intrinsics)
+            actions_drawable = cam_frame_to_cam_pixels(actions_drawable, intrinsics)
+            frame = draw_dot_on_frame(im, pred_values_drawable, show=False, palette="Purples")
+            frame = draw_dot_on_frame(frame, actions_drawable, show=False, palette="Greens")
 
-            frame = draw_dot_on_frame(im, pred_values, show=False, palette="Purples")
-
-            actions = data["actions"][b, 0].view((10, 3))
-            # actions[:, 0] = general_unnorm(actions[:, 0], mins[0], maxs[0], -1, 1)
-            # actions[:, 1] = general_unnorm(actions[:, 1], mins[1], maxs[1], -1, 1)
-            # actions[:, 2] = general_unnorm(actions[:, 2], mins[2], maxs[2], -1, 1)
-            actions = actions.cpu().numpy()
-            add_metrics(metrics, actions, info.mean[b].view((10,3)).cpu().numpy())
-            for t in range(10):
-                actions[t] = cam_frame_to_cam_pixels(actions[t][None, :], intrinsics)
-
-            frame = draw_dot_on_frame(frame, actions, show=False, palette="Greens")
+            add_metrics(metrics, actions, pred_values)
 
             if GOAL_COND:
                 goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
@@ -105,17 +109,23 @@ def evaluate_high_level_policy(model, data_loader, video_dir, type=None):
 
         summary_metrics[key] = mean_stat
 
-    to_return = {
-        f"{type}_paired_mse x": summary_metrics["paired_mse"][0],
-        f"{type}_paired_mse y": summary_metrics["paired_mse"][1],
-        f"{type}_paired_mse z": summary_metrics["paired_mse"][2],
-        f"{type}_paired_mse avg": np.mean(summary_metrics["paired_mse"]),
-        f"{type}_final_mse x": summary_metrics["final_mse"][0],
-        f"{type}_final_mse y": summary_metrics["final_mse"][1],
-        f"{type}_final_mse z": summary_metrics["final_mse"][2],
-        f"{type}_final_mse avg": np.mean(summary_metrics["final_mse"]),
-    }
-    
+    if model.ac_key == "actions_joints":
+        to_return = {
+            f"{type}_paired_mse_avg": np.mean(summary_metrics["paired_mse"]),
+            f"{type}_final_mse_avg": np.mean(summary_metrics["final_mse"]),
+        }
+    else:
+        to_return = {
+            f"{type}_paired_mse x": summary_metrics["paired_mse"][0],
+            f"{type}_paired_mse y": summary_metrics["paired_mse"][1],
+            f"{type}_paired_mse z": summary_metrics["paired_mse"][2],
+            f"{type}_paired_mse_avg": np.mean(summary_metrics["paired_mse"]),
+            f"{type}_final_mse x": summary_metrics["final_mse"][0],
+            f"{type}_final_mse y": summary_metrics["final_mse"][1],
+            f"{type}_final_mse z": summary_metrics["final_mse"][2],
+            f"{type}_final_mse_avg": np.mean(summary_metrics["final_mse"]),
+        }
+        
     return to_return
 
 def add_metrics(metrics, actions, pred_values):

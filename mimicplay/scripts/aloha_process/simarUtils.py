@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 import torch
 from scipy.spatial.transform import Rotation
+import pytorch_kinematics as pk
+import mimicplay
+import os
 
 REALSENSE_INTRINSICS = np.array([
     [616.0, 0.0, 313.4, 0.0],
@@ -93,7 +96,7 @@ def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
     ee_pose_base = np.concatenate([ee_pose_base, np.ones((N, 1))], axis=1)
 
     ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
-    return ee_pose_grip_cam.T
+    return ee_pose_grip_cam.T[:, :3]
 
 def pose_transform(a_pose, T_a_b):
     """
@@ -133,7 +136,7 @@ def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
 def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     """
         camera frame 3d coordinates to pixels in camera frame
-        ee_pose_cam: [x, y, z]
+        ee_pose_cam: (N, 3)
         intrinsics: 3x4 matrix
     """
     N, _ = ee_pose_cam.shape
@@ -224,3 +227,15 @@ def transformation_matrix_to_pose(T):
     rotation_quaternion = Rotation.from_matrix(R).as_quat()
     pose_array = np.concatenate((p, rotation_quaternion))
     return pose_array
+
+
+class AlohaFK():
+    def __init__(self):
+        urdf_path = os.path.join(os.path.dirname(mimicplay.__file__), "scripts/aloha_process/model.urdf")
+        self.chain = pk.build_serial_chain_from_urdf(open(urdf_path).read(), "vx300s/ee_gripper_link")
+    
+    def fk(self, qpos):
+        if isinstance(qpos, np.ndarray):
+            qpos = torch.from_numpy(qpos)
+        
+        return self.chain.forward_kinematics(qpos, end_only=True).get_matrix()[:, :3, 3]

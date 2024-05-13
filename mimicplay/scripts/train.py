@@ -110,7 +110,8 @@ def train(config, device):
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
         dataset_path=config.train.data,
         all_obs_keys=config.all_obs_keys,
-        verbose=True
+        verbose=True,
+        ac_key=config.train.ac_key
     )
 
     if config.experiment.env is not None:
@@ -544,7 +545,13 @@ def main(args):
     
     if args.description is not None:
         config.experiment.description = args.description
-        
+
+    if args.ac_key is not None:
+        config.train.ac_key = args.ac_key
+    
+    if args.obs_rgb is not None:
+        config.observation.modalities.obs.rgb = args.obs_rgb
+
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
 
@@ -572,7 +579,8 @@ def main(args):
 
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
-        
+        config.experiment.name = "debug_run"
+
     if args.no_wandb:
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
@@ -687,21 +695,20 @@ def train_argparse():
         default=None,
         help="learning rate"
     )
-
-
+    
     parser.add_argument(
-        "--non-goal-cond",
-        action='store_true',
-        help="edits config to remove rgb goal conditioning"
-    )
-
-    parser.add_argument(
-        "--lr",
-        type=float,
+        "--ac-key",
+        type=str,
         default=None,
-        help="learning rate"
+        help="action key"
     )
 
+    # add list of camera names
+    parser.add_argument(
+        "--obs-rgb",
+        nargs='+',
+        help="list of camera names"
+    )
 
     args = parser.parse_args()
 

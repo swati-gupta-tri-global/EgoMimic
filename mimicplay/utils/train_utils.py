@@ -27,7 +27,7 @@ from robomimic.envs.wrappers import EnvWrapper
 import mimicplay
 from mimicplay.algo import RolloutPolicy
 
-def get_exp_dir(config, auto_remove_exp_dir=False):
+def get_exp_dir(config, auto_remove_exp_dir=False, rank=0):
     """
     Create experiment directory from config. If an identical experiment directory
     exists and @auto_remove_exp_dir is False (default), the function will prompt 
@@ -67,15 +67,17 @@ def get_exp_dir(config, auto_remove_exp_dir=False):
     output_dir = None
     if config.experiment.save.enabled:
         output_dir = os.path.join(base_output_dir, time_str, "models")
-        os.makedirs(output_dir)
 
     # tensorboard directory
     log_dir = os.path.join(base_output_dir, time_str, "logs")
-    os.makedirs(log_dir)
 
     # video directory
     video_dir = os.path.join(base_output_dir, time_str, "videos")
-    os.makedirs(video_dir)
+    if rank == 0:
+        os.makedirs(output_dir)
+        os.makedirs(log_dir)
+        os.makedirs(video_dir)
+
     return log_dir, output_dir, video_dir, time_str
 
 
@@ -157,7 +159,7 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
         seq_length=config.train.seq_length,
         pad_frame_stack=config.train.pad_frame_stack,
         pad_seq_length=config.train.pad_seq_length,
-        get_pad_mask=False,
+        get_pad_mask=True,
         goal_mode=config.train.goal_mode,
         hdf5_cache_mode=config.train.hdf5_cache_mode,
         hdf5_use_swmr=config.train.hdf5_use_swmr,
