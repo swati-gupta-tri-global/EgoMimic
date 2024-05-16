@@ -2,8 +2,8 @@
 ## Installation
 Create and activate conda environment
 ```	
-conda create -n mimicplay python=3.8
-conda activate mimicplay
+conda create -n eplay python=3.8
+conda activate eplay
 ```
 
 MimicPlay is based on [robomimic](https://github.com/ARISE-Initiative/robomimic), which facilitates the basics of learning from offline demonstrations.
@@ -11,11 +11,8 @@ MimicPlay is based on [robomimic](https://github.com/ARISE-Initiative/robomimic)
 cd ..
 git clone https://github.com/SimarKareer/robomimic
 cd robomimic
-git checkout <custom branch>
 pip install -e .
 pip install -r requirements.txt
-cd act/detr
-pip install -e .
 ```
 
 Install EgoPlay
@@ -23,6 +20,8 @@ Install EgoPlay
 cd ..
 git clone https://github.com/SimarKareer/EgoPlay/tree/main
 cd EgoPlay
+pip install -e .
+cd act/detr
 pip install -e .
 ```
 
