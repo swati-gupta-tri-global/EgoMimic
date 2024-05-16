@@ -93,6 +93,16 @@ Eval real:
 Use `--debug` to check that the pipeline works
 
 
+Single Policy
+- `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --debug --name pldebug --description debug`
+- `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboo_diverse_aria_may9/converted/aria_oboo_diverseMimicplay.hdf5 --debug --name pldebug --description debug`
+
+Single Policy Hand + Robot
+Yellow table only
+- `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay_with_type_label.hdf5 --debug --name pldebug --description debug`
+Yellow + black table
+- `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay_hand_yellow_black_table_with_type_label.hdf5 --debug --name pldebug --description debug`
+
 ### Training on multiple datasets
 ```bash
 python scripts/train.py --config configs/highlevel_dino_2_train_datasets.json --dataset /coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay_hand_yellow_black_table_with_type_label.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name debug --description debug --non-goal-cond --debug
@@ -113,3 +123,6 @@ python train.py --config ../configs/highlevel_dino_2_train_datasets.json --datas
 ```
 
 Set `co-train`, `kl`, `domain_discriminator` as `false` in  `../configs/highlevel_dino_2_train_datasets.json`
+
+
+Remember: type == 0 is robot, type==1 is hand

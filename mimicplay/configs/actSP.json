@@ -1,5 +1,5 @@
 {
-    "algo_name": "act",
+    "algo_name": "actSP",
     "experiment": {
         "name": "test",
         "description": "v1",
@@ -40,6 +40,7 @@
     },
     "train": {
         "data": null,
+        "data_2": null,
         "output_dir":"../trained_models_highlevel",
         "num_data_workers": 5,
         "hdf5_cache_mode": "low_dim",
@@ -50,12 +51,16 @@
         "hdf5_normalize_obs": false,
         "seq_length": 100,
         "ac_key": "actions_joints",
+        "ac_key_hand": "actions",
         "pad_seq_length": true,
         "frame_stack": 1,
         "pad_frame_stack": true,
         "dataset_keys": [
             "actions_xyz",
             "actions_joints"
+        ],
+        "dataset_keys_hand": [
+            "actions"
         ],
         "goal_mode": null,
         "cuda": true,
@@ -101,11 +106,21 @@
             "eval_goal_gap": null
         }
     },
-    "observation": {
+    "observation_hand": {
         "modalities": {
             "obs": {
                 "low_dim": [
                     "ee_pose"
+                ],
+                "rgb": ["front_img_1"]
+            }
+        }
+    },
+    "observation": {
+        "modalities": {
+            "obs": {
+                "low_dim": [
+                    "joint_positions"
                 ],
                 "rgb": ["front_img_1", "right_wrist_img"],
                 "depth": [],

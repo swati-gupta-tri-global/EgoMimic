@@ -4,13 +4,13 @@ import argparse
 import os
 from tqdm import tqdm
 from mimicplay.scripts.aloha_process.simarUtils import nds, ee_pose_to_cam_frame, EXTRINSICS
-# Example call: in aloha_process folder: python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ --arm left --out /coc/flash7/skareer6/calibrate_samples/ --task-name robomimic
 import pytorch_kinematics as pk
 import torch
 from modern_robotics import FKinSpace
 from robomimic.scripts.split_train_val import split_train_val_from_hdf5
 import json
 
+# Example call: in aloha_process folder: python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ --arm left --out /coc/flash7/skareer6/calibrate_samples/ --task-name robomimic
 """
 aloha_hdf5 has the following format
 dict with keys:  <KeysViewHDF5 ['action', 'observations']>

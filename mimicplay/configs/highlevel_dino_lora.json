@@ -40,6 +40,7 @@
     },
     "train": {
         "data": null,
+        "data_2": null,
         "output_dir": "../trained_models_highlevel",
         "num_data_workers": 0,
         "hdf5_cache_mode": "low_dim",

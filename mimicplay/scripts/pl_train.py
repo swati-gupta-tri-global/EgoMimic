@@ -53,9 +53,56 @@ from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_da
 
 import mimicplay.utils.val_utils as ValUtils
 
+import copy
+
 import datetime
 import time
 from mimicplay.scripts.aloha_process.simarUtils import nds
+
+import matplotlib.pyplot as plt
+
+
+class DualDataModuleWrapper(LightningDataModule):
+    """
+    Same as DataModuleWrapper but there are two train datasets and two valid datasets
+    """
+    def __init__(
+        self,
+        train_dataset1,
+        valid_dataset1,
+        train_dataset2,
+        valid_dataset2,
+        train_dataloader_params,
+        valid_dataloader_params,
+    ):
+        """
+        Args:
+            data_module_fn (function): function that returns a LightningDataModule
+        """
+        super().__init__()
+        self.train_dataset1 = train_dataset1
+        self.valid_dataset1 = valid_dataset1
+        self.train_dataset2 = train_dataset2
+        self.valid_dataset2 = valid_dataset2
+        self.train_dataloader_params = train_dataloader_params
+        self.valid_dataloader_params = valid_dataloader_params
+
+    def train_dataloader(self):
+        new_dataloader1 = DataLoader(dataset=self.train_dataset1, **self.train_dataloader_params)
+        new_dataloader2 = DataLoader(dataset=self.train_dataset2, **self.train_dataloader_params)
+        return [new_dataloader1, new_dataloader2]
+    
+    def val_dataloader_1(self):
+        new_dataloader = DataLoader(dataset=self.valid_dataset1, **self.valid_dataloader_params)
+        return new_dataloader
+
+    def val_dataloader_2(self):
+        new_dataloader = DataLoader(dataset=self.valid_dataset2, **self.valid_dataloader_params)
+        return new_dataloader
+    # def val_dataloader(self):
+    #     new_dataloader1 = DataLoader(dataset=self.valid_dataset1, **self.valid_dataloader_params)
+    #     new_dataloader2 = DataLoader(dataset=self.valid_dataset2, **self.valid_dataloader_params)
+    #     return [new_dataloader1, new_dataloader2]
 
 class DataModuleWrapper(LightningDataModule):
     """
@@ -84,7 +131,7 @@ class DataModuleWrapper(LightningDataModule):
         new_dataloader = DataLoader(dataset=self.train_dataset, **self.train_dataloader_params)
         return new_dataloader
     
-    def val_dataloader(self):
+    def val_dataloader_1(self):
         new_dataloader = DataLoader(dataset=self.valid_dataset, **self.valid_dataloader_params)
         return new_dataloader
 
@@ -112,14 +159,37 @@ class ModelWrapper(LightningModule):
         self.step_log_all_valid = []
 
         self.datamodule = datamodule
+        self.dual_dl = isinstance(datamodule, DualDataModuleWrapper)
+
+        # TODO __init__ should take the config, and init the model here.  Then save_hyperparameters will just save the config rather than the model
+        # self.save_hyperparameters()
 
     def training_step(self, batch, batch_idx):
+        DUAL_DL = isinstance(batch, list)
+        # plt.imsave("debug/front_img_1.png", batch[0]["obs"]["front_img_1"][0, 0].cpu().numpy())
+        if DUAL_DL:
+            batch[1]["type"] = torch.ones_like(batch[1]["type"]) #TODO fix hardcoding assumes that second DS is the hand DS
+
+        # full_batch = batch
+        # batch = full_batch[0]
         self.train()
-        batch["obs"] = ObsUtils.process_obs_dict(batch["obs"])
-        info = PolicyAlgo.train_on_batch(self.model, batch, self.current_epoch, validate=False)
-        batch = self.model.process_batch_for_training(batch)
-        predictions = self.model._forward_training(batch)
-        losses = self.model._compute_losses(predictions, batch)
+        loss_dicts = []
+        if not DUAL_DL:
+            batch = [batch]
+        ac_keys = [self.model.global_config.train.ac_key, self.model.global_config.train.ac_key_hand] if self.dual_dl else [self.model.global_config.train.ac_key]
+        for batch, ac_key in zip(batch, ac_keys):
+            batch["obs"] = ObsUtils.process_obs_dict(batch["obs"])
+            info = PolicyAlgo.train_on_batch(self.model, batch, self.current_epoch, validate=False)
+            batch = self.model.process_batch_for_training(batch, ac_key)
+            predictions = self.model._forward_training(batch)
+            losses = self.model._compute_losses(predictions, batch)
+            loss_dicts.append(losses)
+
+        # Average over both the hand and robot batch if applicable
+        losses = OrderedDict()
+        for key in loss_dicts[0].keys():
+            losses[key] = torch.mean(torch.stack([loss_dict[key] for loss_dict in loss_dicts]))
+        
         info["losses"] = TensorUtils.detach(losses)
         self.step_log_all_train.append(self.model.log_info(info))
 
@@ -147,8 +217,6 @@ class ModelWrapper(LightningModule):
             self.step_log_all_train = []
         return losses["action_loss"]
 
-    def val_dataloader(self):
-        return self.datamodule.val_dataloader()
 
     def configure_optimizers(self):
         if self.model.lr_schedulers["policy"]:
@@ -170,7 +238,8 @@ class ModelWrapper(LightningModule):
     #     optimizer.zero_grad(optimizer_idx)
 
     def on_train_epoch_start(self):
-        valid_step_log = {"final_mse_avg": 0.0}
+        valid_step_log = {"robot_final_mse_avg": 0.0}
+        valid_step_log_2 = {"hand_final_mse_avg": 0.0}
         if self.global_rank == 0:
             # Perform custom validation
             val_freq = self.model.global_config.experiment.validation_freq
@@ -182,10 +251,14 @@ class ModelWrapper(LightningModule):
                     self.eval()
                     self.zero_grad()
                     pass_vid = os.path.join(self.trainer.default_root_dir, "videos") if self.current_epoch % video_freq == 0 else None
-                    valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.val_dataloader(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples) #save vid only once every video_freq epochs
-                    self.train()
+                    valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_1(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples, ac_key=self.model.global_config.train.ac_key, type="robot") #save vid only once every video_freq epochs
 
-        self.log("final_mse_avg", valid_step_log["final_mse_avg"], sync_dist=True, reduce_fx="max")
+                    if self.dual_dl:
+                        valid_step_log_2 = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_2(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples, ac_key=self.model.global_config.train.ac_key_hand, type="hand") #save vid only once every video_freq epochs
+                    self.train()
+        self.log("robot_final_mse_avg", valid_step_log["robot_final_mse_avg"], sync_dist=True, reduce_fx="max")
+        if self.dual_dl:
+            self.log("hand_final_mse_avg", valid_step_log_2["hand_final_mse_avg"], sync_dist=True, reduce_fx="max")
 
 
         # Finally, log memory usage in MB
@@ -216,6 +289,33 @@ class ModelWrapper(LightningModule):
         else:
             scheduler.step(self.global_step)
 
+def init_dataset(config, dataset_path):
+    # load basic metadata from training file
+    # print("\n============= Loaded Environment Metadata =============")
+    # env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
+    shape_meta = FileUtils.get_shape_metadata_from_dataset(
+        dataset_path=dataset_path,
+        all_obs_keys=config.all_obs_keys,
+        verbose=True,
+        ac_key=config.train.ac_key
+    )
+
+    # if type(env_meta) is list:
+    #     env_metas = env_meta
+    # else:
+    #     env_metas = [env_meta]
+    # create environment
+
+    # load training data
+    trainset, validset = load_data_for_training(
+        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
+    )
+    # load training data
+    print("\n============= Training Dataset =============")
+    print(trainset)
+    print("")
+
+    return trainset, validset, shape_meta
 
 def train(config, ckpt_path, resume_dir):
     RANK = os.environ["SLURM_PROCID"]
@@ -264,24 +364,23 @@ def train(config, ckpt_path, resume_dir):
 
     # make sure the dataset exists
     dataset_path = os.path.expanduser(config.train.data)
+    dataset_path_2 = None if config.train.data_2 is None else os.path.expanduser(config.train.data_2)
     if not os.path.exists(dataset_path):
         raise Exception("Dataset at provided path {} not found!".format(dataset_path))
+    if dataset_path_2 and not os.path.exists(dataset_path_2):
+        raise Exception("Dataset at provided path {} not found!".format(dataset_path_2))
 
-    # load basic metadata from training file
-    print("\n============= Loaded Environment Metadata =============")
-    env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
-    shape_meta = FileUtils.get_shape_metadata_from_dataset(
-        dataset_path=dataset_path,
-        all_obs_keys=config.all_obs_keys,
-        verbose=True,
-        ac_key=config.train.ac_key
-    )
+    trainset, validset, shape_meta = init_dataset(config, dataset_path)
 
-    if type(env_meta) is list:
-        env_metas = env_meta
-    else:
-        env_metas = [env_meta]
-    # create environment
+    config_2 = copy.deepcopy(config)
+    # TODO: currently hardcoding the obs key for the second dataset
+    config_2.observation.modalities.obs.rgb = config_2.observation_hand.modalities.obs.rgb
+    config_2.observation.modalities.obs.low_dim = config_2.observation_hand.modalities.obs.low_dim
+    config_2.train.dataset_keys = config_2.train.dataset_keys_hand
+    config_2.train.ac_key = config_2.train.ac_key_hand
+    if dataset_path_2:
+        trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2)
+    
 
     # setup for a new training runs
     model = algo_factory(
@@ -292,6 +391,10 @@ def train(config, ckpt_path, resume_dir):
         device="cuda"  # default to cpu, pl will move to gpu
     )
 
+    print("\n============= Model Summary =============")
+    print(model)  # print model summary
+    print("")
+
     # if config.train.ckpt_path is not None:
     #     model = ModelWrapper.load_from_checkpoint(config.train.ckpt_path, model=model).model
 
@@ -300,17 +403,6 @@ def train(config, ckpt_path, resume_dir):
         with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
             json.dump(config, outfile, indent=4)
 
-    print("\n============= Model Summary =============")
-    print(model)  # print model summary
-    print("")
-
-    # load training data
-    trainset, validset = load_data_for_training(
-        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
-    )
-    print("\n============= Training Dataset =============")
-    print(trainset)
-    print("")
 
     # maybe retreve statistics for normalizing observations
     obs_normalization_stats = None
@@ -334,14 +426,14 @@ def train(config, ckpt_path, resume_dir):
             filename="model_epoch_{epoch}",
             save_top_k=-1,
         ),
-        ModelCheckpoint(
-            dirpath=ckpt_dir,
-            save_on_train_epoch_end=True,
-            filename="model_epoch_{epoch}_{final_mse_avg:.1f}",
-            save_top_k=3,
-            monitor="final_mse_avg",
-            mode="min",
-        )
+        # ModelCheckpoint(
+        #     dirpath=ckpt_dir,
+        #     save_on_train_epoch_end=True,
+        #     filename="model_epoch_{epoch}_{final_mse_avg:.1f}",
+        #     save_top_k=3,
+        #     monitor="final_mse_avg",
+        #     mode="min",
+        # )
     ]
     # if config.train.use_swa:
     #     callbacks.append(
@@ -379,27 +471,51 @@ def train(config, ckpt_path, resume_dir):
 
     train_sampler = trainset.get_dataset_sampler()
     valid_sampler = validset.get_dataset_sampler()
-
-    datamodule=DataModuleWrapper(
-        train_dataset=trainset,
-        valid_dataset=validset,
-        train_dataloader_params=dict(
-            sampler=train_sampler,
-            batch_size=config.train.batch_size,
-            shuffle=(train_sampler is None),
-            num_workers=config.train.num_data_workers,
-            drop_last=True,
-            pin_memory=True,
-        ),
-        valid_dataloader_params=dict(
-            sampler=valid_sampler,
-            batch_size=config.train.batch_size,
-            shuffle=False,
-            num_workers=config.train.num_data_workers,
-            drop_last=True,
-            pin_memory=True,
-        ),
-    )
+    
+    if dataset_path_2 is not None:
+        datamodule=DualDataModuleWrapper(
+            train_dataset1=trainset,
+            valid_dataset1=validset,
+            train_dataset2=trainset_2,
+            valid_dataset2=validset_2,
+            train_dataloader_params=dict(
+                sampler=train_sampler,
+                batch_size=config.train.batch_size,
+                shuffle=(train_sampler is None),
+                num_workers=config.train.num_data_workers,
+                drop_last=True,
+                pin_memory=True,
+            ),
+            valid_dataloader_params=dict(
+                sampler=valid_sampler,
+                batch_size=config.train.batch_size,
+                shuffle=False,
+                num_workers=config.train.num_data_workers,
+                drop_last=True,
+                pin_memory=True,
+            ),
+        )
+    else:
+        datamodule=DataModuleWrapper(
+            train_dataset=trainset,
+            valid_dataset=validset,
+            train_dataloader_params=dict(
+                sampler=train_sampler,
+                batch_size=config.train.batch_size,
+                shuffle=(train_sampler is None),
+                num_workers=config.train.num_data_workers,
+                drop_last=True,
+                pin_memory=True,
+            ),
+            valid_dataloader_params=dict(
+                sampler=valid_sampler,
+                batch_size=config.train.batch_size,
+                shuffle=False,
+                num_workers=config.train.num_data_workers,
+                drop_last=True,
+                pin_memory=True,
+            ),
+        )
     model=ModelWrapper(model, datamodule)
 
 
@@ -423,6 +539,9 @@ def main(args):
 
     if args.dataset is not None:
         config.train.data = args.dataset
+    
+    if args.dataset_2 is not None:
+        config.train.data_2 = args.dataset_2
 
     if args.output_dir is not None:
         config.train.output_dir = args.output_dir
@@ -463,7 +582,7 @@ def main(args):
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
 
-        config.experiment.validation_max_samples = 1000
+        config.experiment.validation_max_samples = 64
         config.experiment.validation_freq = 2
         config.experiment.save.every_n_epochs = 2
         config.experiment.save.video_freq = 2
@@ -557,6 +676,14 @@ def train_argparse():
         help="(optional) if provided, override the dataset path defined in the config",
     )
 
+    # Dataset path, to override the one in the config
+    parser.add_argument(
+        "--dataset_2",
+        type=str,
+        default=None,
+        help="(optional) if provided, override the dataset path defined in the config",
+    )
+
     # Output path, to override the one in the config
     parser.add_argument(
         "--output_dir",
@@ -637,6 +764,12 @@ def train_argparse():
         "--no-wandb",
         action='store_true',
         help="set this flag to run a without wandb"
+    )
+
+    parser.add_argument(
+        "--overcap",
+        action='store_true',
+        help="overcap partition"
     )
 
     args = parser.parse_args()
