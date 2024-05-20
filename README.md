@@ -102,6 +102,13 @@ Yellow table only
 Yellow + black table
 - `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay_hand_yellow_black_table_with_type_label.hdf5 --debug --name pldebug --description debug`
 
+Masking
+- `python scripts/pl_submit.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/maskedRobot.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/one_bowl_one_object_masked/plushiesLineMaskedMimicplay_label.hdf5 --name singlePolicy --description RobotandHand --num-nodes 1 --gpus-per-node 4 --batch-size 32 --lr 5e-5`
+
+PL Eval:
+python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboo_black/oboo_black.hdf5 --ckpt_path /coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/trained_models_highlevel/singlePolicy/RobotandHandBlack_DT_2024-05-16-20-42-39/models/model_epoch_epoch=699.ckpt --eval
+
+
 ### Training on multiple datasets
 ```bash
 python scripts/train.py --config configs/highlevel_dino_2_train_datasets.json --dataset /coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay_hand_yellow_black_table_with_type_label.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name debug --description debug --non-goal-cond --debug

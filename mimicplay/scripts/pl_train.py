@@ -237,6 +237,13 @@ class ModelWrapper(LightningModule):
     # def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
     #     optimizer.zero_grad(optimizer_idx)
 
+    def custom_eval(self, video_dir):
+        self.eval()
+        self.zero_grad()
+        with torch.no_grad():
+            valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_1(), video_dir, ac_key=self.model.global_config.train.ac_key) #save vid only once every video_freq epochs
+
+
     def on_train_epoch_start(self):
         valid_step_log = {"robot_final_mse_avg": 0.0}
         valid_step_log_2 = {"hand_final_mse_avg": 0.0}
@@ -317,6 +324,56 @@ def init_dataset(config, dataset_path):
 
     return trainset, validset, shape_meta
 
+def eval(config, ckpt_path, resume_dir):
+    log_dir = os.path.join(resume_dir, "logs")
+    ckpt_dir = os.path.join(resume_dir, "models")
+    video_dir = os.path.join(resume_dir, "eval_videos")
+    rollout_dir = os.path.join(resume_dir, "rollouts")
+    exp_log_dir = os.path.join(resume_dir, "exp_logs")
+    exp_dir = resume_dir
+
+    dataset_path = os.path.expanduser(config.train.data)
+    ObsUtils.initialize_obs_utils_with_config(config)
+    trainset, validset, shape_meta = init_dataset(config, dataset_path)
+
+
+    train_sampler = trainset.get_dataset_sampler()
+    valid_sampler = validset.get_dataset_sampler()
+    
+    datamodule=DataModuleWrapper(
+        train_dataset=trainset,
+        valid_dataset=validset,
+        train_dataloader_params=dict(
+            sampler=train_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=(train_sampler is None),
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
+        ),
+        valid_dataloader_params=dict(
+            sampler=valid_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=False,
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
+        ),
+    )
+    model = algo_factory(
+        algo_name=config.algo_name,
+        config=config,
+        obs_key_shapes=shape_meta["all_shapes"],
+        ac_dim=shape_meta["ac_dim"],
+        device="cuda"  # default to cpu, pl will move to gpu
+    )
+
+    model = ModelWrapper.load_from_checkpoint(ckpt_path, model=model, datamodule=datamodule)
+    # model=ModelWrapper(model, datamodule)
+    model.custom_eval(video_dir)
+
+
+
 def train(config, ckpt_path, resume_dir):
     RANK = os.environ["SLURM_PROCID"]
     torch.set_float32_matmul_precision("medium")
@@ -372,13 +429,14 @@ def train(config, ckpt_path, resume_dir):
 
     trainset, validset, shape_meta = init_dataset(config, dataset_path)
 
-    config_2 = copy.deepcopy(config)
-    # TODO: currently hardcoding the obs key for the second dataset
-    config_2.observation.modalities.obs.rgb = config_2.observation_hand.modalities.obs.rgb
-    config_2.observation.modalities.obs.low_dim = config_2.observation_hand.modalities.obs.low_dim
-    config_2.train.dataset_keys = config_2.train.dataset_keys_hand
-    config_2.train.ac_key = config_2.train.ac_key_hand
+
     if dataset_path_2:
+        config_2 = copy.deepcopy(config)
+        # TODO: currently hardcoding the obs key for the second dataset
+        config_2.observation.modalities.obs.rgb = config_2.observation_hand.modalities.obs.rgb
+        config_2.observation.modalities.obs.low_dim = config_2.observation_hand.modalities.obs.low_dim
+        config_2.train.dataset_keys = config_2.train.dataset_keys_hand
+        config_2.train.ac_key = config_2.train.ac_key_hand
         trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2)
     
 
@@ -560,6 +618,9 @@ def main(args):
 
     if args.batch_size:
         config.train.batch_size = args.batch_size
+    
+    if args.ckpt_path:
+        args.resume_dir = os.path.dirname(os.path.dirname(args.ckpt_path))
 
     config.train.gpus_per_node = args.gpus_per_node
     config.train.num_nodes = args.num_nodes
@@ -624,7 +685,11 @@ def main(args):
     res_str = "finished run successfully!"
     important_stats = None
     try:
-        important_stats = train(config, args.ckpt_path, args.resume_dir)
+        if args.eval:
+            eval(config, args.ckpt_path, args.resume_dir)
+            return
+        else:
+            important_stats = train(config, args.ckpt_path, args.resume_dir)
         important_stats = json.dumps(important_stats, indent=4)
     except Exception as e:
         res_str = "run failed with error:\n{}\n\n{}".format(e, traceback.format_exc())
@@ -735,6 +800,12 @@ def train_argparse():
     )
 
     parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="set this flag to run a evaluation"
+    )
+
+    parser.add_argument(
         "--resume_dir",
         type=str,
         default=None,
@@ -780,7 +851,7 @@ def train_argparse():
 if __name__ == "__main__":
     args = train_argparse()
 
-    if "DT" not in args.description:
+    if not args.eval and "DT" not in args.description:
         time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
 
