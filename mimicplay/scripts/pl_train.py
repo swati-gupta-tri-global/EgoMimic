@@ -27,7 +27,8 @@ import time
 from mimicplay.scripts.aloha_process.simarUtils import nds
 import matplotlib.pyplot as plt
 from mimicplay.pl_utils.pl_train_utils import train, eval
-
+from mimicplay.pl_utils.pl_data_utils import json_to_config
+import torch
 
 def main(args):
     if args.config is not None:
@@ -37,8 +38,12 @@ def main(args):
         # the external config has keys not present in the base algo config
         with config.values_unlocked():
             config.update(ext_cfg)
+    elif args.ckpt_path is not None:
+        ckpt = torch.load(args.ckpt_path, map_location="cpu")
+        config = json_to_config(ckpt["hyper_parameters"]["config_json"])
     else:
-        config = config_factory(args.algo)
+        assert False, "Must provide a config file or a ckpt path"
+
 
     if args.dataset is not None:
         config.train.data = args.dataset
@@ -63,9 +68,6 @@ def main(args):
 
     if args.batch_size:
         config.train.batch_size = args.batch_size
-    
-    if args.ckpt_path:
-        args.resume_dir = os.path.dirname(os.path.dirname(args.ckpt_path))
 
     config.train.gpus_per_node = args.gpus_per_node
     config.train.num_nodes = args.num_nodes
@@ -131,10 +133,10 @@ def main(args):
     important_stats = None
     try:
         if args.eval:
-            eval(config, args.ckpt_path, args.resume_dir)
+            eval(config, args.ckpt_path)
             return
         else:
-            important_stats = train(config, args.ckpt_path, args.resume_dir)
+            important_stats = train(config, args.ckpt_path)
         important_stats = json.dumps(important_stats, indent=4)
     except Exception as e:
         res_str = "run failed with error:\n{}\n\n{}".format(e, traceback.format_exc())

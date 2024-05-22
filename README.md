@@ -59,14 +59,7 @@ python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_rob
 - Run `EgoPlay/mimicplay/scripts/aloha_process/mimicplay_data_process.py`
 
 
-## Training policies
-Base High level:
-`python scripts/train.py --config configs/highlevel_real.json --dataset /coc/flash7/datasets/egoplay/humanoidStacking/humanoid_stackingMimicplay.hdf5 --name humanoidStacking --description v1`
-or via `python scripts/exps/submit.py`
-
-With dinov2 non goal cond
-`python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/oboo_depth_apr22/oboo_robot_apr22_Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
-
+## Training Policies via Pytorch Lightning
 With ACT settings
 `python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACT --description joints --non-goal-cond --ac-key actions_joints --obs-rgb front_img_1 right_wrist_img`
 
@@ -78,13 +71,9 @@ Launching with pl
 
 Use `--debug` to check that the pipeline works
 
-Remember `conda activate eplay2`
 
-Dirty laundry
-- Hardcoded path to urdf in SimarUtils.py
-- hardcoded extrinsics in val_utils.py
-- Added ac_key under base Algo in robomimic, I suppose this could just access the model.global_config
-- I haven't tested whether aloha_to_robomimic_v2 works with highlevelGMMPretrain
+Offline Eval:
+python scripts/pl_train.py --dataset /coc/flash7/datasets/egoplay/oboo_black/oboo_black.hdf5 --ckpt_path /coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/trained_models_highlevel/singlePolicy/RobotandHandBlack_DT_2024-05-16-20-42-39/models/model_epoch_epoch=699.ckpt --eval
 
 Eval real:
 `python scripts/evaluation/eval_real.py --config configs/act.json --eval-path /home/rl2-aloha/Documents/EgoplaySP/EgoPlay/trained_models_highlevel/1GBS32LR5e5_DT_2024-05-01-11-47-59/1GBS32LR5e5_DT_2024-05-01-11-47-59/models/model_epoch_epoch=599.ckpt`
@@ -92,11 +81,10 @@ Eval real:
 Use `--debug` to check that the pipeline works
 
 
-Single Policy
+### Single Policy Multi Dataset (Hand + Robot Data)
 - `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --debug --name pldebug --description debug`
 - `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboo_diverse_aria_may9/converted/aria_oboo_diverseMimicplay.hdf5 --debug --name pldebug --description debug`
 
-Single Policy Hand + Robot
 Yellow table only
 - `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/one_bowl_one_object/plushiesMimicplay_with_type_label.hdf5 --debug --name pldebug --description debug`
 Yellow + black table
@@ -105,9 +93,21 @@ Yellow + black table
 Masking
 - `python scripts/pl_submit.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/maskedRobot.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/one_bowl_one_object_masked/plushiesLineMaskedMimicplay_label.hdf5 --name singlePolicy --description RobotandHand --num-nodes 1 --gpus-per-node 4 --batch-size 32 --lr 5e-5`
 
-PL Eval:
-python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboo_black/oboo_black.hdf5 --ckpt_path /coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/trained_models_highlevel/singlePolicy/RobotandHandBlack_DT_2024-05-16-20-42-39/models/model_epoch_epoch=699.ckpt --eval
 
+
+Dirty laundry
+- Hardcoded path to urdf in SimarUtils.py
+- hardcoded extrinsics in val_utils.py
+- Added ac_key under base Algo in robomimic, I suppose this could just access the model.global_config
+- I haven't tested whether aloha_to_robomimic_v2 works with highlevelGMMPretrain
+
+## Training policies (Without PL)
+Base High level:
+`python scripts/train.py --config configs/highlevel_real.json --dataset /coc/flash7/datasets/egoplay/humanoidStacking/humanoid_stackingMimicplay.hdf5 --name humanoidStacking --description v1`
+or via `python scripts/exps/submit.py`
+
+With dinov2 non goal cond
+`python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/oboo_depth_apr22/oboo_robot_apr22_Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
 
 ### Training on multiple datasets
 ```bash

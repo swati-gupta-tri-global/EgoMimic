@@ -1,6 +1,9 @@
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningDataModule
 from mimicplay.scripts.aloha_process.simarUtils import nds
+import json
+from mimicplay.configs import config_factory
+import os
 
 class DualDataModuleWrapper(LightningDataModule):
     """
@@ -75,3 +78,82 @@ class DataModuleWrapper(LightningDataModule):
         new_dataloader = DataLoader(dataset=self.valid_dataset, **self.valid_dataloader_params)
         return new_dataloader
 
+
+def get_dual_data_module(trainset, trainset_2, validset, validset_2, train_sampler, valid_sampler, config):
+    return DualDataModuleWrapper(
+        train_dataset1=trainset,
+        valid_dataset1=validset,
+        train_dataset2=trainset_2,
+        valid_dataset2=validset_2,
+        train_dataloader_params=dict(
+            sampler=train_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=(train_sampler is None),
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
+        ),
+        valid_dataloader_params=dict(
+            sampler=valid_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=False,
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
+        ),
+    )
+
+def get_data_module(trainset, validset, train_sampler, valid_sampler, config):
+    return DataModuleWrapper(
+        train_dataset=trainset,
+        valid_dataset=validset,
+        train_dataloader_params=dict(
+            sampler=train_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=(train_sampler is None),
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
+        ),
+        valid_dataloader_params=dict(
+            sampler=valid_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=False,
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+            pin_memory=True,
+        ),
+    )
+
+def json_to_config(json_dict, is_file=False):
+    """
+    Converts a json dictionary to a Config object
+    json_dict (dict): json dump string or filename to load
+    is_file (bool): whether json_dict is a filename or a json dump string
+    """
+    if is_file:
+        ext_cfg = json.load(open(os.path.join(json_dict, "config.json"), "r"))
+    else:
+        assert isinstance(json_dict, str)
+        ext_cfg = json.loads(json_dict)
+    
+    config = config_factory(ext_cfg["algo_name"])
+    with config.values_unlocked():
+        config.update(ext_cfg)
+    
+    return config
+
+def robomimic_dict_to_config(ext_cfg):
+    """
+    ext_cfg: a dictionary version of the config you want
+    """
+    # ext_cfg = json.load(open(os.path.join(resume_dir, "config.json"), "r"))
+    config = config_factory(ext_cfg["algo_name"])
+    # update config with external json - this will throw errors if
+    # the external config has keys not present in the base algo config
+    with config.values_unlocked():
+        config.update(ext_cfg)
+    
+    config.lock()
+    
+    return config

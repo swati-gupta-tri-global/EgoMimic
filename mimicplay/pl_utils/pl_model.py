@@ -11,20 +11,33 @@ import robomimic.utils.obs_utils as ObsUtils
 from robomimic.algo.algo import PolicyAlgo
 import mimicplay.utils.val_utils as ValUtils
 from mimicplay.scripts.aloha_process.simarUtils import nds
-from mimicplay.pl_utils.pl_data_utils import DualDataModuleWrapper
-
+from mimicplay.pl_utils.pl_data_utils import DualDataModuleWrapper, json_to_config
+from mimicplay.algo import algo_factory
+import robomimic.utils.file_utils as FileUtils
+from mimicplay.configs import config_factory
+import json
 
 class ModelWrapper(LightningModule):
     """
     Wrapper class around robomimic models to ensure compatibility with Pytorch Lightning.
     """
 
-    def __init__(self, model, datamodule):
+    def __init__(self, config_json, shape_meta, datamodule):
         """
         Args:
             model (PolicyAlgo): robomimic model to wrap.
         """
         super().__init__()
+        self.save_hyperparameters(ignore=["datamodule"])
+
+        config = json_to_config(config_json)
+        model = algo_factory(
+            algo_name=config.algo_name,
+            config=config,
+            obs_key_shapes=shape_meta["all_shapes"],
+            ac_dim=shape_meta["ac_dim"],
+            device="cuda"  # default to cpu, pl will move to gpu
+        )
         self.model = model
         self.nets = (
             self.model.nets
@@ -40,7 +53,6 @@ class ModelWrapper(LightningModule):
         self.dual_dl = isinstance(datamodule, DualDataModuleWrapper)
 
         # TODO __init__ should take the config, and init the model here.  Then save_hyperparameters will just save the config rather than the model
-        # self.save_hyperparameters()
 
     def training_step(self, batch, batch_idx):
         DUAL_DL = isinstance(batch, list)

@@ -15,8 +15,7 @@ from mimicplay.utils.train_utils import get_exp_dir, load_data_for_training
 import copy
 from mimicplay.scripts.aloha_process.simarUtils import nds
 from mimicplay.pl_utils.pl_model import ModelWrapper
-from mimicplay.pl_utils.pl_data_utils import DataModuleWrapper, DualDataModuleWrapper
-
+from mimicplay.pl_utils.pl_data_utils import DataModuleWrapper, DualDataModuleWrapper, get_dual_data_module, get_data_module, json_to_config
 
 def init_dataset(config, dataset_path):
     # load basic metadata from training file
@@ -46,13 +45,9 @@ def init_dataset(config, dataset_path):
 
     return trainset, validset, shape_meta
 
-def eval(config, ckpt_path, resume_dir):
-    log_dir = os.path.join(resume_dir, "logs")
-    ckpt_dir = os.path.join(resume_dir, "models")
+def eval(config, ckpt_path):
+    resume_dir = os.path.dirname(os.path.dirname(ckpt_path))
     video_dir = os.path.join(resume_dir, "eval_videos")
-    rollout_dir = os.path.join(resume_dir, "rollouts")
-    exp_log_dir = os.path.join(resume_dir, "exp_logs")
-    exp_dir = resume_dir
 
     dataset_path = os.path.expanduser(config.train.data)
     ObsUtils.initialize_obs_utils_with_config(config)
@@ -62,73 +57,34 @@ def eval(config, ckpt_path, resume_dir):
     train_sampler = trainset.get_dataset_sampler()
     valid_sampler = validset.get_dataset_sampler()
     
-    datamodule=DataModuleWrapper(
-        train_dataset=trainset,
-        valid_dataset=validset,
-        train_dataloader_params=dict(
-            sampler=train_sampler,
-            batch_size=config.train.batch_size,
-            shuffle=(train_sampler is None),
-            num_workers=config.train.num_data_workers,
-            drop_last=True,
-            pin_memory=True,
-        ),
-        valid_dataloader_params=dict(
-            sampler=valid_sampler,
-            batch_size=config.train.batch_size,
-            shuffle=False,
-            num_workers=config.train.num_data_workers,
-            drop_last=True,
-            pin_memory=True,
-        ),
-    )
-    model = algo_factory(
-        algo_name=config.algo_name,
-        config=config,
-        obs_key_shapes=shape_meta["all_shapes"],
-        ac_dim=shape_meta["ac_dim"],
-        device="cuda"  # default to cpu, pl will move to gpu
-    )
-
-    model = ModelWrapper.load_from_checkpoint(ckpt_path, model=model, datamodule=datamodule)
+    datamodule=get_data_module(trainset, validset, train_sampler, valid_sampler, config)
+    model = ModelWrapper.load_from_checkpoint(ckpt_path, datamodule=datamodule)
     # model=ModelWrapper(model, datamodule)
     model.custom_eval(video_dir)
 
-def train(config, ckpt_path, resume_dir):
-    RANK = os.environ["SLURM_PROCID"]
-    torch.set_float32_matmul_precision("medium")
-    seed_everything(config.train.seed, workers=True)
+def train(config, ckpt_path=None):
     """
     Train a model using the algorithm.
     """
+    RANK = int(os.environ["SLURM_PROCID"])
+    torch.set_float32_matmul_precision("medium")
+    seed_everything(config.train.seed, workers=True)
 
     if ckpt_path is not None:
-        ext_cfg = json.load(open(os.path.join(resume_dir, "config.json"), "r"))
-        config = config_factory(ext_cfg["algo_name"])
-        # update config with external json - this will throw errors if
-        # the external config has keys not present in the base algo config
-        with config.values_unlocked():
-            config.update(ext_cfg)
-        log_dir, ckpt_dir, video_dir, rollout_dir, exp_log_dir = (
+        resume_dir = os.path.dirname(os.path.dirname(ckpt_path))
+
+        log_dir, ckpt_dir, video_dir = (
             os.path.join(resume_dir, "logs"),
             os.path.join(resume_dir, "models"),
             os.path.join(resume_dir, "videos"),
-            os.path.join(resume_dir, "rollouts"),
-            os.path.join(resume_dir, "exp_logs"),
         )
-        config.lock()
     else:
         print("\n============= New Training Run with Config =============")
         print(config)
         print("")
-        log_dir, ckpt_dir, video_dir, time_str = get_exp_dir(config, rank=int(RANK))
+        log_dir, ckpt_dir, video_dir, time_str = get_exp_dir(config, rank=RANK)
         base_output_dir = os.path.join(config.train.output_dir, config.experiment.name)
         exp_dir = os.path.join(base_output_dir, time_str)
-        rollout_dir = os.path.join(base_output_dir, time_str, "rollouts")
-        exp_log_dir = os.path.join(base_output_dir, time_str, "exp_logs")
-        if RANK == 0:
-            os.makedirs(rollout_dir, exist_ok=True)
-            os.makedirs(exp_log_dir, exist_ok=True)
 
     # if config.experiment.logging.terminal_output_to_txt:
     #     # log stdout and stderr to a text file
@@ -251,50 +207,19 @@ def train(config, ckpt_path, resume_dir):
     valid_sampler = validset.get_dataset_sampler()
     
     if dataset_path_2 is not None:
-        datamodule=DualDataModuleWrapper(
-            train_dataset1=trainset,
-            valid_dataset1=validset,
-            train_dataset2=trainset_2,
-            valid_dataset2=validset_2,
-            train_dataloader_params=dict(
-                sampler=train_sampler,
-                batch_size=config.train.batch_size,
-                shuffle=(train_sampler is None),
-                num_workers=config.train.num_data_workers,
-                drop_last=True,
-                pin_memory=True,
-            ),
-            valid_dataloader_params=dict(
-                sampler=valid_sampler,
-                batch_size=config.train.batch_size,
-                shuffle=False,
-                num_workers=config.train.num_data_workers,
-                drop_last=True,
-                pin_memory=True,
-            ),
-        )
+        datamodule = get_dual_data_module(trainset, trainset_2, validset, validset_2, train_sampler, valid_sampler, config)
     else:
-        datamodule=DataModuleWrapper(
-            train_dataset=trainset,
-            valid_dataset=validset,
-            train_dataloader_params=dict(
-                sampler=train_sampler,
-                batch_size=config.train.batch_size,
-                shuffle=(train_sampler is None),
-                num_workers=config.train.num_data_workers,
-                drop_last=True,
-                pin_memory=True,
-            ),
-            valid_dataloader_params=dict(
-                sampler=valid_sampler,
-                batch_size=config.train.batch_size,
-                shuffle=False,
-                num_workers=config.train.num_data_workers,
-                drop_last=True,
-                pin_memory=True,
-            ),
-        )
-    model=ModelWrapper(model, datamodule)
+        datamodule = get_data_module(trainset, validset, train_sampler, valid_sampler, config)
+
+    # dict is picklable, so pass that to model, then create robomimic config inside model
+    dataset_path = os.path.expanduser(config.train.data)
+    shape_meta = FileUtils.get_shape_metadata_from_dataset(
+        dataset_path=dataset_path,
+        all_obs_keys=config.all_obs_keys,
+        verbose=True,
+        ac_key=config.train.ac_key
+    )
+    model=ModelWrapper(config.dump(), shape_meta, datamodule)
 
 
     trainer.fit(
