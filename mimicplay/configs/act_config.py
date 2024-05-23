@@ -69,6 +69,8 @@ class ACTSPConfig(ACTConfig):
         super(ACTSPConfig, self).train_config()
         self.train.ac_key_hand = "actions_xyz"
         self.train.dataset_keys_hand = ["actions_xyz"]
+        self.train.seq_length_hand = 1
+        self.train.seq_length_to_load_hand = 1
 
     def observation_config(self):
         super(ACTSPConfig, self).observation_config()

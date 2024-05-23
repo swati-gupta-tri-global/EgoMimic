@@ -60,7 +60,14 @@ def eval(config, ckpt_path):
     datamodule=get_data_module(trainset, validset, train_sampler, valid_sampler, config)
     model = ModelWrapper.load_from_checkpoint(ckpt_path, datamodule=datamodule)
     # model=ModelWrapper(model, datamodule)
-    model.custom_eval(video_dir)
+    step_log = model.custom_eval(video_dir)
+    # write step_log to file
+
+    with open(os.path.join(video_dir, "step_log.txt"), "w") as f:
+        for k, v in step_log.items():
+            f.write(f"{k}: {v}\n")
+
+    print(step_log)
 
 def train(config, ckpt_path=None):
     """
@@ -113,6 +120,8 @@ def train(config, ckpt_path=None):
         config_2.observation.modalities.obs.low_dim = config_2.observation_hand.modalities.obs.low_dim
         config_2.train.dataset_keys = config_2.train.dataset_keys_hand
         config_2.train.ac_key = config_2.train.ac_key_hand
+        config_2.train.seq_length = config_2.train.seq_length_hand
+        config_2.train.seq_length_to_load = config_2.train.seq_length_to_load_hand
         trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2)
     
 

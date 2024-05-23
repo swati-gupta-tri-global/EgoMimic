@@ -132,6 +132,8 @@ class ModelWrapper(LightningModule):
         self.zero_grad()
         with torch.no_grad():
             valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_1(), video_dir, ac_key=self.model.global_config.train.ac_key) #save vid only once every video_freq epochs
+        
+        return valid_step_log
 
 
     def on_train_epoch_start(self):
