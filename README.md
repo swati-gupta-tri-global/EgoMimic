@@ -44,7 +44,7 @@ On robot run
 
 ex) 
 ```bash
-python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5  --extrinsics humanoidApr16
+python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5  --extrinsics humanoidApr16 --data-type robot
 ```
 
 
