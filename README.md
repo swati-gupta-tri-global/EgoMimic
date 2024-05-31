@@ -97,7 +97,7 @@ Masking
 
 
 Dirty laundry
-- Hardcoded path to urdf in SimarUtils.py
+- Color jitter is manually implemented for ACT in _robomimic_to_act_data rather than using the ObsUtils color jitter
 - hardcoded extrinsics in val_utils.py
 - Added ac_key under base Algo in robomimic, I suppose this could just access the model.global_config
 - I haven't tested whether aloha_to_robomimic_v2 works with highlevelGMMPretrain

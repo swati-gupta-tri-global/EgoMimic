@@ -4,6 +4,7 @@ from mimicplay.scripts.pl_train import main, train_argparse
 import os
 import datetime
 import time
+import sys
 
 if __name__ == "__main__":
     # os.environ["TQDM_DISABLE"]="1"
@@ -22,6 +23,10 @@ if __name__ == "__main__":
         args.description = time_str
     log_dir = os.path.join(base_dir, args.description, "slurm")
     os.makedirs(log_dir)
+
+    log_file = os.path.join(log_dir, "command_log.txt")
+    with open(log_file, "w") as f:
+        f.write(" ".join(sys.argv))
 
     executor = submitit.AutoExecutor(folder=log_dir)
     # The AutoExecutor provides a simple abstraction over SLURM to simplify switching between local and slurm jobs (or other clusters if plugins are available).

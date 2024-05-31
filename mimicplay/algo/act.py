@@ -13,6 +13,7 @@ from mimicplay.algo import register_algo_factory_func, PolicyAlgo
 from robomimic.algo.bc import BC_VAE
 from act.detr.main import build_ACT_model_and_optimizer, build_single_policy_model_and_optimizer
 from mimicplay.scripts.aloha_process.simarUtils import nds
+import matplotlib.pyplot as plt
 
 @register_algo_factory_func("act")
 def algo_config_to_class(algo_config):
@@ -73,7 +74,6 @@ class ACT(BC_VAE):
         for k in self.proprio_keys:
             self.proprio_dim += self.obs_key_shapes[k][0]
 
-        #TODO FIX HARDCODE num_queries and a_dim
         policy_config = {
                          'num_queries': self.global_config.train.seq_length,
                          'hidden_dim': self.algo_config.act.hidden_dim,
@@ -98,6 +98,8 @@ class ACT(BC_VAE):
 
         self._step_counter = 0
         self.a_hat_store = None
+
+        self.color_jitter = transforms.ColorJitter(brightness=0.5, contrast=0.2, saturation=0.2, hue=0.05)
 
 
     def process_batch_for_training(self, batch):
@@ -156,6 +158,7 @@ class ACT(BC_VAE):
         images = []
         for cam_name in cam_keys:
             image = batch['obs'][cam_name]
+            image = self.color_jitter(image)
             image = self.normalize(image)
             image = image.unsqueeze(axis=1)
             images.append(image)
