@@ -66,7 +66,7 @@ Base High level:
 or via `python scripts/exps/submit.py`
 
 With dinov2 non goal cond
-`python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/oboo_depth_apr22/oboo_robot_apr22_Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond`
+`python scripts/train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/oboo_depth_apr22/oboo_robot_apr22_Mimicplay.hdf5 --name oboo --description vanillaRobot --non-goal-cond --no-wandb`
 
 With ACT settings
 `python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACT --description joints --non-goal-cond --ac-key actions_joints --obs-rgb front_img_1 right_wrist_img`

@@ -219,13 +219,17 @@
                         "output_variance": false
                     }
                 },
-                "obs_randomizer_class": "CropResizeRandomizer",
+                "obs_randomizer_class": "CropResizeColorRandomizer",
                 "obs_randomizer_kwargs": {
                     "size": [240, 320],
                     "scale": [0.9, 1.0],
                     "ratio": [1.33, 1.33],
                     "num_crops": 1,
-                    "pos_enc": false
+                    "pos_enc": false,
+                    "brightness": 0.5,
+                    "contrast": 0.2,
+                    "saturation": 0.2,
+                    "hue": 0.05
                 }
             },
             "depth": {
