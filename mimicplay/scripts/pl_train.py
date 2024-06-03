@@ -94,7 +94,7 @@ def main(args):
         config.experiment.logging.log_wandb=False
         config.experiment.logging.wandb_proj_name=None
 
-        config.experiment.validation_max_samples = 64
+        config.experiment.validation_max_samples = 200 
         config.experiment.validation_freq = 2
         config.experiment.save.every_n_epochs = 2
         config.experiment.save.video_freq = 2
