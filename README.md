@@ -59,6 +59,7 @@ python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_rob
 - Run `EgoPlay/mimicplay/scripts/aloha_process/mimicplay_data_process.py`
 
 
+
 ## Training Policies via Pytorch Lightning
 With ACT settings
 `python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACT --description joints --non-goal-cond --ac-key actions_joints --obs-rgb front_img_1 right_wrist_img`
