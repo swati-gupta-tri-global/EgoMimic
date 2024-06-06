@@ -136,6 +136,7 @@ class BaseConfig(Config):
 
         # Path to hdf5 dataset to use for training
         self.train.data = None
+        self.train.alternate_val = None
         self.train.data_2 = None
 
         # Write all results to this directory. A new folder with the timestamp will be created

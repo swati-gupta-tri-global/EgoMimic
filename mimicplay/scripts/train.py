@@ -183,8 +183,9 @@ def train(config, device):
             config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2)
         train_sampler_2 = trainset_2.get_dataset_sampler()
     
-    # _, validset = load_data_for_training(
-    #     config, obs_keys=shape_meta["all_obs_keys"], dataset_path="/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3Mimicplay.hdf5")
+    if config.train.alternate_val:
+        _, validset = load_data_for_training(
+            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=config.train.alternate_val)
 
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
@@ -554,6 +555,9 @@ def main(args):
         config.observation.encoder.rgb.obs_randomizer_kwargs.contrast = args.jitter[1]
         config.observation.encoder.rgb.obs_randomizer_kwargs.saturation = args.jitter[2]
         config.observation.encoder.rgb.obs_randomizer_kwargs.hue = args.jitter[3]
+    
+    if args.alternate_val is not None:
+        config.train.alternate_val = args.alternate_val
 
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
@@ -719,6 +723,13 @@ def train_argparse():
         help="jitter params brightness, contrast, saturation, hue",
         default=None,
         type=float
+    )
+
+    parser.add_argument(
+        "--alternate-val",
+        type=str,
+        default=None,
+        help="alternate validation dataset"
     )
 
     args = parser.parse_args()
