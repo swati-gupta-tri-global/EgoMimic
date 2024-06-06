@@ -183,8 +183,8 @@ def train(config, device):
             config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2)
         train_sampler_2 = trainset_2.get_dataset_sampler()
     
-    _, validset = load_data_for_training(
-        config, obs_keys=shape_meta["all_obs_keys"], dataset_path="/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3Mimicplay.hdf5")
+    # _, validset = load_data_for_training(
+    #     config, obs_keys=shape_meta["all_obs_keys"], dataset_path="/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3Mimicplay.hdf5")
 
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
