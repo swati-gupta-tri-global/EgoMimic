@@ -57,3 +57,22 @@ class ACTConfig(BaseConfig):
         self.algo.playdata.goal_image_range = [100, 200]        # goal image sampling range during training
         self.algo.playdata.eval_goal_gap = 150                  # goal image sampling gap during evaluation rollouts (mid of training goal_image_range)
         self.algo.playdata.do_not_lock_keys()
+
+
+class ACTSPConfig(ACTConfig):
+    ALGO_NAME = "actSP"
+
+    def train_config(self):
+        """
+        BC algorithms don't need "next_obs" from hdf5 - so save on storage and compute by disabling it.
+        """
+        super(ACTSPConfig, self).train_config()
+        self.train.ac_key_hand = "actions_xyz"
+        self.train.dataset_keys_hand = ["actions_xyz"]
+        self.train.seq_length_hand = 1
+        self.train.seq_length_to_load_hand = 1
+
+    def observation_config(self):
+        super(ACTSPConfig, self).observation_config()
+        self.observation_hand.modalities.obs.low_dim = ["joint_positions"]
+        self.observation_hand.modalities.obs.rgb = ["front_img_1"]

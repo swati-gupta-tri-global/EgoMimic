@@ -101,12 +101,7 @@ def train(config, device):
     print("DATASET_PATH -1 ", dataset_path)
     print("DATASET_PATH -2 ", dataset_path_2)
 
-    h5py_file = h5py.File(dataset_path, "r+")
-    if h5py_file["data"].get("env_args") == None:
-        h5py_file["data"].attrs["env_args"] = json.dumps({})
-        print("Added empty env_args")
-    
-    env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
+    env_meta = {} #FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
         dataset_path=config.train.data,
         all_obs_keys=config.all_obs_keys,
@@ -187,6 +182,10 @@ def train(config, device):
         trainset_2, validset_2 = load_data_for_training(
             config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2)
         train_sampler_2 = trainset_2.get_dataset_sampler()
+    
+    if config.train.alternate_val:
+        _, validset = load_data_for_training(
+            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=config.train.alternate_val)
 
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
@@ -215,11 +214,10 @@ def train(config, device):
     iterator = iter(loader)
     sample = next(iterator)
     # breakpoint()
-    if torch.all(sample['obs']['type'] == 1):
-        is_first_loader_hand = True
-    ## To check which loader is robot and which is hand
-
     if trainset_2 is not None:
+        ## To check which loader is robot and which is hand
+        if torch.all(sample['obs']['type'] == 1):
+            is_first_loader_hand = True
         if is_first_loader_hand:
             # initialize data loaders
             train_loader = DataLoader(
@@ -343,7 +341,7 @@ def train(config, device):
     valid_num_steps = config.experiment.validation_epoch_every_n_steps
 
     for epoch in range(1, config.train.num_epochs + 1):  # epoch numbers start at 1
-        step_log = TrainUtils.run_epoch_2_dataloaders(model=model, data_loader=train_loader, epoch=epoch, data_loader_2=train_loader_2, num_steps=train_num_steps)
+        step_log = TrainUtils.run_epoch_2_dataloaders(model=model, data_loader=train_loader, epoch=epoch, data_loader_2=train_loader_2, num_steps=train_num_steps, ac_key=config.train.ac_key)
         model.on_epoch_end(epoch)
 
         # setup checkpoint path
@@ -377,18 +375,18 @@ def train(config, device):
                 # step_log = TrainUtils.run_epoch(model=model, data_loader=valid_loader, epoch=epoch, validate=True,
                 #                                 num_steps=valid_num_steps)
                 step_log = TrainUtils.run_epoch_2_dataloaders(model=model, data_loader=valid_loader, epoch=epoch, data_loader_2=valid_loader_2, validate=True,
-                                                num_steps=valid_num_steps)
+                                                num_steps=valid_num_steps, ac_key=config.train.ac_key)
                 model.set_eval()
 
                 pass_vid = video_dir if config.experiment.save.video_freq is not None and epoch % config.experiment.save.video_freq == 0 else None
                 valid_step_log = None
                 valid_step_log_2 = None
                 if valid_loader_2 is not None:
-                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, type="hand") #save vid only once every video_freq epochs
-                    valid_step_log_2 = ValUtils.evaluate_high_level_policy(model, valid_loader_2, pass_vid, type="robot") #save vid only once every video_freq epochs
+                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, ac_key=config.train.ac_key, type="hand") #save vid only once every video_freq epochs
+                    valid_step_log_2 = ValUtils.evaluate_high_level_policy(model, valid_loader_2, pass_vid, ac_key=config.train.ac_key, type="robot") #save vid only once every video_freq epochs
                 else:
                     type = "hand" if is_first_loader_hand else "robot"
-                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, type=type) #save vid only once every video_freq epochs
+                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, ac_key=config.train.ac_key, type=type) #save vid only once every video_freq epochs
 
                 model.set_train()
             for k, v in step_log.items():
@@ -551,6 +549,15 @@ def main(args):
     
     if args.obs_rgb is not None:
         config.observation.modalities.obs.rgb = args.obs_rgb
+    
+    if args.jitter is not None:
+        config.observation.encoder.rgb.obs_randomizer_kwargs.brightness = args.jitter[0]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.contrast = args.jitter[1]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.saturation = args.jitter[2]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.hue = args.jitter[3]
+    
+    if args.alternate_val is not None:
+        config.train.alternate_val = args.alternate_val
 
     # get torch device
     device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
@@ -708,6 +715,21 @@ def train_argparse():
         "--obs-rgb",
         nargs='+',
         help="list of camera names"
+    )
+
+    parser.add_argument(
+        "--jitter",
+        nargs=4,
+        help="jitter params brightness, contrast, saturation, hue",
+        default=None,
+        type=float
+    )
+
+    parser.add_argument(
+        "--alternate-val",
+        type=str,
+        default=None,
+        help="alternate validation dataset"
     )
 
     args = parser.parse_args()

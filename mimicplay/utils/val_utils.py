@@ -6,7 +6,7 @@ import os
 from mimicplay.algo.act import ACT
 CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
 
-def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, type=None):
+def evaluate_high_level_policy(model, data_loader, video_dir, ac_key, max_samples=None, type=None):
     """
     Evaluate high level trajectory prediciton policy.
     model: model loaded from checkpoint
@@ -20,7 +20,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, 
     vid_dir_count = 0
     newvideo_dir = video_dir
     while os.path.isdir(newvideo_dir):
-        newvideo_dir = os.path.join(video_dir, f"eval_{vid_dir_count}")
+        newvideo_dir = os.path.join(video_dir, f"{type}_eval_{vid_dir_count}")
         vid_dir_count += 1
     video_dir = newvideo_dir
     if not os.path.isdir(video_dir):
@@ -46,6 +46,8 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, 
     aloha_fk = AlohaFK()
 
     for i, data in enumerate(data_loader):
+        if isinstance(data, list):
+            data = data[0]
         B = data["obs"]["front_img_1"].shape[0]
         if max_samples is not None and i * B > max_samples:
             break
@@ -53,7 +55,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, 
         # save_image(data["obs"]["front_img_1"][0, 0].numpy(), "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/image{i}.png")
 
         # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
-        input_batch = model.process_batch_for_training(data)
+        input_batch = model.process_batch_for_training(data, ac_key)
         input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
         if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
             del input_batch["goal_obs"]["ee_pose"]
@@ -70,7 +72,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, 
                 pred_values = info.mean[b].view((10,3)).cpu().numpy()
                 actions = input_batch["actions"][b].view((10, 3)).cpu().numpy()
 
-            if model.ac_key == "actions_joints":
+            if ac_key == "actions_joints":
                 pred_values_drawable, actions_drawable = aloha_fk.fk(pred_values[:, :6]), aloha_fk.fk(actions[:, :6])
                 pred_values_drawable, actions_drawable = ee_pose_to_cam_frame(pred_values_drawable, CURR_EXTRINSICS), ee_pose_to_cam_frame(actions_drawable, CURR_EXTRINSICS)
             else:
@@ -109,7 +111,7 @@ def evaluate_high_level_policy(model, data_loader, video_dir, max_samples=None, 
 
         summary_metrics[key] = mean_stat
 
-    if model.ac_key == "actions_joints":
+    if ac_key == "actions_joints":
         to_return = {
             f"{type}_paired_mse_avg": np.mean(summary_metrics["paired_mse"]),
             f"{type}_final_mse_avg": np.mean(summary_metrics["final_mse"]),

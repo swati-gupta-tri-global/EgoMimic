@@ -40,11 +40,13 @@
     },
     "train": {
         "data": null,
+        "data_2": null,
         "output_dir": "../trained_models_highlevel",
         "num_data_workers": 0,
         "hdf5_cache_mode": "low_dim",
         "hdf5_use_swmr": true,
         "hdf5_normalize_obs": false,
+        "ac_key": "actions",
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
@@ -256,7 +258,11 @@
                     "crop_height": 76,
                     "crop_width": 76,
                     "num_crops": 1,
-                    "pos_enc": false
+                    "pos_enc": false,
+                    "brightness": 0.5,
+                    "contrast": 0.2,
+                    "saturation": 0.2,
+                    "hue": 0.05
                 }
             },
             "scan": {

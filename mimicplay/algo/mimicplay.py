@@ -105,6 +105,39 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         self.both_human_robot = False
 
+    def process_batch_for_training(self, batch):
+        assert False, "Must pass in ac_key for this class"
+
+
+    def process_batch_for_training(self, batch, ac_key):
+        """
+        Processes input batch from a data loader to filter out
+        relevant information and prepare the batch for training.
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader
+        Returns:
+            input_batch (dict): processed and filtered batch that
+                will be used for training
+        """
+
+        input_batch = dict()
+        input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"] if k != 'pad_mask' and k != 'type'}
+        input_batch["obs"]['pad_mask'] = batch["obs"]['pad_mask']
+        input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
+        if ac_key in batch:
+            input_batch["actions"] = batch[ac_key][:, 0, :]
+
+        input_batch["type"] = batch["type"]
+        
+        # we move to device first before float conversion because image observation modalities will be uint8 -
+        # this minimizes the amount of data transferred to GPU
+        return TensorUtils.to_float(TensorUtils.to_device(input_batch, self.device))
+
+        # call parent class method
+        # return super().process_batch_for_training(batch)
+        # return self.process_batch_for_training(batch)
+
     def postprocess_batch_for_training(self, batch, obs_normalization_stats):
         """
         Processes input batch from a data loader to filter out

@@ -168,7 +168,10 @@ def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples", dot_size=
 
 
     for i, pixel_val in enumerate(pixel_vals):
-        frame = cv2.circle(frame, (int(pixel_val[0]), int(pixel_val[1])), dot_size, color_palette[i], -1)
+        try:
+            frame = cv2.circle(frame, (int(pixel_val[0]), int(pixel_val[1])), dot_size, color_palette[i], -1)
+        except:
+            print("Got bad pixel_val: ", pixel_val)
         if show:
             plt.imshow(frame)
             plt.show()

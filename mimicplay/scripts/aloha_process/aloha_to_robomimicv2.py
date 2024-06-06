@@ -4,10 +4,9 @@ import argparse
 import os
 from tqdm import tqdm
 from mimicplay.scripts.aloha_process.simarUtils import nds, ee_pose_to_cam_frame, EXTRINSICS
-# Example call: in aloha_process folder: python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ --arm left --out /coc/flash7/skareer6/calibrate_samples/ --task-name robomimic
 import pytorch_kinematics as pk
 import torch
-from modern_robotics import FKinSpace
+# from modern_robotics import FKinSpace
 from robomimic.scripts.split_train_val import split_train_val_from_hdf5
 import json
 
@@ -24,21 +23,21 @@ observations: dict with keys:  <KeysViewHDF5 ['effort', 'images', 'qpos', 'qvel'
         qvel: (500, 14)
 """
 
-def convert_qpos_to_eef(qpos):
-    M = np.array([[1.0, 0.0, 0.0, 0.536494],
-                  [0.0, 1.0, 0.0, 0.0],
-                  [0.0, 0.0, 1.0, 0.42705],
-                  [0.0, 0.0, 0.0, 1.0]])
+# def convert_qpos_to_eef(qpos):
+#     M = np.array([[1.0, 0.0, 0.0, 0.536494],
+#                   [0.0, 1.0, 0.0, 0.0],
+#                   [0.0, 0.0, 1.0, 0.42705],
+#                   [0.0, 0.0, 0.0, 1.0]])
 
-    Slist = np.array([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-                      [0.0, 1.0, 0.0, -0.12705, 0.0, 0.0],
-                      [0.0, 1.0, 0.0, -0.42705, 0.0, 0.05955],
-                      [1.0, 0.0, 0.0, 0.0, 0.42705, 0.0],
-                      [0.0, 1.0, 0.0, -0.42705, 0.0, 0.35955],
-                      [1.0, 0.0, 0.0, 0.0, 0.42705, 0.0]]).T
+#     Slist = np.array([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+#                       [0.0, 1.0, 0.0, -0.12705, 0.0, 0.0],
+#                       [0.0, 1.0, 0.0, -0.42705, 0.0, 0.05955],
+#                       [1.0, 0.0, 0.0, 0.0, 0.42705, 0.0],
+#                       [0.0, 1.0, 0.0, -0.42705, 0.0, 0.35955],
+#                       [1.0, 0.0, 0.0, 0.0, 0.42705, 0.0]]).T
 
-    T_obs = FKinSpace(M, Slist, qpos)
-    return T_obs
+#     T_obs = FKinSpace(M, Slist, qpos)
+#     return T_obs
 
 def get_future_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
     future_traj = []

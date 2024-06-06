@@ -270,8 +270,7 @@ def main(args):
         config.train.data = args.dataset
 
     # breakpoint()
-    model = init_robomimic_alg(config)
-    model = ModelWrapper.load_from_checkpoint(args.eval_path, model=model, datamodule=None)
+    model = ModelWrapper.load_from_checkpoint(args.eval_path, datamodule=None)
     
     env = make_real_env(init_node=True, arm_left=False, arm_right=True)
     model.eval()

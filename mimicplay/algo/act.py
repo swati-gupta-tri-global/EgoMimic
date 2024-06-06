@@ -11,6 +11,9 @@ import torchvision.transforms as transforms
 import robomimic.utils.tensor_utils as TensorUtils
 from mimicplay.algo import register_algo_factory_func, PolicyAlgo
 from robomimic.algo.bc import BC_VAE
+from act.detr.main import build_ACT_model_and_optimizer, build_single_policy_model_and_optimizer
+from mimicplay.scripts.aloha_process.simarUtils import nds
+import matplotlib.pyplot as plt
 
 @register_algo_factory_func("act")
 def algo_config_to_class(algo_config):
@@ -28,11 +31,32 @@ def algo_config_to_class(algo_config):
 
     return algo_class, algo_kwargs
 
+@register_algo_factory_func("actSP")
+def algo_config_to_class(algo_config):
+    """
+    Maps algo config to the BC algo class to instantiate, along with additional algo kwargs.
+
+    Args:
+        algo_config (Config instance): algo config
+
+    Returns:
+        algo_class: subclass of Algo
+        algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
+    """
+    algo_class, algo_kwargs = ACTSP, {}
+    return algo_class, algo_kwargs    
+
 
 class ACT(BC_VAE):
     """
     BC training with a VAE policy.
     """
+    def build_model_opt(self, policy_config):
+        """
+        Builds networks and optimizers for BC algo.
+        """
+        return build_ACT_model_and_optimizer(policy_config)
+
     def _create_networks(self):
         """
         Creates networks and places them into @self.nets.
@@ -50,8 +74,6 @@ class ACT(BC_VAE):
         for k in self.proprio_keys:
             self.proprio_dim += self.obs_key_shapes[k][0]
 
-        from act.detr.main import build_ACT_model_and_optimizer
-        #TODO FIX HARDCODE num_queries and a_dim
         policy_config = {
                          'num_queries': self.global_config.train.seq_length,
                          'hidden_dim': self.algo_config.act.hidden_dim,
@@ -67,7 +89,7 @@ class ACT(BC_VAE):
                          'camera_names': self.camera_keys
                          }
         self.kl_weight = self.algo_config.act.kl_weight
-        model, optimizer = build_ACT_model_and_optimizer(policy_config)
+        model, optimizer = self.build_model_opt(policy_config)
         self.nets["policy"] = model
         self.nets = self.nets.float().to(self.device)
 
@@ -77,8 +99,19 @@ class ACT(BC_VAE):
         self._step_counter = 0
         self.a_hat_store = None
 
+        rand_kwargs = self.global_config.observation.encoder.rgb.obs_randomizer_kwargs
+        brightness = 0.0 if "brightness" not in rand_kwargs else rand_kwargs.brightness
+        contrast = 0.0 if "contrast" not in rand_kwargs else rand_kwargs.contrast
+        saturation = 0.0 if "saturation" not in rand_kwargs else rand_kwargs.saturation
+        hue = 0.0 if "hue" not in rand_kwargs else rand_kwargs.hue
+        self.color_jitter = transforms.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+
 
     def process_batch_for_training(self, batch):
+        assert False, "Must pass in ac_key for this class"
+
+
+    def process_batch_for_training(self, batch, ac_key):
         """
         Processes input batch from a data loader to filter out
         relevant information and prepare the batch for training.
@@ -94,8 +127,10 @@ class ACT(BC_VAE):
         input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"] if k != 'pad_mask' and k != 'type'}
         input_batch["obs"]['pad_mask'] = batch["obs"]['pad_mask']
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
-        if self.ac_key in batch:
-            input_batch["actions"] = batch[self.ac_key]
+        if ac_key in batch:
+            input_batch["actions"] = batch[ac_key]
+
+        input_batch["type"] = batch["type"]
         
         # we move to device first before float conversion because image observation modalities will be uint8 -
         # this minimizes the amount of data transferred to GPU
@@ -108,24 +143,27 @@ class ACT(BC_VAE):
 
         return super(BC_VAE, self).train_on_batch(batch, epoch, validate=validate)
 
-    def _forward_training(self, batch):
+    def _modality_check(self, batch):
         """
-        Internal helper function for BC algo class. Compute forward pass
-        and return network outputs in @predictions dict.
-        Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader and filtered by @process_batch_for_training
-        Returns:
-            predictions (dict): dictionary containing network outputs
+        Helper function to check if the batch is robot or hand data.
         """
+        if (batch["type"] == 0).all():
+            modality = "robot"
+        elif (batch["type"] == 1).all():
+            modality = "hand"
+        else:
+            raise ValueError("Got mixed modalities, current implementation expects either robot or hand data only.")
+        return modality
 
-        proprio = [batch["obs"][k] for k in self.proprio_keys]
+    def _robomimic_to_act_data(self, batch, cam_keys, proprio_keys):
+        proprio = [batch["obs"][k] for k in proprio_keys]
         proprio = torch.cat(proprio, axis=1)
         qpos = proprio
 
         images = []
-        for cam_name in self.camera_keys:
+        for cam_name in cam_keys:
             image = batch['obs'][cam_name]
+            image = self.color_jitter(image)
             image = self.normalize(image)
             image = image.unsqueeze(axis=1)
             images.append(image)
@@ -139,7 +177,23 @@ class ACT(BC_VAE):
         B, T = is_pad.shape
         assert T == self.chunk_size
 
-        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, actions, is_pad)
+        return qpos, images, env_state, actions, is_pad
+
+
+    def _forward_training(self, batch):
+        """
+        Internal helper function for BC algo class. Compute forward pass
+        and return network outputs in @predictions dict.
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader and filtered by @process_batch_for_training
+        Returns:
+            predictions (dict): dictionary containing network outputs
+        """
+
+        qpos, images, env_state, actions, is_pad = self._robomimic_to_act_data(batch, self.camera_keys, self.proprio_keys)
+
+        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, actions=actions, is_pad=is_pad)
         total_kld, dim_wise_kld, mean_kld = self.kl_divergence(mu, logvar)
         loss_dict = dict()
         all_l1 = F.l1_loss(actions, a_hat, reduction='none')
@@ -167,26 +221,7 @@ class ACT(BC_VAE):
             predictions (dict): dictionary containing network outputs
         """
 
-        proprio = [batch["obs"][k] for k in self.proprio_keys]
-        proprio = torch.cat(proprio, axis=1)
-        qpos = proprio
-
-        images = []
-        for cam_name in self.camera_keys:
-            image = batch['obs'][cam_name]
-            image = self.normalize(image)
-            image = image.unsqueeze(axis=1)
-            images.append(image)
-        images = torch.cat(images, axis=1)
-
-        env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # this is not used
-
-        # actions = batch['actions']
-        is_pad = batch['obs']['pad_mask'] == 0  # from 1.0 or 0 to False and True
-        is_pad = is_pad.squeeze(dim=-1)
-        B, T = is_pad.shape
-        assert T == self.chunk_size
-
+        qpos, images, env_state, actions, is_pad = self._robomimic_to_act_data(batch, self.camera_keys, self.proprio_keys)
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, actions=None, is_pad=is_pad)
 
         predictions = OrderedDict(
@@ -289,3 +324,80 @@ class ACT(BC_VAE):
 
         return total_kld, dimension_wise_kld, mean_kld
 
+
+class ACTSP(ACT):
+    def _create_networks(self):
+        super(ACTSP, self)._create_networks()
+        self.proprio_keys_hand = self.global_config.observation_hand.modalities.obs.low_dim.copy()
+
+        # self.proprio_dim = 0
+        # for k in self.proprio_keys_hand:
+        #     self.proprio_dim_hand += self.obs_key_shapes[k][0]
+
+    def build_model_opt(self, policy_config):
+        return build_single_policy_model_and_optimizer(policy_config)
+
+    def _forward_training(self, batch):
+        """
+        Internal helper function for BC algo class. Compute forward pass
+        and return network outputs in @predictions dict.
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader and filtered by @process_batch_for_training
+        Returns:
+            predictions (dict): dictionary containing network outputs
+        """
+
+        modality = self._modality_check(batch)
+        if modality == "hand":
+            batch["actions"] = batch["actions"][:, :, :3] # HACK bc current ds is 30 dim
+        cam_keys = self.camera_keys if modality == "robot" else self.camera_keys[:1] #TODO Simar rm hardcoding
+        proprio_keys = self.proprio_keys_hand if modality == "hand" else self.proprio_keys
+        qpos, images, env_state, actions, is_pad = self._robomimic_to_act_data(batch, cam_keys, proprio_keys)
+
+        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, modality, actions=actions, is_pad=is_pad)
+        total_kld, dim_wise_kld, mean_kld = self.kl_divergence(mu, logvar)
+        loss_dict = dict()
+        all_l1 = F.l1_loss(actions, a_hat, reduction='none')
+        l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
+        loss_dict['l1'] = l1
+        loss_dict['kl'] = total_kld[0]
+
+        predictions = OrderedDict(
+            actions=actions,
+            kl_loss=loss_dict['kl'],
+            reconstruction_loss=loss_dict['l1'],
+        )
+
+        return predictions
+    
+    def forward_eval(self, batch):
+        """
+        Internal helper function for BC algo class. Compute forward pass
+        and return network outputs in @predictions dict.
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader and filtered by @process_batch_for_training
+        Returns:
+            predictions (dict): dictionary containing network outputs
+        """
+
+        modality = self._modality_check(batch)
+        #TODO: remove hardcoding, this is because the current dataset I'm using lacks the type label
+        if "right_wrist_img" in batch["obs"]:
+            modality = "robot"
+        else:
+            modality = "hand"
+        if modality == "hand":
+            batch["actions"] = batch["actions"][:, :, :3] # HACK bc current ds is 30 dim
+
+        cam_keys = self.camera_keys if modality == "robot" else self.camera_keys[:1] #TODO Simar rm hardcoding
+        proprio_keys = self.proprio_keys_hand if modality == "hand" else self.proprio_keys
+        qpos, images, env_state, actions, is_pad = self._robomimic_to_act_data(batch, cam_keys, proprio_keys)
+        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, modality, actions=None, is_pad=is_pad)
+
+        predictions = OrderedDict(
+            actions=a_hat
+        )
+
+        return predictions
