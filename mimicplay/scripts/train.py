@@ -101,12 +101,7 @@ def train(config, device):
     print("DATASET_PATH -1 ", dataset_path)
     print("DATASET_PATH -2 ", dataset_path_2)
 
-    h5py_file = h5py.File(dataset_path, "r+")
-    if h5py_file["data"].get("env_args") == None:
-        h5py_file["data"].attrs["env_args"] = json.dumps({})
-        print("Added empty env_args")
-    
-    env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
+    env_meta = {} #FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
         dataset_path=config.train.data,
         all_obs_keys=config.all_obs_keys,
@@ -187,6 +182,9 @@ def train(config, device):
         trainset_2, validset_2 = load_data_for_training(
             config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2)
         train_sampler_2 = trainset_2.get_dataset_sampler()
+    
+    _, validset = load_data_for_training(
+        config, obs_keys=shape_meta["all_obs_keys"], dataset_path="/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3Mimicplay.hdf5")
 
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
