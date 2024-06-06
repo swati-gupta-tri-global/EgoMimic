@@ -147,7 +147,11 @@
                     "crop_height": 76,
                     "crop_width": 76,
                     "num_crops": 1,
-                    "pos_enc": false
+                    "pos_enc": false,
+                    "brightness": 0.5,
+                    "contrast": 0.2,
+                    "saturation": 0.2,
+                    "hue": 0.05
                 }
             },
             "depth": {

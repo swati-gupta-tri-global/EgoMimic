@@ -3,7 +3,7 @@ from projectaria_tools.core.stream_id import StreamId
 
 import os
 
-mps_sample_path = "/coc/flash7/datasets/egoplay/bimanual_bag_aria_may6"
+mps_sample_path = "/coc/flash7/datasets/egoplay/_BB_ARIA/bimanual_bag_aria_may6"
 vrsfile = os.path.join(mps_sample_path, 'Bimanual_bag_debug.vrs')
 base_provider = data_provider.create_vrs_data_provider(vrsfile)
 

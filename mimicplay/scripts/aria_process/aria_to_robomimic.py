@@ -24,6 +24,9 @@ import argparse
 
 import json
 
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, WIDE_LENS_HAND_LEFT_K
+HORIZON=10
+
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--dataset",
@@ -172,7 +175,7 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
                 camera_matrix = build_camera_matrix(vrs_data_provider, pose_t)
                 camera_t_inv = np.linalg.inv(camera_matrix)
 
-                for offset in range(10):
+                for offset in range(HORIZON):
                     sample_timestamp_ns = stream_timestamps_ns["rgb"][t + offset]
                     wrist_and_palm_pose = mps_data_provider.get_wrist_and_palm_pose(
                                             sample_timestamp_ns, time_query_closest
@@ -331,6 +334,21 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
                     front_img_1.append(front_img_1_t)
                     ee_pose.append(np.ravel(ee_pose_obs_t))
    
+    actions, front_img_1, ee_pose = np.array(actions), np.array(front_img_1), np.array(ee_pose)
+    if single_action:
+        px = cam_frame_to_cam_pixels(transform_ee_pose(ee_pose), WIDE_LENS_HAND_LEFT_K)
+        bad_data_mask = (px[:, 0] < 0) | (px[:, 0] > 640) | (px[:, 1] < 0) | (px[:, 1] > 480)
+    else:
+        actions_flat = actions.copy().reshape((-1, 3))
+        px = cam_frame_to_cam_pixels(transform_actions(actions_flat), WIDE_LENS_HAND_LEFT_K)
+        px = px.reshape((-1, HORIZON, 3))
+        bad_data_mask = (px[:, :, 0] < 0) | (px[:, :, 0] > 640) | (px[:, :, 1] < 0) | (px[:, :, 1] > 480)
+        bad_data_mask = np.any(bad_data_mask, axis=1)
+
+    actions = actions[~bad_data_mask]
+    front_img_1 = front_img_1[~bad_data_mask]
+    ee_pose = ee_pose[~bad_data_mask]
+
     return np.array(actions), np.array(front_img_1), np.array(ee_pose)
 
 ## remove untracked actions and obs
@@ -342,7 +360,19 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
 #             np.delete(front_img_1, i)
 #             np.delete(ee_pose, i)
 
-def transform_coordinates(actions, ee_pose):
+def transform_ee_pose(ee_pose):
+    if ee_pose.shape[1] == 3:
+        ee_pose[:, 0] *= -1  # Multiply x by -1
+        ee_pose[:, 1] *= -1  # Multiply y by -1
+    elif ee_pose.shape[1] == 6:
+        ee_pose[:, 0] *= -1  # Multiply x by -1 for first set
+        ee_pose[:, 1] *= -1  # Multiply y by -1 for first set
+        ee_pose[:, 3] *= -1  # Multiply x by -1 for second set
+        ee_pose[:, 4] *= -1  # Multiply y by -1 for second set
+
+    return ee_pose
+
+def transform_actions(actions):
     print("Transforming coordinates for actions and ee_pose")
     
     if actions.shape[1] == 3:
@@ -361,17 +391,8 @@ def transform_coordinates(actions, ee_pose):
         for i in range(20):
             actions[:, 3*i] *= -1   # Multiply x by -1 for each set
             actions[:, 3*i + 1] *= -1  # Multiply y by -1 for each set
-
-    if ee_pose.shape[1] == 3:
-        ee_pose[:, 0] *= -1  # Multiply x by -1
-        ee_pose[:, 1] *= -1  # Multiply y by -1
-    elif ee_pose.shape[1] == 6:
-        ee_pose[:, 0] *= -1  # Multiply x by -1 for first set
-        ee_pose[:, 1] *= -1  # Multiply y by -1 for first set
-        ee_pose[:, 3] *= -1  # Multiply x by -1 for second set
-        ee_pose[:, 4] *= -1  # Multiply y by -1 for second set
-
-    return actions, ee_pose
+    
+    return actions
 
 
 filenames = [f for f in os.listdir(args.dataset) if f.endswith('.vrs')]
@@ -389,7 +410,7 @@ with h5py.File(args.out, 'w') as f:
     for j, filename in enumerate(filenames):
         print(f"Adding {filename} to hdf5 file")
         actions, front_img_1, ee_pose = single_file_conversion(args.dataset, mps_paths[j], filename, args.hand, args.single_action)
-        actions, ee_pose = transform_coordinates(actions, ee_pose)
+        actions, ee_pose = transform_actions(actions), transform_ee_pose(ee_pose)
         #actions, front_img_1, ee_pose = remove_untracked(actions, front_img_1, ee_pose)
         N = actions.shape[0]
         print(f"{N} frames in vrs file")

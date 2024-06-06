@@ -99,7 +99,12 @@ class ACT(BC_VAE):
         self._step_counter = 0
         self.a_hat_store = None
 
-        self.color_jitter = transforms.ColorJitter(brightness=0.5, contrast=0.2, saturation=0.2, hue=0.05)
+        rand_kwargs = self.global_config.observation.encoder.rgb.obs_randomizer_kwargs
+        brightness = 0.0 if "brightness" not in rand_kwargs else rand_kwargs.brightness
+        contrast = 0.0 if "contrast" not in rand_kwargs else rand_kwargs.contrast
+        saturation = 0.0 if "saturation" not in rand_kwargs else rand_kwargs.saturation
+        hue = 0.0 if "hue" not in rand_kwargs else rand_kwargs.hue
+        self.color_jitter = transforms.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
 
 
     def process_batch_for_training(self, batch):
