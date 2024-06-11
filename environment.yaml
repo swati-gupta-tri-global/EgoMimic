@@ -1,13 +1,12 @@
 name: eplay
 channels:
-  - defaults
   - pytorch
   - nvidia
 dependencies:
   - python=3.10
   - pip=23
-  - pytorch
-  - torchvision
+  - pytorch=2.3.1
+  - torchvision=0.18.1
   - pytorch-cuda=12.1
   - cuda-toolkit=12.1
   - pyyaml
