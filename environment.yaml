@@ -32,3 +32,5 @@ dependencies:
     - mujoco==2.3.1
     - mujoco-py==2.1.2.14
     - git+https://github.com/simarkareer/submitit
+    - arm_pytorch_utilities
+    - pytorch-kinematics

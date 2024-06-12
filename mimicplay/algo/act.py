@@ -11,7 +11,7 @@ import torchvision.transforms as transforms
 import robomimic.utils.tensor_utils as TensorUtils
 from mimicplay.algo import register_algo_factory_func, PolicyAlgo
 from robomimic.algo.bc import BC_VAE
-from act.detr.main import build_ACT_model_and_optimizer, build_single_policy_model_and_optimizer
+from detr.main import build_ACT_model_and_optimizer, build_single_policy_model_and_optimizer
 from mimicplay.scripts.aloha_process.simarUtils import nds
 import matplotlib.pyplot as plt
 
@@ -44,7 +44,7 @@ def algo_config_to_class(algo_config):
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
     algo_class, algo_kwargs = ACTSP, {}
-    return algo_class, algo_kwargs    
+    return algo_class, algo_kwargs
 
 
 class ACT(BC_VAE):
@@ -131,7 +131,7 @@ class ACT(BC_VAE):
             input_batch["actions"] = batch[ac_key]
 
         input_batch["type"] = batch["type"]
-        
+
         # we move to device first before float conversion because image observation modalities will be uint8 -
         # this minimizes the amount of data transferred to GPU
         return TensorUtils.to_float(TensorUtils.to_device(input_batch, self.device))
@@ -209,7 +209,7 @@ class ACT(BC_VAE):
         )
 
         return predictions
-    
+
     def forward_eval(self, batch):
         """
         Internal helper function for BC algo class. Compute forward pass
@@ -370,7 +370,7 @@ class ACTSP(ACT):
         )
 
         return predictions
-    
+
     def forward_eval(self, batch):
         """
         Internal helper function for BC algo class. Compute forward pass
