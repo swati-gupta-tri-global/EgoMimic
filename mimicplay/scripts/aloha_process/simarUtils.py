@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation
 import pytorch_kinematics as pk
 import mimicplay
 import os
+import torchvision.transforms.v2.functional as TVTF
 
 REALSENSE_INTRINSICS = np.array([
     [616.0, 0.0, 313.4, 0.0],
@@ -242,3 +243,33 @@ class AlohaFK():
             qpos = torch.from_numpy(qpos)
         
         return self.chain.forward_kinematics(qpos, end_only=True).get_matrix()[:, :3, 3]
+
+
+def robo_to_aria_imstyle(im):
+    im = TVTF.adjust_hue(im, -0.05)
+    im = TVTF.adjust_saturation(im, 1.2)
+    im = apply_vignette(im, exponent=1)
+
+    return im
+
+def create_vignette_mask(height, width, exponent=2):
+    """
+    Create a vignette mask with the given height and width.
+    The exponent controls the strength of the vignette effect.
+    """
+    y, x = torch.meshgrid(torch.linspace(-1, 1, height), torch.linspace(-1, 1, width), indexing='ij')
+    radius = torch.sqrt(x**2 + y**2)/2
+    mask = 1 - torch.pow(radius, exponent)
+    mask = torch.clamp(mask, 0, 1)
+    return mask
+
+def apply_vignette(image_tensor, exponent=2):
+    """
+    Apply a vignette effect to a batch of image tensors.
+    """
+    N, C, H, W = image_tensor.shape
+    vignette_mask = create_vignette_mask(H, W, exponent)
+    vignette_mask = vignette_mask.unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+    vignette_mask = vignette_mask.expand(N, C, H, W)  # Expand to match the batch of images
+    vignette_mask = vignette_mask.to(image_tensor.device)
+    return image_tensor * vignette_mask

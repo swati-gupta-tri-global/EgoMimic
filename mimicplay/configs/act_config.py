@@ -14,12 +14,7 @@ class ACTConfig(BaseConfig):
         """
         super(ACTConfig, self).train_config()
         self.train.hdf5_load_next_obs = False
-        self.train.gpus_per_node=1
-        self.train.num_nodes=1
-        self.wandb_project_name = "egoplay"
-        self.train.fast_dev_run = False
 
-        self.experiment.validation_max_samples=None
 
     def algo_config(self):
         """

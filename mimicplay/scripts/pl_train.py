@@ -43,8 +43,8 @@ def main(args):
         config = json_to_config(ckpt["hyper_parameters"]["config_json"])
         # breakpoint()
         # config.train.seq_length_to_load = 100
-        if config.train.seq_length_to_load == 1:
-            assert False, "This is probably a compatibility issue, but if not feel free to remove this"
+        # if config.train.seq_length_to_load == 1:
+        #     assert False, "This is probably a compatibility issue, but if not feel free to remove this"
     else:
         assert False, "Must provide a config file or a ckpt path"
 
@@ -54,6 +54,9 @@ def main(args):
     
     if args.dataset_2 is not None:
         config.train.data_2 = args.dataset_2
+    
+    if args.alternate_val:
+        config.train.alternate_val = args.alternate_val
 
     if args.output_dir is not None:
         config.train.output_dir = args.output_dir
@@ -71,7 +74,23 @@ def main(args):
         config.algo.optim_params.policy.learning_rate.initial = args.lr
 
     if args.batch_size:
-        config.train.batch_size = args.batch_size
+        config.train.batch_size = args.batch_size    
+
+    if args.brightness is not None:
+        config.observation.encoder.rgb.obs_randomizer_kwargs.brightness_min = args.brightness[0]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.brightness_max = args.brightness[1]
+    
+    if args.contrast is not None:
+        config.observation.encoder.rgb.obs_randomizer_kwargs.contrast_min = args.contrast[0]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.contrast_max = args.contrast[1]
+    
+    if args.saturation is not None:
+        config.observation.encoder.rgb.obs_randomizer_kwargs.saturation_min = args.saturation[0]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.saturation_max = args.saturation[1]
+
+    if args.hue is not None:
+        config.observation.encoder.rgb.obs_randomizer_kwargs.hue_min = args.hue[0]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.hue_max = args.hue[1]
 
     config.train.gpus_per_node = args.gpus_per_node
     config.train.num_nodes = args.num_nodes
@@ -83,7 +102,7 @@ def main(args):
 
         # train and validate (if enabled) for 1 gradient steps, for 2 epochs
         # config.train.fast_dev_run = 2
-        config.train.num_epochs = 10
+        config.train.num_epochs = 4
         config.experiment.save.every_n_epochs = 5
 
 
@@ -200,6 +219,13 @@ def train_argparse():
         help="(optional) if provided, override the dataset path defined in the config",
     )
 
+    parser.add_argument(
+        "--alternate-val",
+        type=str,
+        default=None,
+        help="alternate validation dataset"
+    )
+
     # Output path, to override the one in the config
     parser.add_argument(
         "--output_dir",
@@ -292,6 +318,38 @@ def train_argparse():
         "--overcap",
         action='store_true',
         help="overcap partition"
+    )
+
+    parser.add_argument(
+        "--brightness",
+        nargs=2,
+        help="brightness min and max",
+        default=None,
+        type=float
+    )
+
+    parser.add_argument(
+        "--contrast",
+        nargs=2,
+        help="contrast min and max",
+        default=None,
+        type=float
+    )
+
+    parser.add_argument(
+        "--saturation",
+        nargs=2,
+        help="saturation min and max",
+        default=None,
+        type=float
+    )
+
+    parser.add_argument(
+        "--hue",
+        nargs=2,
+        help="hue min and max",
+        default=None,
+        type=float
     )
 
     args = parser.parse_args()

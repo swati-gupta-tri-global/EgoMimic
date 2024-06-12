@@ -17,7 +17,7 @@ from mimicplay.scripts.aloha_process.simarUtils import nds
 from mimicplay.pl_utils.pl_model import ModelWrapper
 from mimicplay.pl_utils.pl_data_utils import DataModuleWrapper, DualDataModuleWrapper, get_dual_data_module, get_data_module, json_to_config
 
-def init_dataset(config, dataset_path):
+def init_dataset(config, dataset_path, alternate_valid_path=None):
     # load basic metadata from training file
     # print("\n============= Loaded Environment Metadata =============")
     # env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
@@ -38,6 +38,12 @@ def init_dataset(config, dataset_path):
     trainset, validset = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
     )
+    
+    if alternate_valid_path is not None:
+        _, validset = load_data_for_training(
+            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=alternate_valid_path
+        )
+
     # load training data
     print("\n============= Training Dataset =============")
     print(trainset)
@@ -110,7 +116,7 @@ def train(config, ckpt_path=None):
     if dataset_path_2 and not os.path.exists(dataset_path_2):
         raise Exception("Dataset at provided path {} not found!".format(dataset_path_2))
 
-    trainset, validset, shape_meta = init_dataset(config, dataset_path)
+    trainset, validset, shape_meta = init_dataset(config, dataset_path, config.train.alternate_val)
 
 
     if dataset_path_2:

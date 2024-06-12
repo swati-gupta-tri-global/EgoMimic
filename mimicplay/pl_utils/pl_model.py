@@ -89,22 +89,8 @@ class ModelWrapper(LightningModule):
         #         count += 1
         #         # print(name)
         # print("Unused params: ", count)
-
-        if self.global_step % self.model.global_config.experiment.epoch_every_n_steps == 0:
-            # flatten and take the mean of the metrics
-            log = {}
-            for i in range(len(self.step_log_all_train)):
-                for k in self.step_log_all_train[i]:
-                    if k not in log:
-                        log[k] = []
-                    log[k].append(self.step_log_all_train[i][k])
-            log_all = dict((k, float(np.mean(v))) for k, v in log.items())
-            for k in self.model.optimizers:
-                for i, param_group in enumerate(self.model.optimizers[k].param_groups):
-                    log_all["Optimizer/{}{}_lr".format(k, i)] = param_group["lr"]
-            for k, v in log_all.items():
-                self.log("Train/" + k, v, sync_dist=True)
-            self.step_log_all_train = []
+        # print(self.global_step, self.model.global_config.experiment.epoch_every_n_steps)
+        # breakpoint()
         return losses["action_loss"]
 
 
@@ -137,6 +123,21 @@ class ModelWrapper(LightningModule):
 
 
     def on_train_epoch_start(self):
+        # flatten and take the mean of the metrics
+        log = {}
+        for i in range(len(self.step_log_all_train)):
+            for k in self.step_log_all_train[i]:
+                if k not in log:
+                    log[k] = []
+                log[k].append(self.step_log_all_train[i][k])
+        log_all = dict((k, float(np.mean(v))) for k, v in log.items())
+        for k in self.model.optimizers:
+            for i, param_group in enumerate(self.model.optimizers[k].param_groups):
+                log_all["Optimizer/{}{}_lr".format(k, i)] = param_group["lr"]
+        for k, v in log_all.items():
+            self.log("Train/" + k, v, sync_dist=True)
+        self.step_log_all_train = []
+
         val_freq = self.model.global_config.experiment.validation_freq
         video_freq = self.model.global_config.experiment.save.video_freq
         
@@ -156,9 +157,11 @@ class ModelWrapper(LightningModule):
                         if self.dual_dl:
                             valid_step_log_2 = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_2(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples, ac_key=self.model.global_config.train.ac_key_hand, type="hand") #save vid only once every video_freq epochs
                         self.train()
-            self.log("robot_final_mse_avg", valid_step_log["robot_final_mse_avg"], sync_dist=True, reduce_fx="max")
+            for k, v in valid_step_log.items():
+                self.log("Valid/" + k, v, sync_dist=True, reduce_fx="max")
             if self.dual_dl:
-                self.log("hand_final_mse_avg", valid_step_log_2["hand_final_mse_avg"], sync_dist=True, reduce_fx="max")
+                for k, v in valid_step_log_2.items():
+                    self.log("Valid/" + k, v, sync_dist=True, reduce_fx="max")
 
 
         # Finally, log memory usage in MB

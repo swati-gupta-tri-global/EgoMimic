@@ -208,7 +208,10 @@ def train(config, device):
 
     if not args.gen_vid:
         video_dir=None
-    evaluate_high_level_policy(model[0].policy, loader, video_dir=video_dir)
+    video_dir = args.eval_path
+    # get parent directory of eval_path
+    video_dir = os.path.join(os.path.dirname(os.path.dirname(video_dir)), "videos/custom_eval")
+    evaluate_high_level_policy(model[0].policy, loader, video_dir=video_dir, ac_key=config.train.ac_key)
 
     # terminate logging
     data_logger.close()
