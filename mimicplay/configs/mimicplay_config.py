@@ -54,6 +54,10 @@ class MimicPlayConfig(BaseConfig):
         self.algo.gmm.std_activation = "softplus"       # activation to use for std output from policy net
         self.algo.gmm.low_noise_eval = True             # low-std at test-time 
 
+        # Dhruv's KL domain discrim settings 
+        self.algo.gmm.kl = False
+        self.algo.gmm.domain_discriminator = False
+
         # stochastic VAE policy settings
         self.algo.vae.enabled = False                   # whether to train a VAE policy
         self.algo.vae.latent_dim = 14                   # VAE latent dimnsion - set to twice the dimensionality of action space

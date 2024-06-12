@@ -139,6 +139,13 @@ class BaseConfig(Config):
         self.train.alternate_val = None
         self.train.data_2 = None
 
+        self.train.gpus_per_node=1
+        self.train.num_nodes=1
+        self.experiment.validation_max_samples=None
+        self.train.fast_dev_run = False
+        self.wandb_project_name = "egoplay"
+
+
         # Write all results to this directory. A new folder with the timestamp will be created
         # in this directory, and it will contain three subfolders - "log", "models", and "videos".
         # The "log" directory will contain tensorboard and stdout txt logs. The "models" directory

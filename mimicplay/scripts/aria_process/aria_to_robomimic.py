@@ -26,6 +26,7 @@ import json
 
 from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, WIDE_LENS_HAND_LEFT_K
 HORIZON=10
+STEP=3.0
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -127,8 +128,10 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
     transform = slam_to_rgb()
 
     for t in range(frame_length + 1):
+        # if t >= 5000:
+        #     break
         if not single_action:
-            if t + 9 < frame_length + 1:
+            if t + HORIZON*STEP < frame_length + 1:
                 if (t % 1000) == 0:
                     print(f"{t} frames ingested")
                 ## sampled image and camera pose at time t
@@ -176,7 +179,7 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
                 camera_t_inv = np.linalg.inv(camera_matrix)
 
                 for offset in range(HORIZON):
-                    sample_timestamp_ns = stream_timestamps_ns["rgb"][t + offset]
+                    sample_timestamp_ns = stream_timestamps_ns["rgb"][int(t + offset*STEP)]
                     wrist_and_palm_pose = mps_data_provider.get_wrist_and_palm_pose(
                                             sample_timestamp_ns, time_query_closest
                                         )
@@ -418,11 +421,13 @@ with h5py.File(args.out, 'w') as f:
         for i in range(0, N, chunk_size):
             #print(i)
             group = data.create_group(f'demo_{demo_index}')
+            group.create_dataset('label', data=np.array([1]))
             group.create_dataset('actions', data=actions[i:i+chunk_size])
             group.attrs["num_samples"] = group["actions"].shape[0]
             group.create_dataset('obs/front_img_1', data=front_img_1[i:i+chunk_size])
             group.create_dataset('obs/ee_pose', data=ee_pose[i:i+chunk_size])
             demo_index += 1
         print(f"Completed adding {filename}")
+        # break
 
 split_train_val_from_hdf5(hdf5_path=args.out, val_ratio=0.2)

@@ -1,10 +1,14 @@
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, EXTRINSICS, WIDE_LENS_ROBOT_LEFT_K, ee_pose_to_cam_frame, AlohaFK
+from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds, EXTRINSICS, WIDE_LENS_ROBOT_LEFT_K, ee_pose_to_cam_frame, AlohaFK, robo_to_aria_imstyle
 import torchvision
 import numpy as np
 import torch
 import os
 from mimicplay.algo.act import ACT
+import scipy
 CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
+EENORM = False
+VIGNETTE = False
+INTERP = False
 
 def evaluate_high_level_policy(model, data_loader, video_dir, ac_key, max_samples=None, type=None):
     """
@@ -60,17 +64,34 @@ def evaluate_high_level_policy(model, data_loader, video_dir, ac_key, max_sample
         if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
             del input_batch["goal_obs"]["ee_pose"]
 
+        # offset and cam style change
+        if EENORM:
+            # offset = torch.tensor([[.05, .07, .13]]).to(input_batch["obs"]["ee_pose"].device)
+            offset = torch.tensor([[.1, .07, .13]]).to(input_batch["obs"]["ee_pose"].device)
+            # offset = torch.tensor([[.07, .04, .0]]).to(input_batch["obs"]["ee_pose"].device)
+            input_batch["obs"]["ee_pose"]  = input_batch["obs"]["ee_pose"] + offset
+        if VIGNETTE:
+            input_batch["obs"]["front_img_1"] = robo_to_aria_imstyle(input_batch["obs"]["front_img_1"])
         info = model.forward_eval(input_batch)
 
         print(i)
         for b in range(B):
-            im = data["obs"]["front_img_1"][b, 0].numpy()
+            im = (input_batch["obs"]["front_img_1"][b].permute((1, 2, 0)).cpu().numpy() * 255).astype(np.uint8)
             if isinstance(model, ACT):
                 pred_values = info["actions"][b].cpu().numpy()
                 actions = input_batch["actions"][b].cpu().numpy()
+                if actions.shape[1] == 30:
+                    # print("Warning: using act model with dim 30 actions, so truncating to 3")
+                    # actions = actions[:, :3]
+                    assert False, "need to reimplement after realizing the hand data 30 dim action issue"
             else:
                 pred_values = info.mean[b].view((10,3)).cpu().numpy()
                 actions = input_batch["actions"][b].view((10, 3)).cpu().numpy()
+                if INTERP:
+                    interp = scipy.interpolate.interp1d(np.linspace(0, 1, 10), actions, axis=0)
+                    actions = interp(np.linspace(0, .5, 10))
+                if EENORM:
+                    pred_values = pred_values - offset.cpu().numpy()
 
             if ac_key == "actions_joints":
                 pred_values_drawable, actions_drawable = aloha_fk.fk(pred_values[:, :6]), aloha_fk.fk(actions[:, :6])
@@ -80,6 +101,9 @@ def evaluate_high_level_policy(model, data_loader, video_dir, ac_key, max_sample
             
             pred_values_drawable = cam_frame_to_cam_pixels(pred_values_drawable, intrinsics)
             actions_drawable = cam_frame_to_cam_pixels(actions_drawable, intrinsics)
+            # heuristic to throw out bad actions
+            if actions_drawable.min(axis=0)[1] < 250:
+                continue
             frame = draw_dot_on_frame(im, pred_values_drawable, show=False, palette="Purples")
             frame = draw_dot_on_frame(frame, actions_drawable, show=False, palette="Greens")
 
