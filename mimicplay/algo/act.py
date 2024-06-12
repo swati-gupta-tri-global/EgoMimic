@@ -171,7 +171,7 @@ class ACT(BC_VAE):
 
         env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # this is not used
 
-        actions = batch['actions']
+        actions = batch['actions'] if 'actions' in batch else None
         is_pad = batch['obs']['pad_mask'] == 0  # from 1.0 or 0 to False and True
         is_pad = is_pad.squeeze(dim=-1)
         B, T = is_pad.shape
@@ -221,7 +221,7 @@ class ACT(BC_VAE):
             predictions (dict): dictionary containing network outputs
         """
 
-        qpos, images, env_state, actions, is_pad = self._robomimic_to_act_data(batch, self.camera_keys, self.proprio_keys)
+        qpos, images, env_state, _, is_pad = self._robomimic_to_act_data(batch, self.camera_keys, self.proprio_keys)
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](qpos, images, env_state, actions=None, is_pad=is_pad)
 
         predictions = OrderedDict(

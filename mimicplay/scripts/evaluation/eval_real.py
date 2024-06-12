@@ -40,7 +40,6 @@ import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.file_utils as FileUtils
 from robomimic.utils.log_utils import PrintLogger, DataLogger
-from mimicplay.utils.file_utils import policy_from_checkpoint
 from torchvision.utils import save_image
 import cv2
 
@@ -51,10 +50,7 @@ import torchvision
 
 
 from mimicplay.configs import config_factory
-from mimicplay.algo import algo_factory, RolloutPolicy
-from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
-from mimicplay.utils.val_utils import evaluate_high_level_policy
-from mimicplay.scripts.pl_train import ModelWrapper
+from mimicplay.pl_utils.pl_model import ModelWrapper
 import datetime
 
 from aloha_scripts.robot_utils import move_grippers # requires aloha
@@ -63,6 +59,12 @@ from aloha_scripts.real_env import make_real_env # requires aloha
 from mimicplay.scripts.evaluation.real_utils import *
 import matplotlib.pyplot as plt
 from mimicplay.algo.act import ACT
+
+from IPython.core import ultratb
+import sys
+
+# For debugging
+# sys.excepthook = ultratb.FormattedTB(mode="Plain", color_scheme="Neutral", call_pdb=1)
 
 
 
@@ -136,13 +138,20 @@ def eval_real(model, config, env, rollout_dir):
                         "obs": {
                             "front_img_1": (curr_image[:, [0]].permute((0, 1, 3, 4, 2))*255).to(torch.uint8),
                             "right_wrist_img": (curr_image[:, [1]].permute((0, 1, 3, 4, 2))*255).to(torch.uint8),
-                            "ee_pose": torch.from_numpy(ee_pose_cam_frame), #torch.tensor([[[0.2889, 0.1556, 0.4028]]]), #ee_pose_input[:, None, :], #TODO: Switch this to actual qpos (and make corresponding change in config)
-                            "pad_mask": torch.ones((1, 100, 1)).to(device).bool()
-                        }
+                            # "ee_pose": torch.from_numpy(ee_pose_cam_frame), #torch.tensor([[[0.2889, 0.1556, 0.4028]]]), #ee_pose_input[:, None, :], #TODO: Switch this to actual qpos (and make corresponding change in config)
+                            "pad_mask": torch.ones((1, 100, 1)).to(device).bool(),
+                            "joint_positions": qpos[..., 7:].reshape((1,1,-1))
+                        },
+                        "type": torch.tensor([0]),
                     }
 
-                    input_batch = model.process_batch_for_training(data)
-                    input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
+                    # breakpoint()
+                    input_batch = model.process_batch_for_training(data, "actions_joints")
+                    input_batch['obs']['front_img_1'] = input_batch['obs']['front_img_1'].permute(0, 3, 1, 2)
+                    input_batch['obs']['right_wrist_img'] = input_batch['obs']['right_wrist_img'].permute(0, 3, 1, 2)
+                    input_batch['obs']['front_img_1'] /= 255.
+                    input_batch['obs']['right_wrist_img'] /= 255.
+                    # input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None) # TODO: look into obs norm
                     # if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
                     #     del input_batch["goal_obs"]["ee_pose"]
                     # del input_batch["actions"]
@@ -183,7 +192,7 @@ def eval_real(model, config, env, rollout_dir):
                     # viz_dir = os.path.join(rollout_dir, f"rolloutViz_{rollout_id}")
                     plt.imsave(os.path.join(rollout_dir, "viz.png"), frame)
 
-                    if True:
+                    if False:
                         all_actions_numpy = all_actions.cpu().numpy()
                         # fig, ax = plt.subplots()
                         # ax = plot_joint_pos(ax, all_actions_numpy)
