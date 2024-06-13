@@ -3,4 +3,4 @@
 	url = https://github.com/SimarKareer/robomimic
 [submodule "external/act"]
 	path = external/act
-	url = https://github.com/tonyzhaozh/act
+	url = https://github.com/SimarKareer/act
