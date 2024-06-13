@@ -30,6 +30,7 @@ from mimicplay.pl_utils.pl_train_utils import train, eval
 from mimicplay.pl_utils.pl_data_utils import json_to_config
 import torch
 
+
 def main(args):
     if args.config is not None:
         ext_cfg = json.load(open(args.config, "r"))
@@ -48,13 +49,12 @@ def main(args):
     else:
         assert False, "Must provide a config file or a ckpt path"
 
-
     if args.dataset is not None:
         config.train.data = args.dataset
-    
+
     if args.dataset_2 is not None:
         config.train.data_2 = args.dataset_2
-    
+
     if args.alternate_val:
         config.train.alternate_val = args.alternate_val
 
@@ -66,27 +66,39 @@ def main(args):
 
     if args.seed is not None:
         config.train.seed = args.seed
-    
+
     if args.description is not None:
         config.experiment.description = args.description
-    
+
     if args.lr:
         config.algo.optim_params.policy.learning_rate.initial = args.lr
 
     if args.batch_size:
-        config.train.batch_size = args.batch_size    
+        config.train.batch_size = args.batch_size
 
     if args.brightness is not None:
-        config.observation.encoder.rgb.obs_randomizer_kwargs.brightness_min = args.brightness[0]
-        config.observation.encoder.rgb.obs_randomizer_kwargs.brightness_max = args.brightness[1]
-    
+        config.observation.encoder.rgb.obs_randomizer_kwargs.brightness_min = (
+            args.brightness[0]
+        )
+        config.observation.encoder.rgb.obs_randomizer_kwargs.brightness_max = (
+            args.brightness[1]
+        )
+
     if args.contrast is not None:
-        config.observation.encoder.rgb.obs_randomizer_kwargs.contrast_min = args.contrast[0]
-        config.observation.encoder.rgb.obs_randomizer_kwargs.contrast_max = args.contrast[1]
-    
+        config.observation.encoder.rgb.obs_randomizer_kwargs.contrast_min = (
+            args.contrast[0]
+        )
+        config.observation.encoder.rgb.obs_randomizer_kwargs.contrast_max = (
+            args.contrast[1]
+        )
+
     if args.saturation is not None:
-        config.observation.encoder.rgb.obs_randomizer_kwargs.saturation_min = args.saturation[0]
-        config.observation.encoder.rgb.obs_randomizer_kwargs.saturation_max = args.saturation[1]
+        config.observation.encoder.rgb.obs_randomizer_kwargs.saturation_min = (
+            args.saturation[0]
+        )
+        config.observation.encoder.rgb.obs_randomizer_kwargs.saturation_max = (
+            args.saturation[1]
+        )
 
     if args.hue is not None:
         config.observation.encoder.rgb.obs_randomizer_kwargs.hue_min = args.hue[0]
@@ -105,15 +117,14 @@ def main(args):
         config.train.num_epochs = 4
         config.experiment.save.every_n_epochs = 5
 
-
         # if rollouts are enabled, try 10 rollouts at end of each epoch, with 10 environment steps
         config.experiment.epoch_every_n_steps = 10
 
         # send output to a temporary directory
-        config.experiment.logging.log_wandb=False
-        config.experiment.logging.wandb_proj_name=None
+        config.experiment.logging.log_wandb = False
+        config.experiment.logging.wandb_proj_name = None
 
-        config.experiment.validation_max_samples = 200 
+        config.experiment.validation_max_samples = 200
         config.experiment.validation_freq = 2
         config.experiment.save.every_n_epochs = 2
         config.experiment.save.video_freq = 2
@@ -132,21 +143,25 @@ def main(args):
         # config.experiment.rollout.n = 1
 
         # send output to a temporary directory
-        config.experiment.logging.log_wandb=False
-        config.experiment.logging.wandb_proj_name=None
+        config.experiment.logging.log_wandb = False
+        config.experiment.logging.wandb_proj_name = None
     else:
         config.wandb_project_name = args.wandb_project_name
         config.train.fast_dev_run = False
 
     if config.train.gpus_per_node == 1 and args.num_nodes == 1:
         os.environ["OMP_NUM_THREADS"] = "1"
-    
+
     if args.no_wandb:
-        config.experiment.logging.log_wandb=False
-        config.experiment.logging.wandb_proj_name=None
-    
-    assert config.experiment.validation_freq % config.experiment.save.every_n_epochs == 0, "current code expects validation_freq to be a multiple of save.every_n_epochs"
-    assert config.experiment.validation_freq == config.experiment.save.video_freq, "current code expects validation_freq to be the same as save.video_freq"
+        config.experiment.logging.log_wandb = False
+        config.experiment.logging.wandb_proj_name = None
+
+    assert (
+        config.experiment.validation_freq % config.experiment.save.every_n_epochs == 0
+    ), "current code expects validation_freq to be a multiple of save.every_n_epochs"
+    assert (
+        config.experiment.validation_freq == config.experiment.save.video_freq
+    ), "current code expects validation_freq to be the same as save.video_freq"
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -167,6 +182,7 @@ def main(args):
     if important_stats is not None:
         print("\nRollout Success Rate Stats")
         print(important_stats)
+
 
 def train_argparse():
     parser = argparse.ArgumentParser()
@@ -220,10 +236,7 @@ def train_argparse():
     )
 
     parser.add_argument(
-        "--alternate-val",
-        type=str,
-        default=None,
-        help="alternate validation dataset"
+        "--alternate-val", type=str, default=None, help="alternate validation dataset"
     )
 
     # Output path, to override the one in the config
@@ -249,19 +262,9 @@ def train_argparse():
         help="(optional) if provided, sets the seed",
     )
 
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=None,
-        help="learning rate"
-    )
+    parser.add_argument("--lr", type=float, default=None, help="learning rate")
 
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=None,
-        help="batch size"
-    )
+    parser.add_argument("--batch-size", type=int, default=None, help="batch size")
 
     parser.add_argument(
         "--wandb_project_name",
@@ -277,9 +280,7 @@ def train_argparse():
     )
 
     parser.add_argument(
-        "--eval",
-        action="store_true",
-        help="set this flag to run a evaluation"
+        "--eval", action="store_true", help="set this flag to run a evaluation"
     )
 
     parser.add_argument(
@@ -309,47 +310,25 @@ def train_argparse():
     )
 
     parser.add_argument(
-        "--no-wandb",
-        action='store_true',
-        help="set this flag to run a without wandb"
+        "--no-wandb", action="store_true", help="set this flag to run a without wandb"
+    )
+
+    parser.add_argument("--overcap", action="store_true", help="overcap partition")
+
+    parser.add_argument(
+        "--brightness", nargs=2, help="brightness min and max", default=None, type=float
     )
 
     parser.add_argument(
-        "--overcap",
-        action='store_true',
-        help="overcap partition"
+        "--contrast", nargs=2, help="contrast min and max", default=None, type=float
     )
 
     parser.add_argument(
-        "--brightness",
-        nargs=2,
-        help="brightness min and max",
-        default=None,
-        type=float
+        "--saturation", nargs=2, help="saturation min and max", default=None, type=float
     )
 
     parser.add_argument(
-        "--contrast",
-        nargs=2,
-        help="contrast min and max",
-        default=None,
-        type=float
-    )
-
-    parser.add_argument(
-        "--saturation",
-        nargs=2,
-        help="saturation min and max",
-        default=None,
-        type=float
-    )
-
-    parser.add_argument(
-        "--hue",
-        nargs=2,
-        help="hue min and max",
-        default=None,
-        type=float
+        "--hue", nargs=2, help="hue min and max", default=None, type=float
     )
 
     args = parser.parse_args()

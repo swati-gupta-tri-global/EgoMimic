@@ -7,6 +7,7 @@ These factory functions are registered into a global dictionary with the
 @register_algo_factory_func function decorator. This makes it easy for
 @algo_factory to instantiate the correct `Algo` subclass.
 """
+
 import textwrap
 from copy import deepcopy
 from collections import OrderedDict
@@ -30,8 +31,10 @@ def register_algo_factory_func(algo_name):
     Args:
         algo_name (str): the algorithm name to register the algorithm under
     """
+
     def decorator(factory_func):
         REGISTERED_ALGO_FACTORY_FUNCS[algo_name] = factory_func
+
     return decorator
 
 
@@ -87,14 +90,9 @@ class Algo(object):
     a standard API to be used by training functions such as @run_epoch in
     utils/train_utils.py.
     """
+
     def __init__(
-        self,
-        algo_config,
-        obs_config,
-        global_config,
-        obs_key_shapes,
-        ac_dim,
-        device
+        self, algo_config, obs_config, global_config, obs_key_shapes, ac_dim, device
     ):
         """
         Args:
@@ -146,11 +144,23 @@ class Algo(object):
         # We check across all modality groups (obs, goal, subgoal), and see if the inputted observation key exists
         # across all modalitie specified in the config. If so, we store its corresponding shape internally
         for k in obs_key_shapes:
-            if "obs" in self.obs_config.modalities and k in [obs_key for modality in self.obs_config.modalities.obs.values() for obs_key in modality]:
+            if "obs" in self.obs_config.modalities and k in [
+                obs_key
+                for modality in self.obs_config.modalities.obs.values()
+                for obs_key in modality
+            ]:
                 self.obs_shapes[k] = obs_key_shapes[k]
-            if "goal" in self.obs_config.modalities and k in [obs_key for modality in self.obs_config.modalities.goal.values() for obs_key in modality]:
+            if "goal" in self.obs_config.modalities and k in [
+                obs_key
+                for modality in self.obs_config.modalities.goal.values()
+                for obs_key in modality
+            ]:
                 self.goal_shapes[k] = obs_key_shapes[k]
-            if "subgoal" in self.obs_config.modalities and k in [obs_key for modality in self.obs_config.modalities.subgoal.values() for obs_key in modality]:
+            if "subgoal" in self.obs_config.modalities and k in [
+                obs_key
+                for modality in self.obs_config.modalities.subgoal.values()
+                for obs_key in modality
+            ]:
                 self.subgoal_shapes[k] = obs_key_shapes[k]
 
     def _create_networks(self):
@@ -173,18 +183,28 @@ class Algo(object):
             if k in self.nets:
                 if isinstance(self.nets[k], nn.ModuleList):
                     self.optimizers[k] = [
-                        TorchUtils.optimizer_from_optim_params(net_optim_params=self.optim_params[k], net=self.nets[k][i])
+                        TorchUtils.optimizer_from_optim_params(
+                            net_optim_params=self.optim_params[k], net=self.nets[k][i]
+                        )
                         for i in range(len(self.nets[k]))
                     ]
                     self.lr_schedulers[k] = [
-                        TorchUtils.lr_scheduler_from_optim_params(net_optim_params=self.optim_params[k], net=self.nets[k][i], optimizer=self.optimizers[k][i])
+                        TorchUtils.lr_scheduler_from_optim_params(
+                            net_optim_params=self.optim_params[k],
+                            net=self.nets[k][i],
+                            optimizer=self.optimizers[k][i],
+                        )
                         for i in range(len(self.nets[k]))
                     ]
                 else:
                     self.optimizers[k] = TorchUtils.optimizer_from_optim_params(
-                        net_optim_params=self.optim_params[k], net=self.nets[k])
+                        net_optim_params=self.optim_params[k], net=self.nets[k]
+                    )
                     self.lr_schedulers[k] = TorchUtils.lr_scheduler_from_optim_params(
-                        net_optim_params=self.optim_params[k], net=self.nets[k], optimizer=self.optimizers[k])
+                        net_optim_params=self.optim_params[k],
+                        net=self.nets[k],
+                        optimizer=self.optimizers[k],
+                    )
 
     def process_batch_for_training(self, batch):
         """
@@ -283,8 +303,11 @@ class Algo(object):
         """
         Pretty print algorithm and network description.
         """
-        return "{} (\n".format(self.__class__.__name__) + \
-               textwrap.indent(self.nets.__repr__(), '  ') + "\n)"
+        return (
+            "{} (\n".format(self.__class__.__name__)
+            + textwrap.indent(self.nets.__repr__(), "  ")
+            + "\n)"
+        )
 
     def reset(self):
         """
@@ -297,6 +320,7 @@ class PolicyAlgo(Algo):
     """
     Base class for all algorithms that can be used as policies.
     """
+
     def get_action(self, obs_dict, goal_dict=None):
         """
         Get policy action outputs.
@@ -315,6 +339,7 @@ class ValueAlgo(Algo):
     """
     Base class for all algorithms that can learn a value function.
     """
+
     def get_state_value(self, obs_dict, goal_dict=None):
         """
         Get state value outputs.
@@ -348,6 +373,7 @@ class PlannerAlgo(Algo):
     Base class for all algorithms that can be used for planning subgoals
     conditioned on current observations and potential goal observations.
     """
+
     def get_subgoal_predictions(self, obs_dict, goal_dict=None):
         """
         Get predicted subgoal outputs.
@@ -380,6 +406,7 @@ class HierarchicalAlgo(Algo):
     Base class for all hierarchical algorithms that consist of (1) subgoal planning
     and (2) subgoal-conditioned policy learning.
     """
+
     def get_action(self, obs_dict, goal_dict=None):
         """
         Get policy action outputs.
@@ -421,6 +448,7 @@ class RolloutPolicy(object):
     """
     Wraps @Algo object to make it easy to run policies in a rollout loop.
     """
+
     def __init__(self, policy, obs_normalization_stats=None):
         """
         Args:
@@ -455,10 +483,17 @@ class RolloutPolicy(object):
         ob = TensorUtils.to_float(ob)
         if self.obs_normalization_stats is not None:
             # ensure obs_normalization_stats are torch Tensors on proper device
-            obs_normalization_stats = TensorUtils.to_float(TensorUtils.to_device(TensorUtils.to_tensor(self.obs_normalization_stats), self.policy.device))
+            obs_normalization_stats = TensorUtils.to_float(
+                TensorUtils.to_device(
+                    TensorUtils.to_tensor(self.obs_normalization_stats),
+                    self.policy.device,
+                )
+            )
             # limit normalization to obs keys being used, in case environment includes extra keys
-            ob = { k : ob[k] for k in self.policy.global_config.all_obs_keys }
-            ob = ObsUtils.normalize_obs(ob, obs_normalization_stats=obs_normalization_stats)
+            ob = {k: ob[k] for k in self.policy.global_config.all_obs_keys}
+            ob = ObsUtils.normalize_obs(
+                ob, obs_normalization_stats=obs_normalization_stats
+            )
         return ob
 
     def __repr__(self):

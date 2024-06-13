@@ -43,15 +43,27 @@ from mimicplay.utils.file_utils import policy_from_checkpoint
 from torchvision.utils import save_image
 import cv2
 
-from mimicplay.scripts.aloha_process.simarUtils import cam_frame_to_cam_pixels, draw_dot_on_frame, general_unnorm, miniviewer, nds
+from mimicplay.scripts.aloha_process.simarUtils import (
+    cam_frame_to_cam_pixels,
+    draw_dot_on_frame,
+    general_unnorm,
+    miniviewer,
+    nds,
+)
 import torchvision
 
 
 from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
-from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
+from mimicplay.utils.train_utils import (
+    get_exp_dir,
+    rollout_with_stats,
+    load_data_for_training,
+)
 from mimicplay.utils.val_utils import evaluate_high_level_policy
 import datetime
+
+
 def train(config, device):
     """
     Train a model using the algorithm.
@@ -68,7 +80,7 @@ def train(config, device):
 
     if config.experiment.logging.terminal_output_to_txt:
         # log stdout and stderr to a text file
-        logger = PrintLogger(os.path.join(log_dir, 'log.txt'))
+        logger = PrintLogger(os.path.join(log_dir, "log.txt"))
         sys.stdout = logger
         sys.stderr = logger
 
@@ -84,14 +96,17 @@ def train(config, device):
     print("\n============= Loaded Environment Metadata =============")
     env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
-        dataset_path=config.train.data,
-        all_obs_keys=config.all_obs_keys,
-        verbose=True
+        dataset_path=config.train.data, all_obs_keys=config.all_obs_keys, verbose=True
     )
 
     if config.experiment.env is not None:
         env_meta["env_name"] = config.experiment.env
-        print("=" * 30 + "\n" + "Replacing Env to {}\n".format(env_meta["env_name"]) + "=" * 30)
+        print(
+            "=" * 30
+            + "\n"
+            + "Replacing Env to {}\n".format(env_meta["env_name"])
+            + "=" * 30
+        )
 
     # create environment
     envs = OrderedDict()
@@ -113,7 +128,7 @@ def train(config, device):
             ObsUtils.initialize_obs_utils_with_obs_specs(obs_modality_specs=dummy_spec)
 
             if args.bddl_file is not None:
-                env_meta["env_kwargs"]['bddl_file_name'] = args.bddl_file
+                env_meta["env_kwargs"]["bddl_file_name"] = args.bddl_file
 
             print(env_meta)
 
@@ -140,13 +155,17 @@ def train(config, device):
     #     ac_dim=shape_meta["ac_dim"],
     #     device=device,
     # )
-    model = policy_from_checkpoint(device=device, ckpt_path=args.eval_path, ckpt_dict=None, verbose=False)
+    model = policy_from_checkpoint(
+        device=device, ckpt_path=args.eval_path, ckpt_dict=None, verbose=False
+    )
 
-    if config.experiment.rollout.enabled:                     # load task video prompt (used for evaluation rollouts during the gap of training)
+    if (
+        config.experiment.rollout.enabled
+    ):  # load task video prompt (used for evaluation rollouts during the gap of training)
         model.load_eval_video_prompt(args.video_prompt)
 
     # save the config as a json file
-    with open(os.path.join(log_dir, '..', 'config.json'), 'w') as outfile:
+    with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
         json.dump(config, outfile, indent=4)
 
     print("\n============= Model Summary =============")
@@ -157,7 +176,8 @@ def train(config, device):
     # FIXED_GOAL_RANGE = [150, 150]
     # config["algo"]["playdata"]["goal_image_range"] = FIXED_GOAL_RANGE
     trainset, validset = load_data_for_training(
-        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path)
+        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
+    )
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
     print(trainset)
@@ -176,7 +196,7 @@ def train(config, device):
         shuffle=False,
         num_workers=config.train.num_data_workers,
         # num_workers=0,
-        drop_last=True
+        drop_last=True,
     )
 
     if config.experiment.validate:
@@ -190,7 +210,7 @@ def train(config, device):
             shuffle=False,
             num_workers=num_workers,
             # num_workers=0,
-            drop_last=True
+            drop_last=True,
         )
     else:
         valid_loader = None
@@ -207,18 +227,23 @@ def train(config, device):
         obs_maxs = np.array(env_meta["obs_maxs"])
 
     if not args.gen_vid:
-        video_dir=None
+        video_dir = None
     video_dir = args.eval_path
     # get parent directory of eval_path
-    video_dir = os.path.join(os.path.dirname(os.path.dirname(video_dir)), "videos/custom_eval")
-    evaluate_high_level_policy(model[0].policy, loader, video_dir=video_dir, ac_key=config.train.ac_key)
+    video_dir = os.path.join(
+        os.path.dirname(os.path.dirname(video_dir)), "videos/custom_eval"
+    )
+    evaluate_high_level_policy(
+        model[0].policy, loader, video_dir=video_dir, ac_key=config.train.ac_key
+    )
 
     # terminate logging
     data_logger.close()
 
+
 def main(args):
     if args.config is not None:
-        ext_cfg = json.load(open(args.config, 'r'))
+        ext_cfg = json.load(open(args.config, "r"))
         config = config_factory(ext_cfg["algo_name"])
         # update config with external json - this will throw errors if
         # the external config has keys not present in the base algo config
@@ -294,11 +319,28 @@ if __name__ == "__main__":
         help="(optional) if provided, override the dataset path defined in the config",
     )
 
-    parser.add_argument("--eval-path", type=str, default=None, help="(optional) path to the model to be evaluated")
+    parser.add_argument(
+        "--eval-path",
+        type=str,
+        default=None,
+        help="(optional) path to the model to be evaluated",
+    )
 
-    parser.add_argument("--eval-split", type=str, default="valid", help="(optional) split to evaluate on", choices=["train", "valid"])
+    parser.add_argument(
+        "--eval-split",
+        type=str,
+        default="valid",
+        help="(optional) split to evaluate on",
+        choices=["train", "valid"],
+    )
 
-    parser.add_argument("--gen-vid", type=int, default=1, help="(optional) whether to generate videos or not 0 false 1 true.", choices=[0, 1])
+    parser.add_argument(
+        "--gen-vid",
+        type=int,
+        default=1,
+        help="(optional) whether to generate videos or not 0 false 1 true.",
+        choices=[0, 1],
+    )
     # parser.add_argument(
     #     "--bddl_file",
     #     type=str,
@@ -325,4 +367,3 @@ if __name__ == "__main__":
         time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
     main(args)
-

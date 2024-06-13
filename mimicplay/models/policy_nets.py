@@ -6,6 +6,7 @@ samples, or distributions as outputs. Note that actions
 are assumed to lie in [-1, 1], and most networks will have a final
 tanh activation to help ensure this range.
 """
+
 import textwrap
 import numpy as np
 from collections import OrderedDict
@@ -25,11 +26,13 @@ from robomimic.models.obs_nets import RNN_MIMO_MLP
 
 from mimicplay.models.obs_nets import MIMO_MLP
 
+
 class ActorNetwork(MIMO_MLP):
     """
     A basic policy network that predicts actions from observations.
     Can optionally be goal conditioned on future observations.
     """
+
     def __init__(
         self,
         obs_shapes,
@@ -104,7 +107,9 @@ class ActorNetwork(MIMO_MLP):
         return [self.ac_dim]
 
     def forward(self, obs_dict, goal_dict=None):
-        actions = super(ActorNetwork, self).forward(obs=obs_dict, goal=goal_dict)["action"]
+        actions = super(ActorNetwork, self).forward(obs=obs_dict, goal=goal_dict)[
+            "action"
+        ]
         # apply tanh squashing to ensure actions are in [-1, 1]
         return torch.tanh(actions)
 
@@ -112,11 +117,13 @@ class ActorNetwork(MIMO_MLP):
         """Info to pretty print."""
         return "action_dim={}".format(self.ac_dim)
 
+
 class GMMActorNetwork(ActorNetwork):
     """
     Variant of actor network that learns a multimodal Gaussian mixture distribution
     over actions.
     """
+
     def __init__(
         self,
         obs_shapes,
@@ -186,8 +193,11 @@ class GMMActorNetwork(ActorNetwork):
             "softplus": F.softplus,
             "exp": torch.exp,
         }
-        assert std_activation in self.activations, \
-            "std_activation must be one of: {}; instead got: {}".format(self.activations.keys(), std_activation)
+        assert (
+            std_activation in self.activations
+        ), "std_activation must be one of: {}; instead got: {}".format(
+            self.activations.keys(), std_activation
+        )
         self.std_activation = std_activation
 
         super(GMMActorNetwork, self).__init__(
@@ -204,15 +214,15 @@ class GMMActorNetwork(ActorNetwork):
         at the last layer. Network outputs parameters of GMM distribution.
         """
         return OrderedDict(
-            mean=(self.num_modes, self.ac_dim), 
-            scale=(self.num_modes, self.ac_dim), 
+            mean=(self.num_modes, self.ac_dim),
+            scale=(self.num_modes, self.ac_dim),
             logits=(self.num_modes,),
         )
 
     def forward_train(self, obs_dict, goal_dict=None, return_latent=False):
         """
         Return full GMM distribution, which is useful for computing
-        quantities necessary at train-time, like log-likelihood, KL 
+        quantities necessary at train-time, like log-likelihood, KL
         divergence, etc.
 
         Args:
@@ -223,9 +233,13 @@ class GMMActorNetwork(ActorNetwork):
             dist (Distribution): GMM distribution
         """
         if return_latent:
-            out, enc_out, mlp_out = MIMO_MLP.forward(self, return_latent=return_latent, obs=obs_dict, goal=goal_dict)
+            out, enc_out, mlp_out = MIMO_MLP.forward(
+                self, return_latent=return_latent, obs=obs_dict, goal=goal_dict
+            )
         else:
-            out = MIMO_MLP.forward(self, return_latent=return_latent, obs=obs_dict, goal=goal_dict)
+            out = MIMO_MLP.forward(
+                self, return_latent=return_latent, obs=obs_dict, goal=goal_dict
+            )
         means = out["mean"]
         scales = out["scale"]
         logits = out["logits"]
@@ -257,7 +271,7 @@ class GMMActorNetwork(ActorNetwork):
 
         if self.use_tanh:
             # Wrap distribution with Tanh
-            dist = TanhWrappedDistribution(base_dist=dist, scale=1.)
+            dist = TanhWrappedDistribution(base_dist=dist, scale=1.0)
 
         if return_latent:
             return dist, enc_out, mlp_out
@@ -280,7 +294,13 @@ class GMMActorNetwork(ActorNetwork):
     def _to_string(self):
         """Info to pretty print."""
         return "action_dim={}\nnum_modes={}\nmin_std={}\nstd_activation={}\nlow_noise_eval={}".format(
-            self.ac_dim, self.num_modes, self.min_std, self.std_activation, self.low_noise_eval)
+            self.ac_dim,
+            self.num_modes,
+            self.min_std,
+            self.std_activation,
+            self.low_noise_eval,
+        )
+
 
 class RNNGMMActorNetwork(RNNActorNetwork):
     """
@@ -288,21 +308,21 @@ class RNNGMMActorNetwork(RNNActorNetwork):
     """
 
     def __init__(
-            self,
-            obs_shapes,
-            ac_dim,
-            mlp_layer_dims,
-            rnn_hidden_dim,
-            rnn_num_layers,
-            rnn_type="LSTM",  # [LSTM, GRU]
-            rnn_kwargs=None,
-            num_modes=5,
-            min_std=0.01,
-            std_activation="softplus",
-            low_noise_eval=True,
-            use_tanh=False,
-            goal_shapes=None,
-            encoder_kwargs=None,
+        self,
+        obs_shapes,
+        ac_dim,
+        mlp_layer_dims,
+        rnn_hidden_dim,
+        rnn_num_layers,
+        rnn_type="LSTM",  # [LSTM, GRU]
+        rnn_kwargs=None,
+        num_modes=5,
+        min_std=0.01,
+        std_activation="softplus",
+        low_noise_eval=True,
+        use_tanh=False,
+        goal_shapes=None,
+        encoder_kwargs=None,
     ):
         """
         Args:
@@ -359,8 +379,11 @@ class RNNGMMActorNetwork(RNNActorNetwork):
             "softplus": F.softplus,
             "exp": torch.exp,
         }
-        assert std_activation in self.activations, \
-            "std_activation must be one of: {}; instead got: {}".format(self.activations.keys(), std_activation)
+        assert (
+            std_activation in self.activations
+        ), "std_activation must be one of: {}; instead got: {}".format(
+            self.activations.keys(), std_activation
+        )
         self.std_activation = std_activation
 
         super(RNNGMMActorNetwork, self).__init__(
@@ -386,7 +409,9 @@ class RNNGMMActorNetwork(RNNActorNetwork):
             logits=(self.num_modes,),
         )
 
-    def forward_train(self, obs_dict, goal_dict=None, rnn_init_state=None, return_state=False):
+    def forward_train(
+        self, obs_dict, goal_dict=None, rnn_init_state=None, return_state=False
+    ):
         """
         Return full GMM distribution, which is useful for computing
         quantities necessary at train-time, like log-likelihood, KL
@@ -404,7 +429,12 @@ class RNNGMMActorNetwork(RNNActorNetwork):
         """
 
         outputs = RNN_MIMO_MLP.forward(
-            self, obs=obs_dict, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
+            self,
+            obs=obs_dict,
+            goal=goal_dict,
+            rnn_init_state=rnn_init_state,
+            return_state=return_state,
+        )
 
         if return_state:
             outputs, state = outputs
@@ -429,7 +459,9 @@ class RNNGMMActorNetwork(RNNActorNetwork):
         # mixture components - make sure that `batch_shape` for the distribution is equal
         # to (batch_size, timesteps, num_modes) since MixtureSameFamily expects this shape
         component_distribution = D.Normal(loc=means, scale=scales)
-        component_distribution = D.Independent(component_distribution, 1)  # shift action dim to event shape
+        component_distribution = D.Independent(
+            component_distribution, 1
+        )  # shift action dim to event shape
 
         # unnormalized logits to categorical distribution for mixing the modes
         mixture_distribution = D.Categorical(logits=logits)
@@ -441,14 +473,16 @@ class RNNGMMActorNetwork(RNNActorNetwork):
 
         if self.use_tanh:
             # Wrap distribution with Tanh
-            dists = TanhWrappedDistribution(base_dist=dists, scale=1.)
+            dists = TanhWrappedDistribution(base_dist=dists, scale=1.0)
 
         if return_state:
             return dists, state
         else:
             return dists
 
-    def forward(self, obs_dict, goal_dict=None, rnn_init_state=None, return_state=False):
+    def forward(
+        self, obs_dict, goal_dict=None, rnn_init_state=None, return_state=False
+    ):
         """
         Samples actions from the policy distribution.
 
@@ -459,8 +493,12 @@ class RNNGMMActorNetwork(RNNActorNetwork):
         Returns:
             action (torch.Tensor): batch of actions from policy distribution
         """
-        out = self.forward_train(obs_dict=obs_dict, goal_dict=goal_dict, rnn_init_state=rnn_init_state,
-                                 return_state=return_state)
+        out = self.forward_train(
+            obs_dict=obs_dict,
+            goal_dict=goal_dict,
+            rnn_init_state=rnn_init_state,
+            return_state=return_state,
+        )
         if return_state:
             ad, state = out
             return ad.sample(), state
@@ -484,7 +522,8 @@ class RNNGMMActorNetwork(RNNActorNetwork):
         """
         obs_dict = TensorUtils.to_sequence(obs_dict)
         ad, state = self.forward_train(
-            obs_dict, goal_dict, rnn_init_state=rnn_state, return_state=True)
+            obs_dict, goal_dict, rnn_init_state=rnn_state, return_state=True
+        )
 
         # to squeeze time dimension, make another action distribution
         assert ad.component_distribution.base_dist.loc.shape[1] == 1
@@ -495,7 +534,9 @@ class RNNGMMActorNetwork(RNNActorNetwork):
             scale=ad.component_distribution.base_dist.scale.squeeze(1),
         )
         component_distribution = D.Independent(component_distribution, 1)
-        mixture_distribution = D.Categorical(logits=ad.mixture_distribution.logits.squeeze(1))
+        mixture_distribution = D.Categorical(
+            logits=ad.mixture_distribution.logits.squeeze(1)
+        )
         ad = D.MixtureSameFamily(
             mixture_distribution=mixture_distribution,
             component_distribution=component_distribution,
@@ -518,13 +559,18 @@ class RNNGMMActorNetwork(RNNActorNetwork):
         """
         obs_dict = TensorUtils.to_sequence(obs_dict)
         acts, state = self.forward(
-            obs_dict, goal_dict, rnn_init_state=rnn_state, return_state=True)
+            obs_dict, goal_dict, rnn_init_state=rnn_state, return_state=True
+        )
         assert acts.shape[1] == 1
         return acts[:, 0], state
 
     def _to_string(self):
         """Info to pretty print."""
         msg = "action_dim={}, std_activation={}, low_noise_eval={}, num_nodes={}, min_std={}".format(
-            self.ac_dim, self.std_activation, self.low_noise_eval, self.num_modes, self.min_std)
+            self.ac_dim,
+            self.std_activation,
+            self.low_noise_eval,
+            self.num_modes,
+            self.min_std,
+        )
         return msg
-

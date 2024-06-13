@@ -17,7 +17,9 @@ hand_tracking_file.seek(0)
 
 
 def project_3d_to_2d(x, y, z, camera_intrinsics):
-    focal_length_x, focal_length_y, principal_point_x, principal_point_y = camera_intrinsics
+    focal_length_x, focal_length_y, principal_point_x, principal_point_y = (
+        camera_intrinsics
+    )
 
     # Apply camera intrinsics to project 3D point to 2D
     u = (focal_length_x * x / z) + principal_point_x
@@ -31,8 +33,8 @@ camera_intrinsics = (616.16, 615.714, 313.42, 236.67)
 
 for idx, line in enumerate(hand_tracking_file.readlines()):
     pose = line.split()
-    if os.path.isfile("images/frame_"+str(pose[0])):
-        image = cv2.imread("images/frame_"+str(pose[0]))
+    if os.path.isfile("images/frame_" + str(pose[0])):
+        image = cv2.imread("images/frame_" + str(pose[0]))
         x, y, z = np.array(pose[3:6], dtype=float)
         image = np.array(image)
         z -= 175
@@ -46,11 +48,10 @@ for idx, line in enumerate(hand_tracking_file.readlines()):
         point_radius = 10
 
         # Draw the point on the image
-        cv2.circle(image, (int(u), int(v)), point_radius,
-                   point_color, -1)
-        
+        cv2.circle(image, (int(u), int(v)), point_radius, point_color, -1)
+
         # Show the image with the point
-        cv2.imshow('Image with Point', image)
+        cv2.imshow("Image with Point", image)
         cv2.waitKey(20)
 
 cv2.destroyAllWindows()

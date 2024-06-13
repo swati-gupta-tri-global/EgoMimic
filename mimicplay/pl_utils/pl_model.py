@@ -17,6 +17,7 @@ import robomimic.utils.file_utils as FileUtils
 from mimicplay.configs import config_factory
 import json
 
+
 class ModelWrapper(LightningModule):
     """
     Wrapper class around robomimic models to ensure compatibility with Pytorch Lightning.
@@ -36,7 +37,7 @@ class ModelWrapper(LightningModule):
             config=config,
             obs_key_shapes=shape_meta["all_shapes"],
             ac_dim=shape_meta["ac_dim"],
-            device="cuda"  # default to cpu, pl will move to gpu
+            device="cuda",  # default to cpu, pl will move to gpu
         )
         self.model = model
         self.nets = (
@@ -58,7 +59,9 @@ class ModelWrapper(LightningModule):
         DUAL_DL = isinstance(batch, list)
         # plt.imsave("debug/front_img_1.png", batch[0]["obs"]["front_img_1"][0, 0].cpu().numpy())
         if DUAL_DL:
-            batch[1]["type"] = torch.ones_like(batch[1]["type"]) #TODO fix hardcoding assumes that second DS is the hand DS
+            batch[1]["type"] = torch.ones_like(
+                batch[1]["type"]
+            )  # TODO fix hardcoding assumes that second DS is the hand DS
 
         # full_batch = batch
         # batch = full_batch[0]
@@ -66,10 +69,19 @@ class ModelWrapper(LightningModule):
         loss_dicts = []
         if not DUAL_DL:
             batch = [batch]
-        ac_keys = [self.model.global_config.train.ac_key, self.model.global_config.train.ac_key_hand] if self.dual_dl else [self.model.global_config.train.ac_key]
+        ac_keys = (
+            [
+                self.model.global_config.train.ac_key,
+                self.model.global_config.train.ac_key_hand,
+            ]
+            if self.dual_dl
+            else [self.model.global_config.train.ac_key]
+        )
         for batch, ac_key in zip(batch, ac_keys):
             batch["obs"] = ObsUtils.process_obs_dict(batch["obs"])
-            info = PolicyAlgo.train_on_batch(self.model, batch, self.current_epoch, validate=False)
+            info = PolicyAlgo.train_on_batch(
+                self.model, batch, self.current_epoch, validate=False
+            )
             batch = self.model.process_batch_for_training(batch, ac_key)
             predictions = self.model._forward_training(batch)
             losses = self.model._compute_losses(predictions, batch)
@@ -78,8 +90,10 @@ class ModelWrapper(LightningModule):
         # Average over both the hand and robot batch if applicable
         losses = OrderedDict()
         for key in loss_dicts[0].keys():
-            losses[key] = torch.mean(torch.stack([loss_dict[key] for loss_dict in loss_dicts]))
-        
+            losses[key] = torch.mean(
+                torch.stack([loss_dict[key] for loss_dict in loss_dicts])
+            )
+
         info["losses"] = TensorUtils.detach(losses)
         self.step_log_all_train.append(self.model.log_info(info))
 
@@ -92,7 +106,6 @@ class ModelWrapper(LightningModule):
         # print(self.global_step, self.model.global_config.experiment.epoch_every_n_steps)
         # breakpoint()
         return losses["action_loss"]
-
 
     def configure_optimizers(self):
         if self.model.lr_schedulers["policy"]:
@@ -117,10 +130,14 @@ class ModelWrapper(LightningModule):
         self.eval()
         self.zero_grad()
         with torch.no_grad():
-            valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_1(), video_dir, ac_key=self.model.global_config.train.ac_key) #save vid only once every video_freq epochs
-        
-        return valid_step_log
+            valid_step_log = ValUtils.evaluate_high_level_policy(
+                self.model,
+                self.datamodule.val_dataloader_1(),
+                video_dir,
+                ac_key=self.model.global_config.train.ac_key,
+            )  # save vid only once every video_freq epochs
 
+        return valid_step_log
 
     def on_train_epoch_start(self):
         # flatten and take the mean of the metrics
@@ -140,29 +157,45 @@ class ModelWrapper(LightningModule):
 
         val_freq = self.model.global_config.experiment.validation_freq
         video_freq = self.model.global_config.experiment.save.video_freq
-        
+
         if self.current_epoch % val_freq == 0 and self.current_epoch != 0:
             valid_step_log = {"robot_final_mse_avg": 0.0}
             valid_step_log_2 = {"hand_final_mse_avg": 0.0}
             if self.global_rank == 0:
                 # Perform custom validation
 
-
                 with torch.no_grad():
-                        self.eval()
-                        self.zero_grad()
-                        pass_vid = os.path.join(self.trainer.default_root_dir, "videos") if self.current_epoch % video_freq == 0 else None
-                        valid_step_log = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_1(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples, ac_key=self.model.global_config.train.ac_key, type="robot") #save vid only once every video_freq epochs
+                    self.eval()
+                    self.zero_grad()
+                    pass_vid = (
+                        os.path.join(self.trainer.default_root_dir, "videos")
+                        if self.current_epoch % video_freq == 0
+                        else None
+                    )
+                    valid_step_log = ValUtils.evaluate_high_level_policy(
+                        self.model,
+                        self.datamodule.val_dataloader_1(),
+                        pass_vid,
+                        max_samples=self.model.global_config.experiment.validation_max_samples,
+                        ac_key=self.model.global_config.train.ac_key,
+                        type="robot",
+                    )  # save vid only once every video_freq epochs
 
-                        if self.dual_dl:
-                            valid_step_log_2 = ValUtils.evaluate_high_level_policy(self.model, self.datamodule.val_dataloader_2(), pass_vid, max_samples=self.model.global_config.experiment.validation_max_samples, ac_key=self.model.global_config.train.ac_key_hand, type="hand") #save vid only once every video_freq epochs
-                        self.train()
+                    if self.dual_dl:
+                        valid_step_log_2 = ValUtils.evaluate_high_level_policy(
+                            self.model,
+                            self.datamodule.val_dataloader_2(),
+                            pass_vid,
+                            max_samples=self.model.global_config.experiment.validation_max_samples,
+                            ac_key=self.model.global_config.train.ac_key_hand,
+                            type="hand",
+                        )  # save vid only once every video_freq epochs
+                    self.train()
             for k, v in valid_step_log.items():
                 self.log("Valid/" + k, v, sync_dist=True, reduce_fx="max")
             if self.dual_dl:
                 for k, v in valid_step_log_2.items():
                     self.log("Valid/" + k, v, sync_dist=True, reduce_fx="max")
-
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
@@ -185,7 +218,9 @@ class ModelWrapper(LightningModule):
                 for pg in self.optimizers().param_groups:
                     pg["lr"] = (
                         initial_lr
-                        + (target_lr - initial_lr) * self.global_step / schedule_iterations
+                        + (target_lr - initial_lr)
+                        * self.global_step
+                        / schedule_iterations
                     )
             else:
                 scheduler.step(self.global_step - schedule_iterations)

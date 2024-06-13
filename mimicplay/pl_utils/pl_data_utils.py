@@ -5,10 +5,12 @@ import json
 from mimicplay.configs import config_factory
 import os
 
+
 class DualDataModuleWrapper(LightningDataModule):
     """
     Same as DataModuleWrapper but there are two train datasets and two valid datasets
     """
+
     def __init__(
         self,
         train_dataset1,
@@ -31,21 +33,31 @@ class DualDataModuleWrapper(LightningDataModule):
         self.valid_dataloader_params = valid_dataloader_params
 
     def train_dataloader(self):
-        new_dataloader1 = DataLoader(dataset=self.train_dataset1, **self.train_dataloader_params)
-        new_dataloader2 = DataLoader(dataset=self.train_dataset2, **self.train_dataloader_params)
+        new_dataloader1 = DataLoader(
+            dataset=self.train_dataset1, **self.train_dataloader_params
+        )
+        new_dataloader2 = DataLoader(
+            dataset=self.train_dataset2, **self.train_dataloader_params
+        )
         return [new_dataloader1, new_dataloader2]
-    
+
     def val_dataloader_1(self):
-        new_dataloader = DataLoader(dataset=self.valid_dataset1, **self.valid_dataloader_params)
+        new_dataloader = DataLoader(
+            dataset=self.valid_dataset1, **self.valid_dataloader_params
+        )
         return new_dataloader
 
     def val_dataloader_2(self):
-        new_dataloader = DataLoader(dataset=self.valid_dataset2, **self.valid_dataloader_params)
+        new_dataloader = DataLoader(
+            dataset=self.valid_dataset2, **self.valid_dataloader_params
+        )
         return new_dataloader
+
     # def val_dataloader(self):
     #     new_dataloader1 = DataLoader(dataset=self.valid_dataset1, **self.valid_dataloader_params)
     #     new_dataloader2 = DataLoader(dataset=self.valid_dataset2, **self.valid_dataloader_params)
     #     return [new_dataloader1, new_dataloader2]
+
 
 class DataModuleWrapper(LightningDataModule):
     """
@@ -71,15 +83,21 @@ class DataModuleWrapper(LightningDataModule):
         self.valid_dataloader_params = valid_dataloader_params
 
     def train_dataloader(self):
-        new_dataloader = DataLoader(dataset=self.train_dataset, **self.train_dataloader_params)
+        new_dataloader = DataLoader(
+            dataset=self.train_dataset, **self.train_dataloader_params
+        )
         return new_dataloader
-    
+
     def val_dataloader_1(self):
-        new_dataloader = DataLoader(dataset=self.valid_dataset, **self.valid_dataloader_params)
+        new_dataloader = DataLoader(
+            dataset=self.valid_dataset, **self.valid_dataloader_params
+        )
         return new_dataloader
 
 
-def get_dual_data_module(trainset, trainset_2, validset, validset_2, train_sampler, valid_sampler, config):
+def get_dual_data_module(
+    trainset, trainset_2, validset, validset_2, train_sampler, valid_sampler, config
+):
     return DualDataModuleWrapper(
         train_dataset1=trainset,
         valid_dataset1=validset,
@@ -103,6 +121,7 @@ def get_dual_data_module(trainset, trainset_2, validset, validset_2, train_sampl
         ),
     )
 
+
 def get_data_module(trainset, validset, train_sampler, valid_sampler, config):
     return DataModuleWrapper(
         train_dataset=trainset,
@@ -125,6 +144,7 @@ def get_data_module(trainset, validset, train_sampler, valid_sampler, config):
         ),
     )
 
+
 def json_to_config(json_dict, is_file=False):
     """
     Converts a json dictionary to a Config object
@@ -136,12 +156,13 @@ def json_to_config(json_dict, is_file=False):
     else:
         assert isinstance(json_dict, str)
         ext_cfg = json.loads(json_dict)
-    
+
     config = config_factory(ext_cfg["algo_name"])
     with config.values_unlocked():
         config.update(ext_cfg)
-    
+
     return config
+
 
 def robomimic_dict_to_config(ext_cfg):
     """
@@ -153,7 +174,7 @@ def robomimic_dict_to_config(ext_cfg):
     # the external config has keys not present in the base algo config
     with config.values_unlocked():
         config.update(ext_cfg)
-    
+
     config.lock()
-    
+
     return config

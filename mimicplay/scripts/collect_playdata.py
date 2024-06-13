@@ -40,17 +40,26 @@ def collect_human_trajectory(env, device, arm, env_configuration):
 
     is_first = True
 
-    task_completion_hold_count = -1  # counter to collect 10 timesteps after reaching goal
+    task_completion_hold_count = (
+        -1
+    )  # counter to collect 10 timesteps after reaching goal
     device.start_control()
 
     # Loop until we get a reset from the input or the task completes
     while True:
         # Set active robot
-        active_robot = env.robots[0] if env_configuration == "bimanual" else env.robots[arm == "left"]
+        active_robot = (
+            env.robots[0]
+            if env_configuration == "bimanual"
+            else env.robots[arm == "left"]
+        )
 
         # Get the newest action
         action, grasp = input2action(
-            device=device, robot=active_robot, active_arm=arm, env_configuration=env_configuration
+            device=device,
+            robot=active_robot,
+            active_arm=arm,
+            env_configuration=env_configuration,
         )
 
         # If action is none, then this a reset so we should break
@@ -165,6 +174,7 @@ def gather_demonstrations_as_hdf5(directory, out_dir, env_info):
 
     f.close()
 
+
 if __name__ == "__main__":
     # Arguments
     parser = argparse.ArgumentParser()
@@ -173,19 +183,53 @@ if __name__ == "__main__":
         type=str,
         default=os.path.join(suite.models.assets_root, "demonstrations"),
     )
-    parser.add_argument("--environment", type=str, default="Libero_Kitchen_Tabletop_Manipulation")
-    parser.add_argument("--robots", nargs="+", type=list, default=["Panda"], help="Which robot(s) to use in the env")
     parser.add_argument(
-        "--config", type=str, default="single-arm-opposed", help="Specified environment configuration if necessary"
+        "--environment", type=str, default="Libero_Kitchen_Tabletop_Manipulation"
     )
-    parser.add_argument("--arm", type=str, default="right", help="Which arm to control (eg bimanual) 'right' or 'left'")
-    parser.add_argument("--camera", type=str, default="agentview", help="Which camera to use for collecting demos")
     parser.add_argument(
-        "--controller", type=str, default="OSC_POSE", help="Choice of controller. Can be 'IK_POSE' or 'OSC_POSE'"
+        "--robots",
+        nargs="+",
+        type=list,
+        default=["Panda"],
+        help="Which robot(s) to use in the env",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="single-arm-opposed",
+        help="Specified environment configuration if necessary",
+    )
+    parser.add_argument(
+        "--arm",
+        type=str,
+        default="right",
+        help="Which arm to control (eg bimanual) 'right' or 'left'",
+    )
+    parser.add_argument(
+        "--camera",
+        type=str,
+        default="agentview",
+        help="Which camera to use for collecting demos",
+    )
+    parser.add_argument(
+        "--controller",
+        type=str,
+        default="OSC_POSE",
+        help="Choice of controller. Can be 'IK_POSE' or 'OSC_POSE'",
     )
     parser.add_argument("--device", type=str, default="spacemouse")
-    parser.add_argument("--pos-sensitivity", type=float, default=1.0, help="How much to scale position user inputs")
-    parser.add_argument("--rot-sensitivity", type=float, default=1.0, help="How much to scale rotation user inputs")
+    parser.add_argument(
+        "--pos-sensitivity",
+        type=float,
+        default=1.0,
+        help="How much to scale position user inputs",
+    )
+    parser.add_argument(
+        "--rot-sensitivity",
+        type=float,
+        default=1.0,
+        help="How much to scale rotation user inputs",
+    )
 
     parser.add_argument(
         "--num-demonstration",
@@ -197,7 +241,6 @@ if __name__ == "__main__":
     parser.add_argument("--task-id", type=int)
 
     args = parser.parse_args()
-
 
     # Get controller config
     controller_config = load_controller_config(default_controller=args.controller)
@@ -240,13 +283,19 @@ if __name__ == "__main__":
     if args.device == "keyboard":
         from robosuite.devices import Keyboard
 
-        device = Keyboard(pos_sensitivity=args.pos_sensitivity, rot_sensitivity=args.rot_sensitivity)
+        device = Keyboard(
+            pos_sensitivity=args.pos_sensitivity, rot_sensitivity=args.rot_sensitivity
+        )
     elif args.device == "spacemouse":
         from robosuite.devices import SpaceMouse
 
-        device = SpaceMouse(pos_sensitivity=args.pos_sensitivity, rot_sensitivity=args.rot_sensitivity)
+        device = SpaceMouse(
+            pos_sensitivity=args.pos_sensitivity, rot_sensitivity=args.rot_sensitivity
+        )
     else:
-        raise Exception("Invalid device choice: choose either 'keyboard' or 'spacemouse'.")
+        raise Exception(
+            "Invalid device choice: choose either 'keyboard' or 'spacemouse'."
+        )
 
     # make a new timestamped directory
     t1, t2 = str(time.time()).split(".")

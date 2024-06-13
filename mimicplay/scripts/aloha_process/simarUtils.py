@@ -9,54 +9,71 @@ import mimicplay
 import os
 import torchvision.transforms.v2.functional as TVTF
 
-REALSENSE_INTRINSICS = np.array([
-    [616.0, 0.0, 313.4, 0.0],
-    [0.0, 615.7, 236.7, 0.0],
-    [0.0, 0.0, 1.0, 0.0]
-]) #Internal realsense numbers
+REALSENSE_INTRINSICS = np.array(
+    [[616.0, 0.0, 313.4, 0.0], [0.0, 615.7, 236.7, 0.0], [0.0, 0.0, 1.0, 0.0]]
+)  # Internal realsense numbers
 # K: [616.16650390625, 0.0, 313.42645263671875, 0.0, 615.7142333984375, 236.67532348632812, 0.0, 0.0, 1.0]
 
 # A2 paper without turning in skew direction
-WIDE_LENS_ROBOT_LEFT_K = np.array([
-    [133.25430222*2,   0.        , 160.27941013*2, 0],
-    [  0.        , 133.2502574*2 , 122.05743188*2, 0],
-    [  0.        ,   0.        ,   1.        , 0]
-])
-WIDE_LENS_HAND_LEFT_K = np.array([[265.83575589493415, 0.0, 324.5832835740557,0.0], 
-                                [0.0, 265.8940770981264, 244.23118856728662,0.0],
-                                [0.0, 0.0, 1.0,0.0]])
+WIDE_LENS_ROBOT_LEFT_K = np.array(
+    [
+        [133.25430222 * 2, 0.0, 160.27941013 * 2, 0],
+        [0.0, 133.2502574 * 2, 122.05743188 * 2, 0],
+        [0.0, 0.0, 1.0, 0],
+    ]
+)
+WIDE_LENS_HAND_LEFT_K = np.array(
+    [
+        [265.83575589493415, 0.0, 324.5832835740557, 0.0],
+        [0.0, 265.8940770981264, 244.23118856728662, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ]
+)
 
-WIDE_LENS_ROBOT_LEFT_D = np.array([[ 0.00087175, -0.00866803,  0.00016203,  0.00050252, -0.004487  ]])
+WIDE_LENS_ROBOT_LEFT_D = np.array(
+    [[0.00087175, -0.00866803, 0.00016203, 0.00050252, -0.004487]]
+)
 
 # Cam to base extrinsics
 EXTRINSICS = {
-    "table": np.array([
-        [0.144, -0.598,  0.789, -0.017],
-        [-0.978, 0.036, 0.206, -0.202],
-        [-0.152, -0.801, -0.579, 0.491],
-        [ 0.,     0.,     0.,     1.   ]
-    ]),
-    "humanoidJan19": np.array([
-        [ 0.07, -0.911,  0.407, 0.035],
-        [ 0.997,  0.048,   -0.063, -0.309],
-        [ 0.038,  0.41, 0.911, -0.195],
-        [0., 0., 0., 1.]
-    ]),
-    "humanoidFeb29R": np.array([
-        [ 0.01742509, -0.67120392,  0.74106792,  0.09484187],
-        [ 0.99969314, -0.00135605, -0.02473448, -0.27895615],
-        [ 0.0176068 ,  0.74127152,  0.67097432, -0.16654236],
-        [ 0.        ,  0.        ,  0.        ,  1.        ]
-    ]),
-    "humanoidApr16": np.array([[-0.0096297 , -0.70631061,  0.70783656,  0.0884877 ],
-       [ 0.99961502,  0.01162055,  0.02519467, -0.30150412],
-       [-0.02602072,  0.70780667,  0.70592679, -0.06821658],
-       [ 0.        ,  0.        ,  0.        ,  1.        ]]
-    )
+    "table": np.array(
+        [
+            [0.144, -0.598, 0.789, -0.017],
+            [-0.978, 0.036, 0.206, -0.202],
+            [-0.152, -0.801, -0.579, 0.491],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    ),
+    "humanoidJan19": np.array(
+        [
+            [0.07, -0.911, 0.407, 0.035],
+            [0.997, 0.048, -0.063, -0.309],
+            [0.038, 0.41, 0.911, -0.195],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    ),
+    "humanoidFeb29R": np.array(
+        [
+            [0.01742509, -0.67120392, 0.74106792, 0.09484187],
+            [0.99969314, -0.00135605, -0.02473448, -0.27895615],
+            [0.0176068, 0.74127152, 0.67097432, -0.16654236],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    ),
+    "humanoidApr16": np.array(
+        [
+            [-0.0096297, -0.70631061, 0.70783656, 0.0884877],
+            [0.99961502, 0.01162055, 0.02519467, -0.30150412],
+            [-0.02602072, 0.70780667, 0.70592679, -0.06821658],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    ),
 }
 
+
 def is_key(x):
-    return hasattr(x, 'keys') and callable(x.keys)
+    return hasattr(x, "keys") and callable(x.keys)
+
 
 def is_listy(x):
     return isinstance(x, list)
@@ -78,13 +95,14 @@ def nds(nested_ds, tab_level=0):
 
     if is_key(nested_ds):
         for key, value in nested_ds.items():
-            print('\t' * (tab_level), end='')
+            print("\t" * (tab_level), end="")
             print(f"{key}: ", end="")
             nds(value, tab_level + 1)
     elif isinstance(nested_ds, list):
-        print('\t' * tab_level, end='')
+        print("\t" * tab_level, end="")
         print("Index[0]", end="")
-        nds(nested_ds[0], tab_level+1)
+        nds(nested_ds[0], tab_level + 1)
+
 
 def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
     """
@@ -98,6 +116,7 @@ def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
 
     ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
     return ee_pose_grip_cam.T[:, :3]
+
 
 def pose_transform(a_pose, T_a_b):
     """
@@ -114,6 +133,7 @@ def pose_transform(a_pose, T_a_b):
     ee_pose_grip_cam = T_a_b @ a_pose.T
     orig_shape[-1] += 1
     return ee_pose_grip_cam.T.reshape(orig_shape)
+
 
 def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
     """
@@ -134,11 +154,12 @@ def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
 
     return px_val.T
 
+
 def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     """
-        camera frame 3d coordinates to pixels in camera frame
-        ee_pose_cam: (N, 3)
-        intrinsics: 3x4 matrix
+    camera frame 3d coordinates to pixels in camera frame
+    ee_pose_cam: (N, 3)
+    intrinsics: 3x4 matrix
     """
     N, _ = ee_pose_cam.shape
     ee_pose_cam = np.concatenate([ee_pose_cam, np.ones((N, 1))], axis=1)
@@ -150,6 +171,7 @@ def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     # print("2d pos cam frame: ", px_val)
 
     return px_val.T
+
 
 def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples", dot_size=5):
     """
@@ -167,10 +189,15 @@ def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples", dot_size=
     color_palette = (color_palette[:, :3] * 255).astype(np.uint8)
     color_palette = color_palette.tolist()
 
-
     for i, pixel_val in enumerate(pixel_vals):
         try:
-            frame = cv2.circle(frame, (int(pixel_val[0]), int(pixel_val[1])), dot_size, color_palette[i], -1)
+            frame = cv2.circle(
+                frame,
+                (int(pixel_val[0]), int(pixel_val[1])),
+                dot_size,
+                color_palette[i],
+                -1,
+            )
         except:
             print("Got bad pixel_val: ", pixel_val)
         if show:
@@ -185,8 +212,9 @@ def general_norm(array, min_val, max_val, arr_min=None, arr_max=None):
         arr_min = array.min()
     if arr_max is None:
         arr_max = array.max()
-    
+
     return (max_val - min_val) * ((array - arr_min) / (arr_max - arr_min)) + min_val
+
 
 def general_unnorm(array, orig_min, orig_max, min_val, max_val):
     return ((array - min_val) / (max_val - min_val)) * (orig_max - orig_min) + orig_min
@@ -198,7 +226,7 @@ def miniviewer(frame, goal_frame, location="top_right"):
     frame: (H, W, C) numpy array
     goal_frame: (H, W, C) numpy array
     location: "top_right", "top_left", "bottom_left", "bottom_right"
-    
+
     return frame with goal_frame in top right corner (1/4 original size)
 
     resize using TF
@@ -215,15 +243,16 @@ def miniviewer(frame, goal_frame, location="top_right"):
 
     goal_frame = TF.resize(goal_frame, (frame.shape[1] // 4, frame.shape[2] // 4))
     if location == "top_right":
-        frame[:, :goal_frame.shape[1], -goal_frame.shape[2]:] = goal_frame
+        frame[:, : goal_frame.shape[1], -goal_frame.shape[2] :] = goal_frame
     elif location == "top_left":
-        frame[:, :goal_frame.shape[1], :goal_frame.shape[2]] = goal_frame
+        frame[:, : goal_frame.shape[1], : goal_frame.shape[2]] = goal_frame
     elif location == "bottom_left":
-        frame[:, -goal_frame.shape[1]:, :goal_frame.shape[2]] = goal_frame
+        frame[:, -goal_frame.shape[1] :, : goal_frame.shape[2]] = goal_frame
     elif location == "bottom_right":
-        frame[:, -goal_frame.shape[1]:, -goal_frame.shape[2]:] = goal_frame
+        frame[:, -goal_frame.shape[1] :, -goal_frame.shape[2] :] = goal_frame
     # frame[:, :goal_frame.shape[1], -goal_frame.shape[2]:] = goal_frame
     return frame.permute((1, 2, 0)).numpy()
+
 
 def transformation_matrix_to_pose(T):
     R = T[:3, :3]
@@ -233,15 +262,19 @@ def transformation_matrix_to_pose(T):
     return pose_array
 
 
-class AlohaFK():
+class AlohaFK:
     def __init__(self):
-        urdf_path = os.path.join(os.path.dirname(mimicplay.__file__), "scripts/aloha_process/model.urdf")
-        self.chain = pk.build_serial_chain_from_urdf(open(urdf_path).read(), "vx300s/ee_gripper_link")
-    
+        urdf_path = os.path.join(
+            os.path.dirname(mimicplay.__file__), "scripts/aloha_process/model.urdf"
+        )
+        self.chain = pk.build_serial_chain_from_urdf(
+            open(urdf_path).read(), "vx300s/ee_gripper_link"
+        )
+
     def fk(self, qpos):
         if isinstance(qpos, np.ndarray):
             qpos = torch.from_numpy(qpos)
-        
+
         return self.chain.forward_kinematics(qpos, end_only=True).get_matrix()[:, :3, 3]
 
 
@@ -252,16 +285,20 @@ def robo_to_aria_imstyle(im):
 
     return im
 
+
 def create_vignette_mask(height, width, exponent=2):
     """
     Create a vignette mask with the given height and width.
     The exponent controls the strength of the vignette effect.
     """
-    y, x = torch.meshgrid(torch.linspace(-1, 1, height), torch.linspace(-1, 1, width), indexing='ij')
-    radius = torch.sqrt(x**2 + y**2)/2
+    y, x = torch.meshgrid(
+        torch.linspace(-1, 1, height), torch.linspace(-1, 1, width), indexing="ij"
+    )
+    radius = torch.sqrt(x**2 + y**2) / 2
     mask = 1 - torch.pow(radius, exponent)
     mask = torch.clamp(mask, 0, 1)
     return mask
+
 
 def apply_vignette(image_tensor, exponent=2):
     """
@@ -269,7 +306,11 @@ def apply_vignette(image_tensor, exponent=2):
     """
     N, C, H, W = image_tensor.shape
     vignette_mask = create_vignette_mask(H, W, exponent)
-    vignette_mask = vignette_mask.unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
-    vignette_mask = vignette_mask.expand(N, C, H, W)  # Expand to match the batch of images
+    vignette_mask = vignette_mask.unsqueeze(0).unsqueeze(
+        0
+    )  # Add batch and channel dimensions
+    vignette_mask = vignette_mask.expand(
+        N, C, H, W
+    )  # Expand to match the batch of images
     vignette_mask = vignette_mask.to(image_tensor.device)
     return image_tensor * vignette_mask

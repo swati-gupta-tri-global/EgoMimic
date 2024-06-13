@@ -10,6 +10,7 @@ Example usage:
 import h5py
 import os
 
+
 def copy_attributes(source, target):
     """Copy attributes from source to target"""
     for key, value in source.attrs.items():
@@ -20,7 +21,7 @@ def copy_attributes(source, target):
 folder_path = "/coc/flash7/datasets/egoplay/handStackingPublic/"
 
 # List all hdf5 files in the directory
-hdf5_files = [f for f in os.listdir(folder_path) if f.endswith('.hdf5')]
+hdf5_files = [f for f in os.listdir(folder_path) if f.endswith(".hdf5")]
 
 counter = 0
 
@@ -31,8 +32,8 @@ with h5py.File(os.path.join(folder_path, "merged.hdf5"), "w") as merged_file:
 
     # Iterate over all the hdf5 files and merge demos
     for hdf5_file in hdf5_files:
-        with h5py.File(os.path.join(folder_path, hdf5_file), 'r') as source_file:
-            source_data_group = source_file['data']
+        with h5py.File(os.path.join(folder_path, hdf5_file), "r") as source_file:
+            source_data_group = source_file["data"]
             if counter == 0:
                 copy_attributes(source_data_group, data_group)
 

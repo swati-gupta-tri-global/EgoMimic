@@ -2,6 +2,7 @@
 A collection of utility functions for working with files, such as reading metadata from
 demonstration datasets, loading model checkpoints, or downloading dataset files.
 """
+
 import os
 import h5py
 import json
@@ -35,7 +36,7 @@ def create_hdf5_filter_key(hdf5_path, demo_keys, key_name):
     Args:
         hdf5_path (str): path to hdf5 file
         demo_keys ([str]): list of demonstration keys which should
-            correspond to this filter key. For example, ["demo_0", 
+            correspond to this filter key. For example, ["demo_0",
             "demo_1"].
         key_name (str): name of filter key to create
 
@@ -43,7 +44,7 @@ def create_hdf5_filter_key(hdf5_path, demo_keys, key_name):
         ep_lengths ([int]): list of episode lengths that corresponds to
             each demonstration in the new filter key
     """
-    f = h5py.File(hdf5_path, "a")  
+    f = h5py.File(hdf5_path, "a")
     demos = sorted(list(f["data"].keys()))
 
     # collect episode lengths for the keys of interest
@@ -57,7 +58,7 @@ def create_hdf5_filter_key(hdf5_path, demo_keys, key_name):
     k = "mask/{}".format(key_name)
     if k in f:
         del f[k]
-    f[k] = np.array(demo_keys, dtype='S')
+    f[k] = np.array(demo_keys, dtype="S")
 
     f.close()
     return ep_lengths
@@ -113,7 +114,7 @@ def get_shape_metadata_from_dataset(dataset_path, all_obs_keys=None, verbose=Fal
     demo = f["data/{}".format(demo_id)]
 
     # action dimension
-    shape_meta['ac_dim'] = f["data/{}/actions".format(demo_id)].shape[1]
+    shape_meta["ac_dim"] = f["data/{}/actions".format(demo_id)].shape[1]
 
     # observation dimensions
     all_shapes = OrderedDict()
@@ -135,9 +136,9 @@ def get_shape_metadata_from_dataset(dataset_path, all_obs_keys=None, verbose=Fal
 
     f.close()
 
-    shape_meta['all_shapes'] = all_shapes
-    shape_meta['all_obs_keys'] = all_obs_keys
-    shape_meta['use_images'] = ObsUtils.has_modality("rgb", all_obs_keys)
+    shape_meta["all_shapes"] = all_shapes
+    shape_meta["all_obs_keys"] = all_obs_keys
+    shape_meta["use_images"] = ObsUtils.has_modality("rgb", all_obs_keys)
 
     return shape_meta
 
@@ -145,7 +146,7 @@ def get_shape_metadata_from_dataset(dataset_path, all_obs_keys=None, verbose=Fal
 def load_dict_from_checkpoint(ckpt_path):
     """
     Load checkpoint dictionary from a checkpoint file.
-    
+
     Args:
         ckpt_path (str): Path to checkpoint file.
 
@@ -201,7 +202,9 @@ def algo_name_from_checkpoint(ckpt_path=None, ckpt_dict=None):
     return algo_name, ckpt_dict
 
 
-def config_from_checkpoint(algo_name=None, ckpt_path=None, ckpt_dict=None, verbose=False):
+def config_from_checkpoint(
+    algo_name=None, ckpt_path=None, ckpt_dict=None, verbose=False
+):
     """
     Helper function to restore config from a checkpoint file or loaded model dictionary.
 
@@ -226,10 +229,10 @@ def config_from_checkpoint(algo_name=None, ckpt_path=None, ckpt_dict=None, verbo
 
     if verbose:
         print("============= Loaded Config =============")
-        print(ckpt_dict['config'])
+        print(ckpt_dict["config"])
 
     # restore config from loaded model dictionary
-    config_json = ckpt_dict['config']
+    config_json = ckpt_dict["config"]
     config = config_factory(algo_name, dic=json.loads(config_json))
 
     # lock config to prevent further modifications and ensure missing keys raise errors
@@ -238,7 +241,9 @@ def config_from_checkpoint(algo_name=None, ckpt_path=None, ckpt_dict=None, verbo
     return config, ckpt_dict
 
 
-def policy_from_checkpoint(device=None, ckpt_path=None, ckpt_dict=None, verbose=False, update_obs_dict=True):
+def policy_from_checkpoint(
+    device=None, ckpt_path=None, ckpt_dict=None, verbose=False, update_obs_dict=True
+):
     """
     This function restores a trained policy from a checkpoint file or
     loaded model dictionary.
@@ -265,7 +270,9 @@ def policy_from_checkpoint(device=None, ckpt_path=None, ckpt_dict=None, verbose=
     # algo name and config from model dict
     algo_name, _ = algo_name_from_checkpoint(ckpt_dict=ckpt_dict)
 
-    config, _ = config_from_checkpoint(algo_name=algo_name, ckpt_dict=ckpt_dict, verbose=verbose)
+    config, _ = config_from_checkpoint(
+        algo_name=algo_name, ckpt_dict=ckpt_dict, verbose=verbose
+    )
 
     if update_obs_dict:
         # read config to set up metadata for observation modalities (e.g. detecting rgb observations)
@@ -304,7 +311,15 @@ def policy_from_checkpoint(device=None, ckpt_path=None, ckpt_dict=None, verbose=
     return model, ckpt_dict
 
 
-def env_from_checkpoint(ckpt_path=None, ckpt_dict=None, env_name=None, render=False, render_offscreen=False, verbose=False, bddl_file_name=None):
+def env_from_checkpoint(
+    ckpt_path=None,
+    ckpt_dict=None,
+    env_name=None,
+    render=False,
+    render_offscreen=False,
+    verbose=False,
+    bddl_file_name=None,
+):
     """
     Creates an environment using the metadata saved in a checkpoint.
 
@@ -333,12 +348,12 @@ def env_from_checkpoint(ckpt_path=None, ckpt_dict=None, env_name=None, render=Fa
     shape_meta = ckpt_dict["shape_metadata"]
 
     if bddl_file_name is not None:
-        env_meta["env_kwargs"]['bddl_file_name'] = bddl_file_name
+        env_meta["env_kwargs"]["bddl_file_name"] = bddl_file_name
 
     # create env from saved metadata
     env = EnvUtils.create_env_from_metadata(
-        env_meta=env_meta, 
-        render=render, 
+        env_meta=env_meta,
+        render=render,
         render_offscreen=render_offscreen,
         use_image_obs=shape_meta["use_images"],
     )
@@ -367,7 +382,7 @@ def url_is_alive(url):
         is_alive (bool): True if url is reachable, False otherwise
     """
     request = urllib.request.Request(url)
-    request.get_method = lambda: 'HEAD'
+    request.get_method = lambda: "HEAD"
 
     try:
         urllib.request.urlopen(request)
@@ -403,9 +418,13 @@ def download_url(url, download_dir, check_overwrite=True):
     # If we're checking overwrite and the path already exists,
     # we ask the user to verify that they want to overwrite the file
     if check_overwrite and os.path.exists(file_to_write):
-        user_response = input(f"Warning: file {file_to_write} already exists. Overwrite? y/n\n")
-        assert user_response.lower() in {"yes", "y"}, f"Did not receive confirmation. Aborting download."
+        user_response = input(
+            f"Warning: file {file_to_write} already exists. Overwrite? y/n\n"
+        )
+        assert user_response.lower() in {
+            "yes",
+            "y",
+        }, f"Did not receive confirmation. Aborting download."
 
-    with DownloadProgressBar(unit='B', unit_scale=True,
-                             miniters=1, desc=fname) as t:
+    with DownloadProgressBar(unit="B", unit_scale=True, miniters=1, desc=fname) as t:
         urllib.request.urlretrieve(url, filename=file_to_write, reporthook=t.update_to)

@@ -47,17 +47,22 @@ from robomimic.utils.log_utils import PrintLogger, DataLogger
 
 from mimicplay.configs import config_factory
 from mimicplay.algo import algo_factory, RolloutPolicy
-from mimicplay.utils.train_utils import get_exp_dir, rollout_with_stats, load_data_for_training
+from mimicplay.utils.train_utils import (
+    get_exp_dir,
+    rollout_with_stats,
+    load_data_for_training,
+)
 
 import mimicplay.utils.val_utils as ValUtils
+
 
 def get_gpu_usage_mb(index=0):
     """Returns the GPU usage in B."""
     h = nvmlDeviceGetHandleByIndex(index)
     info = nvmlDeviceGetMemoryInfo(h)
-    print(f'total    : {info.total}')
-    print(f'free     : {info.free}')
-    print(f'used     : {info.used}')
+    print(f"total    : {info.total}")
+    print(f"free     : {info.free}")
+    print(f"used     : {info.used}")
 
     return info.used / 1024 / 1024
 
@@ -76,8 +81,12 @@ def train(config, device):
     print(config)
     print("")
     log_dir, ckpt_dir, video_dir, uid = get_exp_dir(config)
-    assert config.experiment.save.video_freq >= config.experiment.validation_freq, "video_freq must be less than validation_freq"
-    assert config.experiment.save.video_freq % config.experiment.validation_freq == 0, "video_freq must be a multiple of validation_freq"
+    assert (
+        config.experiment.save.video_freq >= config.experiment.validation_freq
+    ), "video_freq must be less than validation_freq"
+    assert (
+        config.experiment.save.video_freq % config.experiment.validation_freq == 0
+    ), "video_freq must be a multiple of validation_freq"
     # if config.experiment.logging.terminal_output_to_txt:
     #     # log stdout and stderr to a text file
     #     logger = PrintLogger(os.path.join(log_dir, 'log.txt'))
@@ -91,8 +100,10 @@ def train(config, device):
     dataset_path = os.path.expanduser(config.train.data)
     if not os.path.exists(dataset_path):
         raise Exception("Dataset at provided path {} not found!".format(dataset_path))
-    
-    dataset_path_2 = None if config.train.data_2 is None else os.path.expanduser(config.train.data_2)
+
+    dataset_path_2 = (
+        None if config.train.data_2 is None else os.path.expanduser(config.train.data_2)
+    )
     # if not os.path.exists(dataset_path_2):
     #     raise Exception("Dataset_2 at provided path {} not found!".format(dataset_path_2))
 
@@ -101,17 +112,24 @@ def train(config, device):
     print("DATASET_PATH -1 ", dataset_path)
     print("DATASET_PATH -2 ", dataset_path_2)
 
-    env_meta = {} #FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
+    env_meta = (
+        {}
+    )  # FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
     shape_meta = FileUtils.get_shape_metadata_from_dataset(
         dataset_path=config.train.data,
         all_obs_keys=config.all_obs_keys,
         verbose=True,
-        ac_key=config.train.ac_key
+        ac_key=config.train.ac_key,
     )
 
     if config.experiment.env is not None:
         env_meta["env_name"] = config.experiment.env
-        print("=" * 30 + "\n" + "Replacing Env to {}\n".format(env_meta["env_name"]) + "=" * 30)
+        print(
+            "=" * 30
+            + "\n"
+            + "Replacing Env to {}\n".format(env_meta["env_name"])
+            + "=" * 30
+        )
 
     # create environment
     envs = OrderedDict()
@@ -133,7 +151,7 @@ def train(config, device):
             ObsUtils.initialize_obs_utils_with_obs_specs(obs_modality_specs=dummy_spec)
 
             if args.bddl_file is not None:
-                env_meta["env_kwargs"]['bddl_file_name'] = args.bddl_file
+                env_meta["env_kwargs"]["bddl_file_name"] = args.bddl_file
 
             print(env_meta)
 
@@ -161,11 +179,13 @@ def train(config, device):
         ac_dim=shape_meta["ac_dim"],
         device=device,
     )
-    if config.experiment.rollout.enabled:                     # load task video prompt (used for evaluation rollouts during the gap of training)
+    if (
+        config.experiment.rollout.enabled
+    ):  # load task video prompt (used for evaluation rollouts during the gap of training)
         model.load_eval_video_prompt(args.video_prompt)
 
     # save the config as a json file
-    with open(os.path.join(log_dir, '..', 'config.json'), 'w') as outfile:
+    with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
         json.dump(config, outfile, indent=4)
 
     print("\n============= Model Summary =============")
@@ -174,18 +194,23 @@ def train(config, device):
 
     # load training data
     trainset, validset = load_data_for_training(
-        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path)
+        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
+    )
     trainset_2 = None
     validset_2 = None
     train_sampler_2 = None
     if dataset_path_2 is not None:
         trainset_2, validset_2 = load_data_for_training(
-            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2)
+            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path_2
+        )
         train_sampler_2 = trainset_2.get_dataset_sampler()
-    
+
     if config.train.alternate_val:
         _, validset = load_data_for_training(
-            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=config.train.alternate_val)
+            config,
+            obs_keys=shape_meta["all_obs_keys"],
+            dataset_path=config.train.alternate_val,
+        )
 
     train_sampler = trainset.get_dataset_sampler()
     print("\n============= Training Dataset =============")
@@ -197,8 +222,9 @@ def train(config, device):
     obs_normalization_stats = None
     if config.train.hdf5_normalize_obs:
         obs_normalization_stats = trainset.get_obs_normalization_stats()
-        obs_normalization_stats_2 = None if trainset_2 is None else trainset_2.get_obs_normalization_stats()
-    
+        obs_normalization_stats_2 = (
+            None if trainset_2 is None else trainset_2.get_obs_normalization_stats()
+        )
 
     ## To check which loader is robot and which is hand
     is_first_loader_hand = False
@@ -209,14 +235,14 @@ def train(config, device):
         batch_size=config.train.batch_size,
         shuffle=(train_sampler is None),
         num_workers=config.train.num_data_workers,
-        drop_last=True
+        drop_last=True,
     )
     iterator = iter(loader)
     sample = next(iterator)
     # breakpoint()
     if trainset_2 is not None:
         ## To check which loader is robot and which is hand
-        if torch.all(sample['obs']['type'] == 1):
+        if torch.all(sample["obs"]["type"] == 1):
             is_first_loader_hand = True
         if is_first_loader_hand:
             # initialize data loaders
@@ -226,7 +252,7 @@ def train(config, device):
                 batch_size=config.train.batch_size,
                 shuffle=(train_sampler is None),
                 num_workers=config.train.num_data_workers,
-                drop_last=True
+                drop_last=True,
             )
 
             train_loader_2 = DataLoader(
@@ -235,7 +261,7 @@ def train(config, device):
                 batch_size=config.train.batch_size,
                 shuffle=(train_sampler_2 is None),
                 num_workers=config.train.num_data_workers,
-                drop_last=True
+                drop_last=True,
             )
         else:
             train_loader = DataLoader(
@@ -244,9 +270,9 @@ def train(config, device):
                 batch_size=config.train.batch_size,
                 shuffle=(train_sampler_2 is None),
                 num_workers=config.train.num_data_workers,
-                drop_last=True
+                drop_last=True,
             )
-                    
+
             # initialize data loaders
             train_loader_2 = DataLoader(
                 dataset=trainset,
@@ -254,7 +280,7 @@ def train(config, device):
                 batch_size=config.train.batch_size,
                 shuffle=(train_sampler is None),
                 num_workers=config.train.num_data_workers,
-                drop_last=True
+                drop_last=True,
             )
     else:
         train_loader = DataLoader(
@@ -263,15 +289,17 @@ def train(config, device):
             batch_size=config.train.batch_size,
             shuffle=(train_sampler is None),
             num_workers=config.train.num_data_workers,
-            drop_last=True
+            drop_last=True,
         )
-        train_loader_2 = None        
+        train_loader_2 = None
 
     if config.experiment.validate:
         # cap num workers for validation dataset at 1
         num_workers = min(config.train.num_data_workers, 1)
         valid_sampler = validset.get_dataset_sampler()
-        valid_sampler_2 = None if validset_2 is None else validset_2.get_dataset_sampler()
+        valid_sampler_2 = (
+            None if validset_2 is None else validset_2.get_dataset_sampler()
+        )
 
         if validset_2 is not None:
             if is_first_loader_hand:
@@ -282,7 +310,7 @@ def train(config, device):
                     # shuffle=(valid_sampler is None),
                     shuffle=False,
                     num_workers=num_workers,
-                    drop_last=True
+                    drop_last=True,
                 )
 
                 valid_loader_2 = DataLoader(
@@ -292,7 +320,7 @@ def train(config, device):
                     # shuffle=(valid_sampler is None),
                     shuffle=False,
                     num_workers=num_workers,
-                    drop_last=True
+                    drop_last=True,
                 )
             else:
                 valid_loader_2 = DataLoader(
@@ -302,7 +330,7 @@ def train(config, device):
                     # shuffle=(valid_sampler is None),
                     shuffle=False,
                     num_workers=num_workers,
-                    drop_last=True
+                    drop_last=True,
                 )
 
                 valid_loader = DataLoader(
@@ -312,7 +340,7 @@ def train(config, device):
                     # shuffle=(valid_sampler is None),
                     shuffle=False,
                     num_workers=num_workers,
-                    drop_last=True
+                    drop_last=True,
                 )
         else:
             valid_loader = DataLoader(
@@ -322,18 +350,22 @@ def train(config, device):
                 # shuffle=(valid_sampler is None),
                 shuffle=False,
                 num_workers=num_workers,
-                drop_last=True
+                drop_last=True,
             )
 
             valid_loader_2 = None
     else:
         valid_loader = None
-        valid_loader_2 =None
+        valid_loader_2 = None
 
     # main training loop
     n_best_val = []
-    best_return = {k: -np.inf for k in envs} if config.experiment.rollout.enabled else None
-    best_success_rate = {k: -1. for k in envs} if config.experiment.rollout.enabled else None
+    best_return = (
+        {k: -np.inf for k in envs} if config.experiment.rollout.enabled else None
+    )
+    best_success_rate = (
+        {k: -1.0 for k in envs} if config.experiment.rollout.enabled else None
+    )
     last_ckpt_time = time.time()
 
     # number of learning steps per epoch (defaults to a full dataset pass)
@@ -341,7 +373,14 @@ def train(config, device):
     valid_num_steps = config.experiment.validation_epoch_every_n_steps
 
     for epoch in range(1, config.train.num_epochs + 1):  # epoch numbers start at 1
-        step_log = TrainUtils.run_epoch_2_dataloaders(model=model, data_loader=train_loader, epoch=epoch, data_loader_2=train_loader_2, num_steps=train_num_steps, ac_key=config.train.ac_key)
+        step_log = TrainUtils.run_epoch_2_dataloaders(
+            model=model,
+            data_loader=train_loader,
+            epoch=epoch,
+            data_loader_2=train_loader_2,
+            num_steps=train_num_steps,
+            ac_key=config.train.ac_key,
+        )
         model.on_epoch_end(epoch)
 
         # setup checkpoint path
@@ -350,12 +389,16 @@ def train(config, device):
         # check for recurring checkpoint saving conditions
         should_save_ckpt = False
         if config.experiment.save.enabled:
-            time_check = (config.experiment.save.every_n_seconds is not None) and \
-                         (time.time() - last_ckpt_time > config.experiment.save.every_n_seconds)
-            epoch_check = (config.experiment.save.every_n_epochs is not None) and \
-                          (epoch > 0) and (epoch % config.experiment.save.every_n_epochs == 0)
-            epoch_list_check = (epoch in config.experiment.save.epochs)
-            should_save_ckpt = (time_check or epoch_check or epoch_list_check)
+            time_check = (config.experiment.save.every_n_seconds is not None) and (
+                time.time() - last_ckpt_time > config.experiment.save.every_n_seconds
+            )
+            epoch_check = (
+                (config.experiment.save.every_n_epochs is not None)
+                and (epoch > 0)
+                and (epoch % config.experiment.save.every_n_epochs == 0)
+            )
+            epoch_list_check = epoch in config.experiment.save.epochs
+            should_save_ckpt = time_check or epoch_check or epoch_list_check
         ckpt_reason = None
         if should_save_ckpt:
             last_ckpt_time = time.time()
@@ -370,23 +413,55 @@ def train(config, device):
                 data_logger.record("Train/{}".format(k), v, epoch)
 
         # Evaluate the model on validation set
-        if config.experiment.validate and (epoch % config.experiment.validation_freq == 0):
+        if config.experiment.validate and (
+            epoch % config.experiment.validation_freq == 0
+        ):
             with torch.no_grad():
                 # step_log = TrainUtils.run_epoch(model=model, data_loader=valid_loader, epoch=epoch, validate=True,
                 #                                 num_steps=valid_num_steps)
-                step_log = TrainUtils.run_epoch_2_dataloaders(model=model, data_loader=valid_loader, epoch=epoch, data_loader_2=valid_loader_2, validate=True,
-                                                num_steps=valid_num_steps, ac_key=config.train.ac_key)
+                step_log = TrainUtils.run_epoch_2_dataloaders(
+                    model=model,
+                    data_loader=valid_loader,
+                    epoch=epoch,
+                    data_loader_2=valid_loader_2,
+                    validate=True,
+                    num_steps=valid_num_steps,
+                    ac_key=config.train.ac_key,
+                )
                 model.set_eval()
 
-                pass_vid = video_dir if config.experiment.save.video_freq is not None and epoch % config.experiment.save.video_freq == 0 else None
+                pass_vid = (
+                    video_dir
+                    if config.experiment.save.video_freq is not None
+                    and epoch % config.experiment.save.video_freq == 0
+                    else None
+                )
                 valid_step_log = None
                 valid_step_log_2 = None
                 if valid_loader_2 is not None:
-                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, ac_key=config.train.ac_key, type="hand") #save vid only once every video_freq epochs
-                    valid_step_log_2 = ValUtils.evaluate_high_level_policy(model, valid_loader_2, pass_vid, ac_key=config.train.ac_key, type="robot") #save vid only once every video_freq epochs
+                    valid_step_log = ValUtils.evaluate_high_level_policy(
+                        model,
+                        valid_loader,
+                        pass_vid,
+                        ac_key=config.train.ac_key,
+                        type="hand",
+                    )  # save vid only once every video_freq epochs
+                    valid_step_log_2 = ValUtils.evaluate_high_level_policy(
+                        model,
+                        valid_loader_2,
+                        pass_vid,
+                        ac_key=config.train.ac_key,
+                        type="robot",
+                    )  # save vid only once every video_freq epochs
                 else:
                     type = "hand" if is_first_loader_hand else "robot"
-                    valid_step_log = ValUtils.evaluate_high_level_policy(model, valid_loader, pass_vid, ac_key=config.train.ac_key, type=type) #save vid only once every video_freq epochs
+                    valid_step_log = ValUtils.evaluate_high_level_policy(
+                        model,
+                        valid_loader,
+                        pass_vid,
+                        ac_key=config.train.ac_key,
+                        type=type,
+                    )  # save vid only once every video_freq epochs
 
                 model.set_train()
             for k, v in step_log.items():
@@ -399,7 +474,7 @@ def train(config, device):
             if valid_step_log_2 is not None:
                 for k, v in valid_step_log_2.items():
                     data_logger.record(f"Valid/{k}", v, epoch)
-            
+
             print("Validation Epoch {}".format(epoch))
             print(json.dumps(step_log, sort_keys=True, indent=4))
 
@@ -412,17 +487,31 @@ def train(config, device):
                     os.remove(to_delete)
                 else:
                     print(f"Warning: {to_delete} does not exist")
-            if len(n_best_val) < config.experiment.save.top_n or step_log["Loss"] < negator * n_best_val[0][0]:
+            if (
+                len(n_best_val) < config.experiment.save.top_n
+                or step_log["Loss"] < negator * n_best_val[0][0]
+            ):
                 heapq.heappush(
                     n_best_val,
-                    (negator * step_log["Loss"], os.path.join(ckpt_dir, epoch_ckpt_name + "_best_validation_{}".format(step_log["Loss"])) + ".pth")
-                ) #negate to make max heap
+                    (
+                        negator * step_log["Loss"],
+                        os.path.join(
+                            ckpt_dir,
+                            epoch_ckpt_name
+                            + "_best_validation_{}".format(step_log["Loss"]),
+                        )
+                        + ".pth",
+                    ),
+                )  # negate to make max heap
                 is_top_n = True
             else:
                 is_top_n = False
 
             if valid_check and (n_best_val is None or is_top_n):
-                if config.experiment.save.enabled and config.experiment.save.on_best_validation:
+                if (
+                    config.experiment.save.enabled
+                    and config.experiment.save.on_best_validation
+                ):
                     epoch_ckpt_name += "_best_validation_{}".format(step_log["Loss"])
                     should_save_ckpt = True
                     ckpt_reason = "valid" if ckpt_reason is None else ckpt_reason
@@ -431,11 +520,19 @@ def train(config, device):
 
         # do rollouts at fixed rate or if it's time to save a new ckpt
         video_paths = None
-        rollout_check = (epoch % config.experiment.rollout.rate == 0) or (should_save_ckpt and ckpt_reason == "time")
-        if config.experiment.rollout.enabled and (epoch > config.experiment.rollout.warmstart) and rollout_check:
+        rollout_check = (epoch % config.experiment.rollout.rate == 0) or (
+            should_save_ckpt and ckpt_reason == "time"
+        )
+        if (
+            config.experiment.rollout.enabled
+            and (epoch > config.experiment.rollout.warmstart)
+            and rollout_check
+        ):
 
             # wrap model as a RolloutPolicy to prepare for rollouts
-            rollout_model = RolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)
+            rollout_model = RolloutPolicy(
+                model, obs_normalization_stats=obs_normalization_stats
+            )
 
             num_episodes = config.experiment.rollout.n
             all_rollout_logs, video_paths = rollout_with_stats(
@@ -456,12 +553,25 @@ def train(config, device):
                 rollout_logs = all_rollout_logs[env_name]
                 for k, v in rollout_logs.items():
                     if k.startswith("Time_"):
-                        data_logger.record("Timing_Stats/Rollout_{}_{}".format(env_name, k[5:]), v, epoch)
+                        data_logger.record(
+                            "Timing_Stats/Rollout_{}_{}".format(env_name, k[5:]),
+                            v,
+                            epoch,
+                        )
                     else:
-                        data_logger.record("Rollout/{}/{}".format(k, env_name), v, epoch, log_stats=True)
+                        data_logger.record(
+                            "Rollout/{}/{}".format(k, env_name),
+                            v,
+                            epoch,
+                            log_stats=True,
+                        )
 
-                print("\nEpoch {} Rollouts took {}s (avg) with results:".format(epoch, rollout_logs["time"]))
-                print('Env: {}'.format(env_name))
+                print(
+                    "\nEpoch {} Rollouts took {}s (avg) with results:".format(
+                        epoch, rollout_logs["time"]
+                    )
+                )
+                print("Env: {}".format(env_name))
                 print(json.dumps(rollout_logs, sort_keys=True, indent=4))
 
             # checkpoint and video saving logic
@@ -476,13 +586,16 @@ def train(config, device):
             best_return = updated_stats["best_return"]
             best_success_rate = updated_stats["best_success_rate"]
             epoch_ckpt_name = updated_stats["epoch_ckpt_name"]
-            should_save_ckpt = (config.experiment.save.enabled and updated_stats[
-                "should_save_ckpt"]) or should_save_ckpt
+            should_save_ckpt = (
+                config.experiment.save.enabled and updated_stats["should_save_ckpt"]
+            ) or should_save_ckpt
             if updated_stats["ckpt_reason"] is not None:
                 ckpt_reason = updated_stats["ckpt_reason"]
 
         # Only keep saved videos if the ckpt should be saved (but not because of validation score)
-        should_save_video = (should_save_ckpt and (ckpt_reason != "valid")) or config.experiment.keep_all_videos
+        should_save_video = (
+            should_save_ckpt and (ckpt_reason != "valid")
+        ) or config.experiment.keep_all_videos
         if video_paths is not None and not should_save_video:
             for env_name in video_paths:
                 os.remove(video_paths[env_name])
@@ -497,14 +610,13 @@ def train(config, device):
                 ckpt_path=os.path.join(ckpt_dir, epoch_ckpt_name + ".pth"),
                 obs_normalization_stats=obs_normalization_stats,
             )
-        
+
         # # Delete all checkpoints except the top 5, or checkpoints saved based on regular time intervals
         # if config.experiment.save.top_n is not None:
         #     TrainUtils.delete_checkpoints(
-        #         ckpt_dir=ckpt_dir, 
+        #         ckpt_dir=ckpt_dir,
         #         top_n=config.experiment.save.top_n,
         #         smallest=True) # keep the lowest val loss, change to False if using an increasing val metric
-
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
@@ -521,7 +633,7 @@ def train(config, device):
 
 def main(args):
     if args.config is not None:
-        ext_cfg = json.load(open(args.config, 'r'))
+        ext_cfg = json.load(open(args.config, "r"))
         config = config_factory(ext_cfg["algo_name"])
         # update config with external json - this will throw errors if
         # the external config has keys not present in the base algo config
@@ -534,28 +646,28 @@ def main(args):
 
     if args.dataset is not None:
         config.train.data = args.dataset
-    
+
     config.unlock()
     config.train.data_2 = args.dataset_2
-    
+
     if args.name is not None:
         config.experiment.name = args.name
-    
+
     if args.description is not None:
         config.experiment.description = args.description
 
     if args.ac_key is not None:
         config.train.ac_key = args.ac_key
-    
+
     if args.obs_rgb is not None:
         config.observation.modalities.obs.rgb = args.obs_rgb
-    
+
     if args.jitter is not None:
         config.observation.encoder.rgb.obs_randomizer_kwargs.brightness = args.jitter[0]
         config.observation.encoder.rgb.obs_randomizer_kwargs.contrast = args.jitter[1]
         config.observation.encoder.rgb.obs_randomizer_kwargs.saturation = args.jitter[2]
         config.observation.encoder.rgb.obs_randomizer_kwargs.hue = args.jitter[3]
-    
+
     if args.alternate_val is not None:
         config.train.alternate_val = args.alternate_val
 
@@ -584,13 +696,13 @@ def main(args):
         # send output to a temporary directory
         # config.train.output_dir = "/tmp/tmp_trained_models"
 
-        config.experiment.logging.log_wandb=False
-        config.experiment.logging.wandb_proj_name=None
+        config.experiment.logging.log_wandb = False
+        config.experiment.logging.wandb_proj_name = None
         config.experiment.name = "debug_run"
 
     if args.no_wandb:
-        config.experiment.logging.log_wandb=False
-        config.experiment.logging.wandb_proj_name=None
+        config.experiment.logging.log_wandb = False
+        config.experiment.logging.wandb_proj_name = None
 
     if args.non_goal_cond:
         config.observation.modalities.goal.rgb = []
@@ -599,13 +711,11 @@ def main(args):
     if args.lr:
         config.algo.optim_params.policy.learning_rate.initial = args.lr
 
-
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
 
     # catch error during training and print it
     res_str = "finished run successfully!"
-
 
     try:
         train(config, device=device)
@@ -665,7 +775,6 @@ def train_argparse():
         help="(optional) if provided, override the dataset path defined in the config",
     )
 
-
     parser.add_argument(
         "--bddl_file",
         type=str,
@@ -683,53 +792,34 @@ def train_argparse():
     # debug mode
     parser.add_argument(
         "--debug",
-        action='store_true',
-        help="set this flag to run a quick training run for debugging purposes"
+        action="store_true",
+        help="set this flag to run a quick training run for debugging purposes",
     )
     parser.add_argument(
-        "--no-wandb",
-        action='store_true',
-        help="set this flag to run a without wandb"
+        "--no-wandb", action="store_true", help="set this flag to run a without wandb"
     )
     parser.add_argument(
         "--non-goal-cond",
-        action='store_true',
-        help="edits config to remove rgb goal conditioning"
+        action="store_true",
+        help="edits config to remove rgb goal conditioning",
     )
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=None,
-        help="learning rate"
-    )
-    
-    parser.add_argument(
-        "--ac-key",
-        type=str,
-        default=None,
-        help="action key"
-    )
+    parser.add_argument("--lr", type=float, default=None, help="learning rate")
+
+    parser.add_argument("--ac-key", type=str, default=None, help="action key")
 
     # add list of camera names
-    parser.add_argument(
-        "--obs-rgb",
-        nargs='+',
-        help="list of camera names"
-    )
+    parser.add_argument("--obs-rgb", nargs="+", help="list of camera names")
 
     parser.add_argument(
         "--jitter",
         nargs=4,
         help="jitter params brightness, contrast, saturation, hue",
         default=None,
-        type=float
+        type=float,
     )
 
     parser.add_argument(
-        "--alternate-val",
-        type=str,
-        default=None,
-        help="alternate validation dataset"
+        "--alternate-val", type=str, default=None, help="alternate validation dataset"
     )
 
     args = parser.parse_args()
@@ -743,4 +833,3 @@ if __name__ == "__main__":
         time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
     main(args)
-

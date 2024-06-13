@@ -11,7 +11,6 @@ if __name__ == "__main__":
 
     args = train_argparse()
 
-
     # the AutoExecutor class is your interface for submitting function to a cluster or run them locally.
     # The specified folder is used to dump job information, logs and result when finished
     # %j is replaced by the job id at runtime
@@ -38,10 +37,24 @@ if __name__ == "__main__":
     if args.overcap:
         slurm_partition, slurm_account, slurm_qos = "overcap", "hoffman-lab", None
     else:
-        slurm_partition, slurm_account, slurm_qos = "hoffman-lab", "hoffman-lab", "short"
+        slurm_partition, slurm_account, slurm_qos = (
+            "hoffman-lab",
+            "hoffman-lab",
+            "short",
+        )
 
-
-    executor.update_parameters(slurm_partition=slurm_partition, slurm_account=slurm_account, cpus_per_task=13, nodes=args.num_nodes, slurm_ntasks_per_node=args.gpus_per_node, gpus_per_node=f"a40:{args.gpus_per_node}", slurm_qos=slurm_qos, slurm_mem_per_gpu="40G", timeout_min=60*24*2, slurm_exclude="omgwth")
+    executor.update_parameters(
+        slurm_partition=slurm_partition,
+        slurm_account=slurm_account,
+        cpus_per_task=13,
+        nodes=args.num_nodes,
+        slurm_ntasks_per_node=args.gpus_per_node,
+        gpus_per_node=f"a40:{args.gpus_per_node}",
+        slurm_qos=slurm_qos,
+        slurm_mem_per_gpu="40G",
+        timeout_min=60 * 24 * 2,
+        slurm_exclude="omgwth",
+    )
     # The submission interface is identical to concurrent.futures.Executor
 
     job = executor.submit(main, args)

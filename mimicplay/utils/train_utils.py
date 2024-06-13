@@ -3,6 +3,7 @@ This file contains several utility functions used to define the main training lo
 mainly consists of functions to assist with logging, rollouts, and the @run_epoch function,
 which is the core training logic for models in this repository.
 """
+
 import os
 import os
 import time
@@ -27,17 +28,18 @@ from robomimic.envs.wrappers import EnvWrapper
 import mimicplay
 from mimicplay.algo import RolloutPolicy
 
+
 def get_exp_dir(config, auto_remove_exp_dir=False, rank=0):
     """
     Create experiment directory from config. If an identical experiment directory
-    exists and @auto_remove_exp_dir is False (default), the function will prompt 
+    exists and @auto_remove_exp_dir is False (default), the function will prompt
     the user on whether to remove and replace it, or keep the existing one and
     add a new subdirectory with the new timestamp for the current run.
 
     Args:
         auto_remove_exp_dir (bool): if True, automatically remove the existing experiment
             folder if it exists at the same path.
-    
+
     Returns:
         log_dir (str): path to created log directory (sub-folder in experiment directory)
         output_dir (str): path to created models directory (sub-folder in experiment directory)
@@ -99,33 +101,62 @@ def load_data_for_training(config, obs_keys, dataset_path=None):
     train_filter_by_attribute = config.train.hdf5_filter_key
     valid_filter_by_attribute = config.train.hdf5_validation_filter_key
     if valid_filter_by_attribute is not None:
-        assert config.experiment.validate, "specified validation filter key {}, but config.experiment.validate is not set".format(valid_filter_by_attribute)
+        assert (
+            config.experiment.validate
+        ), "specified validation filter key {}, but config.experiment.validate is not set".format(
+            valid_filter_by_attribute
+        )
 
     # load the dataset into memory
     if config.experiment.validate:
-        assert not config.train.hdf5_normalize_obs, "no support for observation normalization with validation data yet"
-        assert (train_filter_by_attribute is not None) and (valid_filter_by_attribute is not None), \
-            "did not specify filter keys corresponding to train and valid split in dataset" \
+        assert (
+            not config.train.hdf5_normalize_obs
+        ), "no support for observation normalization with validation data yet"
+        assert (train_filter_by_attribute is not None) and (
+            valid_filter_by_attribute is not None
+        ), (
+            "did not specify filter keys corresponding to train and valid split in dataset"
             " - please fill config.train.hdf5_filter_key and config.train.hdf5_validation_filter_key"
+        )
         train_demo_keys = FileUtils.get_demos_for_filter_key(
-            hdf5_path=dataset_path, 
+            hdf5_path=dataset_path,
             filter_key=train_filter_by_attribute,
         )
         valid_demo_keys = FileUtils.get_demos_for_filter_key(
             hdf5_path=dataset_path,
             filter_key=valid_filter_by_attribute,
         )
-        assert set(train_demo_keys).isdisjoint(set(valid_demo_keys)), "training demonstrations overlap with " \
-            "validation demonstrations!"
-        train_dataset = dataset_factory(config, obs_keys, filter_by_attribute=train_filter_by_attribute, dataset_path=dataset_path)
-        valid_dataset = dataset_factory(config, obs_keys, filter_by_attribute=valid_filter_by_attribute, dataset_path=dataset_path)
+        assert set(train_demo_keys).isdisjoint(set(valid_demo_keys)), (
+            "training demonstrations overlap with " "validation demonstrations!"
+        )
+        train_dataset = dataset_factory(
+            config,
+            obs_keys,
+            filter_by_attribute=train_filter_by_attribute,
+            dataset_path=dataset_path,
+        )
+        valid_dataset = dataset_factory(
+            config,
+            obs_keys,
+            filter_by_attribute=valid_filter_by_attribute,
+            dataset_path=dataset_path,
+        )
     else:
-        train_dataset = dataset_factory(config, obs_keys, filter_by_attribute=train_filter_by_attribute, dataset_path=dataset_path)
+        train_dataset = dataset_factory(
+            config,
+            obs_keys,
+            filter_by_attribute=train_filter_by_attribute,
+            dataset_path=dataset_path,
+        )
         valid_dataset = None
- 
-    valid_dataset.goal_obs_gap = [config.algo.playdata.eval_goal_gap, config.algo.playdata.eval_goal_gap]
+
+    valid_dataset.goal_obs_gap = [
+        config.algo.playdata.eval_goal_gap,
+        config.algo.playdata.eval_goal_gap,
+    ]
 
     return train_dataset, valid_dataset
+
 
 def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=None):
     """
@@ -154,7 +185,7 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
         obs_keys=obs_keys,
         dataset_keys=config.train.dataset_keys,
         goal_obs_gap=config.algo.playdata.goal_image_range,
-        load_next_obs=config.train.hdf5_load_next_obs, # whether to load next observations (s') from dataset
+        load_next_obs=config.train.hdf5_load_next_obs,  # whether to load next observations (s') from dataset
         frame_stack=config.train.frame_stack,
         seq_length=config.train.seq_length,
         pad_frame_stack=config.train.pad_frame_stack,
@@ -171,16 +202,17 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
 
     return dataset
 
+
 def run_rollout(
-        policy,
-        env,
-        horizon,
-        use_goals=False,
-        render=False,
-        video_writer=None,
-        video_skip=5,
-        terminate_on_success=False,
-    ):
+    policy,
+    env,
+    horizon,
+    use_goals=False,
+    render=False,
+    video_writer=None,
+    video_skip=5,
+    terminate_on_success=False,
+):
     """
     Runs a rollout in an environment with the current network parameters.
 
@@ -219,8 +251,8 @@ def run_rollout(
     results = {}
     video_count = 0  # video frame counter
 
-    total_reward = 0.
-    success = { k: False for k in env.is_success() } # success metrics
+    total_reward = 0.0
+    success = {k: False for k in env.is_success()}  # success metrics
 
     try:
         for step_i in range(horizon):
@@ -268,19 +300,20 @@ def run_rollout(
 
     return results
 
+
 def rollout_with_stats(
-        policy,
-        envs,
-        horizon,
-        use_goals=False,
-        num_episodes=None,
-        render=False,
-        video_dir=None,
-        video_path=None,
-        epoch=None,
-        video_skip=5,
-        terminate_on_success=False,
-        verbose=False,
+    policy,
+    envs,
+    horizon,
+    use_goals=False,
+    num_episodes=None,
+    render=False,
+    video_dir=None,
+    video_path=None,
+    epoch=None,
+    video_skip=5,
+    terminate_on_success=False,
+    verbose=False,
 ):
     """
     A helper function used in the train loop to conduct evaluation rollouts per environment
@@ -326,7 +359,9 @@ def rollout_with_stats(
     all_rollout_logs = OrderedDict()
 
     # handle paths and create writers for video writing
-    assert (video_path is None) or (video_dir is None), "rollout_with_stats: can't specify both video path and dir"
+    assert (video_path is None) or (
+        video_dir is None
+    ), "rollout_with_stats: can't specify both video path and dir"
     write_video = (video_path is not None) or (video_dir is not None)
     video_paths = OrderedDict()
     video_writers = OrderedDict()
@@ -338,7 +373,9 @@ def rollout_with_stats(
     if video_dir is not None:
         # video is written per env
         video_str = "_epoch_{}.mp4".format(epoch) if epoch is not None else ".mp4"
-        video_paths = {k: os.path.join(video_dir, "{}{}".format(k, video_str)) for k in envs}
+        video_paths = {
+            k: os.path.join(video_dir, "{}{}".format(k, video_str)) for k in envs
+        }
         video_writers = {k: imageio.get_writer(video_paths[k], fps=20) for k in envs}
 
     for env_name, env in envs.items():
@@ -347,9 +384,14 @@ def rollout_with_stats(
             print("video writes to " + video_paths[env_name])
             env_video_writer = video_writers[env_name]
 
-        print("rollout: env={}, horizon={}, use_goals={}, num_episodes={}".format(
-            env.name, horizon, use_goals, num_episodes,
-        ))
+        print(
+            "rollout: env={}, horizon={}, use_goals={}, num_episodes={}".format(
+                env.name,
+                horizon,
+                use_goals,
+                num_episodes,
+            )
+        )
         rollout_logs = []
         iterator = range(num_episodes)
         if not verbose:
@@ -372,7 +414,11 @@ def rollout_with_stats(
             rollout_logs.append(rollout_info)
             num_success += rollout_info["Success_Rate"]
             if verbose:
-                print("Episode {}, horizon={}, num_success={}".format(ep_i + 1, horizon, num_success))
+                print(
+                    "Episode {}, horizon={}, num_success={}".format(
+                        ep_i + 1, horizon, num_success
+                    )
+                )
                 print(json.dumps(rollout_info, sort_keys=True, indent=4))
 
         if video_dir is not None:
@@ -380,10 +426,14 @@ def rollout_with_stats(
             env_video_writer.close()
 
         # average metric across all episodes
-        rollout_logs = dict((k, [rollout_logs[i][k] for i in range(len(rollout_logs))]) for k in rollout_logs[0])
+        rollout_logs = dict(
+            (k, [rollout_logs[i][k] for i in range(len(rollout_logs))])
+            for k in rollout_logs[0]
+        )
         rollout_logs_mean = dict((k, np.mean(v)) for k, v in rollout_logs.items())
-        rollout_logs_mean["Time_Episode"] = np.sum(
-            rollout_logs["time"]) / 60.  # total time taken for rollouts in minutes
+        rollout_logs_mean["Time_Episode"] = (
+            np.sum(rollout_logs["time"]) / 60.0
+        )  # total time taken for rollouts in minutes
         all_rollout_logs[env_name] = rollout_logs_mean
 
     if video_path is not None:

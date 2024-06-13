@@ -11,21 +11,22 @@ args = parser.parse_args()
 
 demoNumber = args.demo
 
-hand_tracking_file = open(f'build/hand_tracking_data{demoNumber}.txt', "r+")
+hand_tracking_file = open(f"build/hand_tracking_data{demoNumber}.txt", "r+")
 hand_tracking_file.seek(0)
 
 
 numData = len(hand_tracking_file.readlines())
 
-poses = np.zeros((numData,7))
-actions = np.zeros((numData,7))
+poses = np.zeros((numData, 7))
+actions = np.zeros((numData, 7))
 count = 0
-images = np.zeros((numData,480,640,3))
+images = np.zeros((numData, 480, 640, 3))
 
 failed_to_read = False
 prev_pose = None
 
 hand_tracking_file.seek(0)
+
 
 def array_into_chunks(arr, chunkSize):
     """
@@ -35,27 +36,32 @@ def array_into_chunks(arr, chunkSize):
     """
     chunked_arr = []
     for i in range(arr.shape[0]):
-        chunked_arr.append(np.concatenate([arr[i:], np.tile(arr[-1:], (chunkSize-1, 1))], axis=0)[:chunkSize].flatten())
+        chunked_arr.append(
+            np.concatenate([arr[i:], np.tile(arr[-1:], (chunkSize - 1, 1))], axis=0)[
+                :chunkSize
+            ].flatten()
+        )
     return np.array(chunked_arr)
+
 
 count = 0
 for idx, line in enumerate(hand_tracking_file.readlines()):
     pose = line.split()
-    if os.path.isfile(f"build/demo{demoNumber}/frame_"+str(pose[0])):
+    if os.path.isfile(f"build/demo{demoNumber}/frame_" + str(pose[0])):
         try:
-            image = cv2.imread(f"build/demo{demoNumber}/frame_"+str(pose[0]))
+            image = cv2.imread(f"build/demo{demoNumber}/frame_" + str(pose[0]))
             # Transform coordindates and populate pose
-            poses[count][0]=-np.array(pose[3],dtype=float)
-            poses[count][1]=np.array(pose[5],dtype=float)-175
-            poses[count][2]=np.array(pose[4],dtype=float)
+            poses[count][0] = -np.array(pose[3], dtype=float)
+            poses[count][1] = np.array(pose[5], dtype=float) - 175
+            poses[count][2] = np.array(pose[4], dtype=float)
             poses[count][3:] = np.array(pose[6:10])
-            images[count]=np.array(image)
+            images[count] = np.array(image)
             print(f"Index: {count}           Position: {poses[count][0:3]}")
         except:
             print("EOF")
-        count+=1
+        count += 1
 
-actions = np.array(array_into_chunks(poses,5))
+actions = np.array(array_into_chunks(poses, 5))
 
 print("NumImages:", images.shape)
 print("NumPoses:", poses.shape)
@@ -90,8 +96,7 @@ with h5py.File(filename, "w") as f:
 
     # Gripper_position: 1d scalar
     gripper_position_data = 0.5  # Example data, replace with actual data
-    obs.create_dataset("Gripper_position",
-                       data=gripper_position_data, dtype='float64')
+    obs.create_dataset("Gripper_position", data=gripper_position_data, dtype="float64")
 
     # actions
-    demo_0.create_dataset("actions", data=actions, dtype='float64')
+    demo_0.create_dataset("actions", data=actions, dtype="float64")

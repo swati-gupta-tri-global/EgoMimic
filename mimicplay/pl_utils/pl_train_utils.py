@@ -15,7 +15,14 @@ from mimicplay.utils.train_utils import get_exp_dir, load_data_for_training
 import copy
 from mimicplay.scripts.aloha_process.simarUtils import nds
 from mimicplay.pl_utils.pl_model import ModelWrapper
-from mimicplay.pl_utils.pl_data_utils import DataModuleWrapper, DualDataModuleWrapper, get_dual_data_module, get_data_module, json_to_config
+from mimicplay.pl_utils.pl_data_utils import (
+    DataModuleWrapper,
+    DualDataModuleWrapper,
+    get_dual_data_module,
+    get_data_module,
+    json_to_config,
+)
+
 
 def init_dataset(config, dataset_path, alternate_valid_path=None):
     # load basic metadata from training file
@@ -25,7 +32,7 @@ def init_dataset(config, dataset_path, alternate_valid_path=None):
         dataset_path=dataset_path,
         all_obs_keys=config.all_obs_keys,
         verbose=True,
-        ac_key=config.train.ac_key
+        ac_key=config.train.ac_key,
     )
 
     # if type(env_meta) is list:
@@ -38,10 +45,12 @@ def init_dataset(config, dataset_path, alternate_valid_path=None):
     trainset, validset = load_data_for_training(
         config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
     )
-    
+
     if alternate_valid_path is not None:
         _, validset = load_data_for_training(
-            config, obs_keys=shape_meta["all_obs_keys"], dataset_path=alternate_valid_path
+            config,
+            obs_keys=shape_meta["all_obs_keys"],
+            dataset_path=alternate_valid_path,
         )
 
     # load training data
@@ -51,6 +60,7 @@ def init_dataset(config, dataset_path, alternate_valid_path=None):
 
     return trainset, validset, shape_meta
 
+
 def eval(config, ckpt_path):
     resume_dir = os.path.dirname(os.path.dirname(ckpt_path))
     video_dir = os.path.join(resume_dir, "eval_videos")
@@ -59,11 +69,12 @@ def eval(config, ckpt_path):
     ObsUtils.initialize_obs_utils_with_config(config)
     trainset, validset, shape_meta = init_dataset(config, dataset_path)
 
-
     train_sampler = trainset.get_dataset_sampler()
     valid_sampler = validset.get_dataset_sampler()
-    
-    datamodule=get_data_module(trainset, validset, train_sampler, valid_sampler, config)
+
+    datamodule = get_data_module(
+        trainset, validset, train_sampler, valid_sampler, config
+    )
     model = ModelWrapper.load_from_checkpoint(ckpt_path, datamodule=datamodule)
     # model=ModelWrapper(model, datamodule)
     step_log = model.custom_eval(video_dir)
@@ -74,6 +85,7 @@ def eval(config, ckpt_path):
             f.write(f"{k}: {v}\n")
 
     print(step_log)
+
 
 def train(config, ckpt_path=None):
     """
@@ -110,26 +122,32 @@ def train(config, ckpt_path=None):
 
     # make sure the dataset exists
     dataset_path = os.path.expanduser(config.train.data)
-    dataset_path_2 = None if config.train.data_2 is None else os.path.expanduser(config.train.data_2)
+    dataset_path_2 = (
+        None if config.train.data_2 is None else os.path.expanduser(config.train.data_2)
+    )
     if not os.path.exists(dataset_path):
         raise Exception("Dataset at provided path {} not found!".format(dataset_path))
     if dataset_path_2 and not os.path.exists(dataset_path_2):
         raise Exception("Dataset at provided path {} not found!".format(dataset_path_2))
 
-    trainset, validset, shape_meta = init_dataset(config, dataset_path, config.train.alternate_val)
-
+    trainset, validset, shape_meta = init_dataset(
+        config, dataset_path, config.train.alternate_val
+    )
 
     if dataset_path_2:
         config_2 = copy.deepcopy(config)
         # TODO: currently hardcoding the obs key for the second dataset
-        config_2.observation.modalities.obs.rgb = config_2.observation_hand.modalities.obs.rgb
-        config_2.observation.modalities.obs.low_dim = config_2.observation_hand.modalities.obs.low_dim
+        config_2.observation.modalities.obs.rgb = (
+            config_2.observation_hand.modalities.obs.rgb
+        )
+        config_2.observation.modalities.obs.low_dim = (
+            config_2.observation_hand.modalities.obs.low_dim
+        )
         config_2.train.dataset_keys = config_2.train.dataset_keys_hand
         config_2.train.ac_key = config_2.train.ac_key_hand
         config_2.train.seq_length = config_2.train.seq_length_hand
         config_2.train.seq_length_to_load = config_2.train.seq_length_to_load_hand
         trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2)
-    
 
     # setup for a new training runs
     model = algo_factory(
@@ -137,7 +155,7 @@ def train(config, ckpt_path=None):
         config=config,
         obs_key_shapes=shape_meta["all_shapes"],
         ac_dim=shape_meta["ac_dim"],
-        device="cuda"  # default to cpu, pl will move to gpu
+        device="cuda",  # default to cpu, pl will move to gpu
     )
 
     print("\n============= Model Summary =============")
@@ -152,19 +170,24 @@ def train(config, ckpt_path=None):
         with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
             json.dump(config, outfile, indent=4)
 
-
     # maybe retreve statistics for normalizing observations
     obs_normalization_stats = None
     # if config.train.hdf5_normalize_obs:
     #     obs_normalization_stats = trainset.get_obs_normalization_stats()
 
-    loggers = [] if config.experiment.logging.wandb_proj_name is None else [WandbLogger(
-        project=config.experiment.logging.wandb_proj_name,
-        sync_tensorboard=True,
-        name=config.experiment.description,
-        config=config,
-        save_dir=log_dir,
-    )]
+    loggers = (
+        []
+        if config.experiment.logging.wandb_proj_name is None
+        else [
+            WandbLogger(
+                project=config.experiment.logging.wandb_proj_name,
+                sync_tensorboard=True,
+                name=config.experiment.description,
+                config=config,
+                save_dir=log_dir,
+            )
+        ]
+    )
 
     # breakpoint()
     callbacks = [
@@ -220,11 +243,21 @@ def train(config, ckpt_path=None):
 
     train_sampler = trainset.get_dataset_sampler()
     valid_sampler = validset.get_dataset_sampler()
-    
+
     if dataset_path_2 is not None:
-        datamodule = get_dual_data_module(trainset, trainset_2, validset, validset_2, train_sampler, valid_sampler, config)
+        datamodule = get_dual_data_module(
+            trainset,
+            trainset_2,
+            validset,
+            validset_2,
+            train_sampler,
+            valid_sampler,
+            config,
+        )
     else:
-        datamodule = get_data_module(trainset, validset, train_sampler, valid_sampler, config)
+        datamodule = get_data_module(
+            trainset, validset, train_sampler, valid_sampler, config
+        )
 
     # dict is picklable, so pass that to model, then create robomimic config inside model
     dataset_path = os.path.expanduser(config.train.data)
@@ -232,10 +265,9 @@ def train(config, ckpt_path=None):
         dataset_path=dataset_path,
         all_obs_keys=config.all_obs_keys,
         verbose=True,
-        ac_key=config.train.ac_key
+        ac_key=config.train.ac_key,
     )
-    model=ModelWrapper(config.dump(), shape_meta, datamodule)
-
+    model = ModelWrapper(config.dump(), shape_meta, datamodule)
 
     trainer.fit(
         model=model,

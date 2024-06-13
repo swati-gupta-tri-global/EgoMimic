@@ -11,26 +11,27 @@ from cProfile import Profile
 from pstats import SortKey, Stats
 from mimicplay.scripts.aloha_process.simarUtils import nds
 
+
 class PlaydataSequenceDataset(SequenceDataset):
     def __init__(
-            self,
-            hdf5_path,
-            obs_keys,
-            dataset_keys,
-            goal_obs_gap,
-            frame_stack=1,
-            seq_length=1,
-            pad_frame_stack=True,
-            pad_seq_length=True,
-            get_pad_mask=False,
-            goal_mode=None,
-            hdf5_cache_mode=None,
-            hdf5_use_swmr=True,
-            hdf5_normalize_obs=False,
-            filter_by_attribute=None,
-            load_next_obs=True,
-            end_buffer=20,
-            seq_length_to_load=1
+        self,
+        hdf5_path,
+        obs_keys,
+        dataset_keys,
+        goal_obs_gap,
+        frame_stack=1,
+        seq_length=1,
+        pad_frame_stack=True,
+        pad_seq_length=True,
+        get_pad_mask=False,
+        goal_mode=None,
+        hdf5_cache_mode=None,
+        hdf5_use_swmr=True,
+        hdf5_normalize_obs=False,
+        filter_by_attribute=None,
+        load_next_obs=True,
+        end_buffer=20,
+        seq_length_to_load=1,
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -79,7 +80,7 @@ class PlaydataSequenceDataset(SequenceDataset):
 
             load_next_obs (bool): whether to load next_obs from the dataset
 
-            end_buffer (int): number of steps avoid sampling at end of each demo.  
+            end_buffer (int): number of steps avoid sampling at end of each demo.
                 Ie, if end_buffer is 20 then the training frame will never be within the last 20 steps
         """
 
@@ -139,14 +140,16 @@ class PlaydataSequenceDataset(SequenceDataset):
                 hdf5_file=self.hdf5_file,
                 obs_keys=self.obs_keys_in_memory,
                 dataset_keys=self.dataset_keys,
-                load_next_obs=self.load_next_obs
+                load_next_obs=self.load_next_obs,
             )
-            
+
             if self.hdf5_cache_mode == "all":
                 # cache getitem calls for even more speedup. We don't do this for
                 # "low-dim" since image observations require calls to getitem anyways.
                 print("SequenceDataset: caching get_item calls...")
-                self.getitem_cache = [self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))]
+                self.getitem_cache = [
+                    self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))
+                ]
                 # don't need the previous cache anymore
                 del self.hdf5_cache
                 self.hdf5_cache = None
@@ -157,19 +160,20 @@ class PlaydataSequenceDataset(SequenceDataset):
 
         self.close_and_delete_hdf5_handle()
 
-        self.rgb_keys = [k for k in self.obs_keys if ObsUtils.key_is_obs_modality(k, "rgb")]
+        self.rgb_keys = [
+            k for k in self.obs_keys if ObsUtils.key_is_obs_modality(k, "rgb")
+        ]
 
+        self.robot_keys = []  # self.hdf5_file['mask']['robot_demos']
+        self.human_keys = []  # self.hdf5_file['mask']['human_demos']
 
-        self.robot_keys = [] #self.hdf5_file['mask']['robot_demos']
-        self.human_keys = [] #self.hdf5_file['mask']['human_demos']
-        
-        if self.filter_by_attribute == 'train':
+        if self.filter_by_attribute == "train":
             # for k in self.hdf5_file['data'].keys():
-            key_list = self.hdf5_file['mask/train'][:].tolist()
-            decoded_key_list = [item.decode('utf-8') for item in key_list]
+            key_list = self.hdf5_file["mask/train"][:].tolist()
+            decoded_key_list = [item.decode("utf-8") for item in key_list]
             for k in decoded_key_list:
-                if 'label' in self.hdf5_file['data'][k]:
-                    label = self.hdf5_file['data'][k]['label']
+                if "label" in self.hdf5_file["data"][k]:
+                    label = self.hdf5_file["data"][k]["label"]
                     label = label[()][0]
                 else:
                     print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
@@ -179,13 +183,13 @@ class PlaydataSequenceDataset(SequenceDataset):
                     self.human_keys.append(k)
                 else:
                     self.robot_keys.append(k)
-        elif self.filter_by_attribute == 'valid':
+        elif self.filter_by_attribute == "valid":
             # for k in self.hdf5_file['data'].keys():
-            key_list = self.hdf5_file['mask/valid'][:].tolist()
-            decoded_key_list = [item.decode('utf-8') for item in key_list]
+            key_list = self.hdf5_file["mask/valid"][:].tolist()
+            decoded_key_list = [item.decode("utf-8") for item in key_list]
             for k in decoded_key_list:
-                if 'label' in self.hdf5_file['data'][k]:
-                    label = self.hdf5_file['data'][k]['label']
+                if "label" in self.hdf5_file["data"][k]:
+                    label = self.hdf5_file["data"][k]["label"]
                     label = label[()][0]
                 else:
                     print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
@@ -195,7 +199,7 @@ class PlaydataSequenceDataset(SequenceDataset):
                     self.human_keys.append(k)
                 else:
                     self.robot_keys.append(k)
-        
+
     def get_item(self, index):
         """
         Main implementation of getitem when not using cache.
@@ -204,7 +208,7 @@ class PlaydataSequenceDataset(SequenceDataset):
         demo_id = self._index_to_demo_id[index]
         demo_start_index = self._demo_id_to_start_indices[demo_id]
         demo_length = self._demo_id_to_demo_length[demo_id]
-        
+
         # start at offset index if not padding for frame stacking
         demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
         index_in_demo = index - demo_start_index + demo_index_offset
@@ -217,15 +221,23 @@ class PlaydataSequenceDataset(SequenceDataset):
             demo_id,
             index_in_demo=index_in_demo,
             keys=self.dataset_keys,
-            num_frames_to_stack=self.n_frame_stack - 1, # note: need to decrement self.n_frame_stack by one
+            num_frames_to_stack=self.n_frame_stack
+            - 1,  # note: need to decrement self.n_frame_stack by one
             seq_length=self.seq_length,
-            seq_length_to_load=self.seq_length_to_load
+            seq_length_to_load=self.seq_length_to_load,
         )
 
         # determine goal index
         goal_index = None
         if self.goal_mode == "nstep":
-            goal_index = min(index_in_demo + random.randint(self.goal_obs_gap[0], self.goal_obs_gap[1]) , demo_length) - 1
+            goal_index = (
+                min(
+                    index_in_demo
+                    + random.randint(self.goal_obs_gap[0], self.goal_obs_gap[1]),
+                    demo_length,
+                )
+                - 1
+            )
 
         meta["obs"] = self.get_obs_sequence_from_demo(
             demo_id,
@@ -235,7 +247,7 @@ class PlaydataSequenceDataset(SequenceDataset):
             seq_length=self.seq_length,
             prefix="obs",
             dont_load_fut=self.rgb_keys,
-            seq_length_to_load=self.seq_length_to_load
+            seq_length_to_load=self.seq_length_to_load,
         )
 
         if self.load_next_obs:
@@ -247,7 +259,7 @@ class PlaydataSequenceDataset(SequenceDataset):
                 seq_length=self.seq_length,
                 prefix="next_obs",
                 dont_load_fut=self.rgb_keys,
-                seq_length_to_load=self.seq_length_to_load
+                seq_length_to_load=self.seq_length_to_load,
             )
 
         if goal_index is not None:
@@ -259,15 +271,15 @@ class PlaydataSequenceDataset(SequenceDataset):
                 seq_length=self.seq_length,
                 prefix="obs",
                 dont_load_fut=self.rgb_keys,
-                seq_length_to_load=self.seq_length_to_load
+                seq_length_to_load=self.seq_length_to_load,
             )
 
         if demo_id in self.human_keys:
-            meta['type'] = 1 #'human'
+            meta["type"] = 1  #'human'
             # if self.goal_mode is not None:
             #     meta['goal_obs']['type'] = 1 #'human'
         elif demo_id in self.robot_keys:
-            meta['type'] = 0 #'robot'
+            meta["type"] = 0  #'robot'
             # if self.goal_mode is not None:
             #     meta['goal_obs']['type'] = 0 #'robot'
 
