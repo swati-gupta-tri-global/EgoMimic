@@ -302,7 +302,7 @@ def train_argparse():
 if __name__ == "__main__":
     args = train_argparse()
 
-    if not args.eval and "DT" not in args.description:
+    if not args.eval and (args.description is None or "DT" not in args.description):
         time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
 
