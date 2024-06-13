@@ -1,36 +1,19 @@
 # Egoplay
 ## Installation
-Create and activate conda environment
-```	
-conda create -n eplay python=3.8
-conda activate eplay
+
+```
+git clone --recursive git@github.com:SimarKareer/EgoPlay.git
+conda env create -f environment.yaml
+pip install -e external/robomimic
+pip install -e external/act
+pip install -e external/act/detr
+pip install -e .
+python external/robomimic/robomimic/scripts/setup_macros.py
 ```
 
-MimicPlay is based on [robomimic](https://github.com/ARISE-Initiative/robomimic), which facilitates the basics of learning from offline demonstrations.
-```	
-cd ..
-git clone https://github.com/SimarKareer/robomimic
-cd robomimic
-pip install -e .
-pip install -r requirements.txt
-```
+Set `git config --global submodule.recurse true` if you want `git pull` to automatically update the submodule as well.
 
-Install EgoPlay
-```	
-cd ..
-git clone https://github.com/SimarKareer/EgoPlay/tree/main
-cd EgoPlay
-pip install -e .
-cd act/detr
-pip install -e .
-```
-
-Install other things
-```
-pip install git+https://github.com/simarkareer/submitit
-pip install av
-pip install pynvml
-```
+Then go to  `external/robomimic/robomimic/macros_private.py` and manually add your wandb username. Make sure you have ran `wandb login` too.
 
 -------
 ## Data processing
@@ -61,11 +44,8 @@ python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_rob
 
 
 ## Training Policies via Pytorch Lightning
-With ACT settings
-`python scripts/submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACT --description joints --non-goal-cond --ac-key actions_joints --obs-rgb front_img_1 right_wrist_img`
-
 Debugging pl
-`python scripts/pl_train.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --debug --name pldebug --description debug`
+`python scripts/pl_train.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --debug`
 
 Launching with pl
 `python scripts/pl_submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACTPL --description 8GBS32LR5e5 --num-nodes 1 --gpus-per-node 8 --batch-size 32 --lr 1e-4`

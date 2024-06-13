@@ -1,0 +1,6 @@
+[submodule "external/robomimic"]
+	path = external/robomimic
+	url = https://github.com/SimarKareer/robomimic
+[submodule "external/act"]
+	path = external/act
+	url = https://github.com/SimarKareer/act
