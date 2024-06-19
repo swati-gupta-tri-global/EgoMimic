@@ -159,8 +159,6 @@ class ModelWrapper(LightningModule):
         video_freq = self.model.global_config.experiment.save.video_freq
 
         if self.current_epoch % val_freq == 0 and self.current_epoch != 0:
-            valid_step_log = {"robot_final_mse_avg": 0.0}
-            valid_step_log_2 = {"hand_final_mse_avg": 0.0}
             if self.global_rank == 0:
                 # Perform custom validation
 
@@ -191,11 +189,11 @@ class ModelWrapper(LightningModule):
                             type="hand",
                         )  # save vid only once every video_freq epochs
                     self.train()
-            for k, v in valid_step_log.items():
-                self.log("Valid/" + k, v, sync_dist=True, reduce_fx="max")
-            if self.dual_dl:
-                for k, v in valid_step_log_2.items():
-                    self.log("Valid/" + k, v, sync_dist=True, reduce_fx="max")
+                for k, v in valid_step_log.items():
+                    self.log("Valid/" + k, v, sync_dist=False)
+                if self.dual_dl:
+                    for k, v in valid_step_log_2.items():
+                        self.log("Valid/" + k, v, sync_dist=False)
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
