@@ -24,7 +24,7 @@ INTERP = False
 
 
 def evaluate_high_level_policy(
-    model, data_loader, video_dir, ac_key, max_samples=None, type=None
+    model, data_loader, video_dir, ac_key, max_samples=None, type=None,
 ):
     """
     Evaluate high level trajectory prediciton policy.
@@ -49,20 +49,20 @@ def evaluate_high_level_policy(
         "paired_mse": [],  # for each trajectory compute MSE((gt_t, gt_t+1), (pred_t, pred_t+1))
         "final_mse": [],  # for each trajectory compute MSE(gt_t+T, pred_t+T)
     }
-    # Internal realsense numbers
-    intrinsics = WIDE_LENS_ROBOT_LEFT_K
 
-    model.set_eval()
+    intrinsics = WIDE_LENS_ROBOT_LEFT_K
+    aloha_fk = AlohaFK()
 
     count = 0
     vids_written = 0
-
     T = 700
     video = torch.zeros((T, 480, 640, 3))
 
     GOAL_COND = model.global_config.train.goal_mode
 
-    aloha_fk = AlohaFK()
+    normalization_stats = data_loader.dataset.get_obs_normalization_stats()
+
+    model.set_eval()
 
     for i, data in enumerate(data_loader):
         if isinstance(data, list):
@@ -76,7 +76,7 @@ def evaluate_high_level_policy(
         # save data["obs"]["front_img_1"][0, 0] which has type uint8 to file
         input_batch = model.process_batch_for_training(data, ac_key)
         input_batch = model.postprocess_batch_for_training(
-            input_batch, obs_normalization_stats=None
+            input_batch, normalization_stats=normalization_stats, normalize_actions=False
         )  # TODO: look into obs norm
         if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
             del input_batch["goal_obs"]["ee_pose"]
@@ -93,8 +93,8 @@ def evaluate_high_level_policy(
             input_batch["obs"]["front_img_1"] = robo_to_aria_imstyle(
                 input_batch["obs"]["front_img_1"]
             )
-        info = model.forward_eval(input_batch)
 
+        info = model.forward_eval(input_batch, unnorm_stats=normalization_stats)
         print(i)
         for b in range(B):
             im = (
@@ -111,7 +111,7 @@ def evaluate_high_level_policy(
                         False
                     ), "need to reimplement after realizing the hand data 30 dim action issue"
             else:
-                pred_values = info.mean[b].view((10, 3)).cpu().numpy()
+                pred_values = info["actions"][b].view((10, 3)).cpu().numpy()
                 actions = input_batch["actions"][b].view((10, 3)).cpu().numpy()
                 if INTERP:
                     interp = scipy.interpolate.interp1d(

@@ -2,7 +2,7 @@ import json
 import os
 import robomimic.utils.obs_utils as ObsUtils
 import torch
-from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning import Trainer, seed_everything, Callback
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
@@ -22,6 +22,29 @@ from mimicplay.pl_utils.pl_data_utils import (
     get_data_module,
     json_to_config,
 )
+import signal
+
+class PreemptionHandler(Callback):
+    def __init__(self):
+        super().__init__()
+        signal.signal(signal.SIGUSR1, self.handle_preemption)
+        self.trainer_ref = None
+
+    def setup(self, trainer, pl_module, stage):
+        # Store a reference to the trainer when it's initialized
+        self.trainer_ref = trainer
+
+    def handle_preemption(self, signum, frame):
+        if self.trainer_ref is not None:
+            print("Preemption signal received. Saving checkpoint.")
+            print("root dir: ", self.trainer_ref.default_root_dir)
+            path = os.path.join(self.trainer_ref.default_root_dir, "models/last.ckpt")
+            print("path: ", path)
+            self.trainer_ref.save_checkpoint(path)
+            # Optionally, terminate the process
+            os._exit(128 + signum)
+        else:
+            print("Trainer reference is not set. Cannot save checkpoint.")
 
 
 def init_dataset(config, dataset_path, alternate_valid_path=None):
@@ -133,6 +156,8 @@ def train(config, ckpt_path=None):
     trainset, validset, shape_meta = init_dataset(
         config, dataset_path, config.train.alternate_val
     )
+    if config.train.hdf5_normalize_obs:
+        print("Normalization stats for dataset 1: ", trainset.get_obs_normalization_stats())
 
     if dataset_path_2:
         config_2 = copy.deepcopy(config)
@@ -148,6 +173,9 @@ def train(config, ckpt_path=None):
         config_2.train.seq_length = config_2.train.seq_length_hand
         config_2.train.seq_length_to_load = config_2.train.seq_length_to_load_hand
         trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2)
+        if config.train.hdf5_normalize_obs:
+            print("Normalization stats for dataset 2: ", trainset_2.get_obs_normalization_stats())
+
 
     # setup for a new training runs
     model = algo_factory(
@@ -197,7 +225,9 @@ def train(config, ckpt_path=None):
             save_on_train_epoch_end=True,
             filename="model_epoch_{epoch}",
             save_top_k=-1,
+            save_last="link"
         ),
+        PreemptionHandler()
         # ModelCheckpoint(
         #     dirpath=ckpt_dir,
         #     save_on_train_epoch_end=True,

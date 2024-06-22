@@ -44,8 +44,11 @@ python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_rob
 
 
 ## Training Policies via Pytorch Lightning
-Debugging pl
+ACT Style
 `python scripts/pl_train.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --debug`
+
+GMM Style
+`python scripts/pl_train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_aria_apr11/rawAria/oboo_aria_apr11/converted/oboo_aria_apr11_Mimicplay_LH3.hdf5 --debug`
 
 Launching with pl
 `python scripts/pl_submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACTPL --description 8GBS32LR5e5 --num-nodes 1 --gpus-per-node 8 --batch-size 32 --lr 1e-4`
@@ -114,3 +117,17 @@ Set `co-train`, `kl`, `domain_discriminator` as `false` in  `../configs/highleve
 
 
 Remember: type == 0 is robot, type==1 is hand
+
+Dataloader should output batch with following format.  Not currently using dones or rewards
+```
+dict with keys:  dict_keys(['actions', 'rewards', 'dones', 'pad_mask', 'obs', 'type'])
+actions: (1, 30)
+rewards: (1, 1)
+dones: (1, 1)
+pad_mask: (1, 1)
+obs: dict with keys:  dict_keys(['ee_pose', 'front_img_1', 'pad_mask'])
+        ee_pose: (1, 3)
+        front_img_1: (1, 480, 640, 3)
+        pad_mask: (1, 1)
+type: int
+```

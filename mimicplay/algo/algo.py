@@ -491,7 +491,7 @@ class RolloutPolicy(object):
             )
             # limit normalization to obs keys being used, in case environment includes extra keys
             ob = {k: ob[k] for k in self.policy.global_config.all_obs_keys}
-            ob = ObsUtils.normalize_obs(
+            ob = ObsUtils.normalize_batch(
                 ob, obs_normalization_stats=obs_normalization_stats
             )
         return ob

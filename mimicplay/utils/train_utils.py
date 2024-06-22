@@ -109,9 +109,6 @@ def load_data_for_training(config, obs_keys, dataset_path=None):
 
     # load the dataset into memory
     if config.experiment.validate:
-        assert (
-            not config.train.hdf5_normalize_obs
-        ), "no support for observation normalization with validation data yet"
         assert (train_filter_by_attribute is not None) and (
             valid_filter_by_attribute is not None
         ), (

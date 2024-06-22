@@ -38,8 +38,8 @@ if __name__ == "__main__":
         slurm_partition, slurm_account, slurm_qos = "overcap", "hoffman-lab", None
     else:
         slurm_partition, slurm_account, slurm_qos = (
-            "hoffman-lab",
-            "hoffman-lab",
+            args.partition,
+            args.partition,
             "short",
         )
 

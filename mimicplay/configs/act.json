@@ -47,7 +47,7 @@
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
-        "hdf5_normalize_obs": false,
+        "hdf5_normalize_obs": true,
         "seq_length": 100,
         "seq_length_to_load": 100,
         "ac_key": "actions_joints",

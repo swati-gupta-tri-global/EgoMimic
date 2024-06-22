@@ -77,12 +77,21 @@ class ModelWrapper(LightningModule):
             if self.dual_dl
             else [self.model.global_config.train.ac_key]
         )
-        for batch, ac_key in zip(batch, ac_keys):
-            batch["obs"] = ObsUtils.process_obs_dict(batch["obs"])
+        norm_dicts = (
+            [
+                self.datamodule.train_dataset1.get_obs_normalization_stats(),
+                self.datamodule.train_dataset2.get_obs_normalization_stats()
+            ]
+            if self.dual_dl
+            else [self.datamodule.train_dataset.get_obs_normalization_stats()]
+        )
+        for batch, ac_key, norm_dict in zip(batch, ac_keys, norm_dicts):
+            # batch["obs"] = ObsUtils.process_obs_dict(batch["obs"])
             info = PolicyAlgo.train_on_batch(
                 self.model, batch, self.current_epoch, validate=False
             )
             batch = self.model.process_batch_for_training(batch, ac_key)
+            batch = self.model.postprocess_batch_for_training(batch, norm_dict)
             predictions = self.model._forward_training(batch)
             losses = self.model._compute_losses(predictions, batch)
             loss_dicts.append(losses)

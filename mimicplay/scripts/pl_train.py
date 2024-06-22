@@ -114,7 +114,7 @@ def main(args):
 
         # train and validate (if enabled) for 1 gradient steps, for 2 epochs
         # config.train.fast_dev_run = 2
-        config.train.num_epochs = 4
+        config.train.num_epochs = 10
         config.experiment.save.every_n_epochs = 5
 
         # if rollouts are enabled, try 10 rollouts at end of each epoch, with 10 environment steps
@@ -129,6 +129,8 @@ def main(args):
         config.experiment.save.every_n_epochs = 2
         config.experiment.save.video_freq = 2
         config.experiment.name = "debug_run"
+        config.train.gpus_per_node = 1
+        config.train.num_nodes = 1
     elif args.profiler != "none":
         # shrink length of training to test whether this run is likely to crash
         config.unlock()
@@ -314,6 +316,8 @@ def train_argparse():
     )
 
     parser.add_argument("--overcap", action="store_true", help="overcap partition")
+
+    parser.add_argument('--partition', type=str, default='hoffman-lab', help='partition')
 
     parser.add_argument(
         "--brightness", nargs=2, help="brightness min and max", default=None, type=float

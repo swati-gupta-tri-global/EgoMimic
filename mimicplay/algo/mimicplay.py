@@ -160,63 +160,6 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         # return super().process_batch_for_training(batch)
         # return self.process_batch_for_training(batch)
 
-    def postprocess_batch_for_training(self, batch, obs_normalization_stats):
-        """
-        Processes input batch from a data loader to filter out
-        relevant information and prepare the batch for training.
-
-        Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader
-
-        Returns:
-            input_batch (dict): processed and filtered batch that
-                will be used for training
-        """
-
-        # ensure obs_normalization_stats are torch Tensors on proper device
-        obs_normalization_stats = TensorUtils.to_float(
-            TensorUtils.to_device(
-                TensorUtils.to_tensor(obs_normalization_stats), self.device
-            )
-        )
-
-        # we will search the nested batch dictionary for the following special batch dict keys
-        # and apply the processing function to their values (which correspond to observations)
-        obs_keys = ["obs", "next_obs", "goal_obs"]
-
-        def recurse_helper(d):
-            """
-            Apply process_obs_dict to values in nested dictionary d that match a key in obs_keys.
-            """
-            for k in d:
-                # breakpoint()
-                if k in obs_keys:
-                    # found key - stop search and process observation
-                    if d[k] is not None:
-                        # breakpoint()
-                        d[k] = ObsUtils.process_obs_dict(d[k])
-                        if obs_normalization_stats is not None:
-                            # breakpoint()
-                            d[k] = ObsUtils.normalize_obs(
-                                d[k], obs_normalization_stats=obs_normalization_stats
-                            )
-                elif isinstance(d[k], dict):
-                    # search down into dictionary
-                    recurse_helper(d[k])
-
-        recurse_helper(batch)
-
-        if self.global_config.train.goal_mode:
-            batch["goal_obs"]["front_img_1"] = batch["goal_obs"]["front_img_1"][:, 0]
-            # batch["goal_obs"]["front_image_2"] = batch["goal_obs"]["front_image_2"][:, 0]
-            # batch["goal_obs"]["hand_loc"] = batch["goal_obs"]["hand_loc"][:, 0]
-            # batch["goal_obs"]["ee_pose"] = batch["goal_obs"]["ee_pose"][:, 0]
-            if "ee_pose" in batch["goal_obs"]:
-                del batch["goal_obs"]["ee_pose"]
-
-        return TensorUtils.to_device(TensorUtils.to_float(batch), self.device)
-
     def _get_latent_plan(self, obs, goal):
         # assert 'agentview_image' in obs.keys() # only visual inputs can generate latent plans
         # Todo: generalize this to take inputs from cfg.  For us, it needs to take two input images
@@ -280,12 +223,25 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
         return act_out, mlp_out
 
-    def forward_eval(self, batch):
+    def forward_eval(self, batch, unnorm_stats=None):
+        """
+        returns outdict of form {"actions": (B, ac_dim)}
+        """
         with torch.no_grad():
             dists, latent, _ = self.nets["policy"].forward_train(
                 obs_dict=batch["obs"], goal_dict=batch["goal_obs"], return_latent=True
             )
-            return dists
+
+            dists = dists.mean
+            out_dict = {
+                "actions": dists
+            }
+            if unnorm_stats:
+                out_dict = ObsUtils.unnormalize_batch(out_dict, normalization_stats=unnorm_stats)
+            
+            out_dict["actions"] = out_dict["actions"]
+
+            return out_dict     
 
     def _forward_training(self, batch):
         """
