@@ -47,7 +47,7 @@ class PreemptionHandler(Callback):
             print("Trainer reference is not set. Cannot save checkpoint.")
 
 
-def init_dataset(config, dataset_path, alternate_valid_path=None):
+def init_dataset(config, dataset_path, type, alternate_valid_path=None):
     # load basic metadata from training file
     # print("\n============= Loaded Environment Metadata =============")
     # env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=config.train.data)
@@ -66,7 +66,7 @@ def init_dataset(config, dataset_path, alternate_valid_path=None):
 
     # load training data
     trainset, validset = load_data_for_training(
-        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path
+        config, obs_keys=shape_meta["all_obs_keys"], dataset_path=dataset_path, type=type
     )
 
     if alternate_valid_path is not None:
@@ -74,7 +74,9 @@ def init_dataset(config, dataset_path, alternate_valid_path=None):
             config,
             obs_keys=shape_meta["all_obs_keys"],
             dataset_path=alternate_valid_path,
+            type=None
         )
+        #setting type to None here, bc this type isn't necessarily same as the main DS type, so norm stats would be incorrect
 
     # load training data
     print("\n============= Training Dataset =============")
@@ -84,13 +86,13 @@ def init_dataset(config, dataset_path, alternate_valid_path=None):
     return trainset, validset, shape_meta
 
 
-def eval(config, ckpt_path):
+def eval(config, ckpt_path, type):
     resume_dir = os.path.dirname(os.path.dirname(ckpt_path))
     video_dir = os.path.join(resume_dir, "eval_videos")
 
     dataset_path = os.path.expanduser(config.train.data)
     ObsUtils.initialize_obs_utils_with_config(config)
-    trainset, validset, shape_meta = init_dataset(config, dataset_path)
+    trainset, validset, shape_meta = init_dataset(config, dataset_path, type)
 
     train_sampler = trainset.get_dataset_sampler()
     valid_sampler = validset.get_dataset_sampler()
@@ -154,7 +156,7 @@ def train(config, ckpt_path=None):
         raise Exception("Dataset at provided path {} not found!".format(dataset_path_2))
 
     trainset, validset, shape_meta = init_dataset(
-        config, dataset_path, config.train.alternate_val
+        config, dataset_path, config.train.data_type, config.train.alternate_val,
     )
     if config.train.hdf5_normalize_obs:
         print("Normalization stats for dataset 1: ", trainset.get_obs_normalization_stats())
@@ -172,7 +174,7 @@ def train(config, ckpt_path=None):
         config_2.train.ac_key = config_2.train.ac_key_hand
         config_2.train.seq_length = config_2.train.seq_length_hand
         config_2.train.seq_length_to_load = config_2.train.seq_length_to_load_hand
-        trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2)
+        trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2, type=config.train.data2_type)
         if config.train.hdf5_normalize_obs:
             print("Normalization stats for dataset 2: ", trainset_2.get_obs_normalization_stats())
 

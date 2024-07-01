@@ -173,7 +173,7 @@ def main(args):
     important_stats = None
     try:
         if args.eval:
-            eval(config, args.ckpt_path)
+            eval(config, args.ckpt_path, type=config.train.data_type)
             return
         else:
             important_stats = train(config, args.ckpt_path)

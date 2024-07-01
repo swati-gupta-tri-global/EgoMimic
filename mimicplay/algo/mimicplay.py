@@ -150,7 +150,8 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         if ac_key in batch:
             input_batch["actions"] = batch[ac_key][:, 0, :]
 
-        input_batch["type"] = batch["type"]
+        if "type" in batch:
+            input_batch["type"] = batch["type"]
 
         # we move to device first before float conversion because image observation modalities will be uint8 -
         # this minimizes the amount of data transferred to GPU

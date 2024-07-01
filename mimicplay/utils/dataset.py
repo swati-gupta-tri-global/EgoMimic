@@ -19,6 +19,8 @@ class PlaydataSequenceDataset(SequenceDataset):
         obs_keys,
         dataset_keys,
         goal_obs_gap,
+        type,
+        ac_key,
         frame_stack=1,
         seq_length=1,
         pad_frame_stack=True,
@@ -30,7 +32,6 @@ class PlaydataSequenceDataset(SequenceDataset):
         hdf5_normalize_obs=False,
         filter_by_attribute=None,
         load_next_obs=True,
-        end_buffer=20,
         seq_length_to_load=1,
     ):
         """
@@ -79,126 +80,42 @@ class PlaydataSequenceDataset(SequenceDataset):
                 demonstrations to load
 
             load_next_obs (bool): whether to load next_obs from the dataset
-
-            end_buffer (int): number of steps avoid sampling at end of each demo.
-                Ie, if end_buffer is 20 then the training frame will never be within the last 20 steps
         """
+        super().__init__(
+            hdf5_path=hdf5_path,
+            obs_keys=obs_keys,
+            dataset_keys=dataset_keys,
+            frame_stack=frame_stack,
+            seq_length=seq_length,
+            pad_frame_stack=pad_frame_stack,
+            pad_seq_length=pad_seq_length,
+            get_pad_mask=get_pad_mask,
+            goal_mode=goal_mode,
+            hdf5_cache_mode=hdf5_cache_mode,
+            hdf5_use_swmr=hdf5_use_swmr,
+            hdf5_normalize_obs=hdf5_normalize_obs,
+            filter_by_attribute=filter_by_attribute,
+            load_next_obs=load_next_obs,
+            ac_key=ac_key
+        )
 
-        self.hdf5_path = os.path.expanduser(hdf5_path)
-        self.hdf5_use_swmr = hdf5_use_swmr
-        self.hdf5_normalize_obs = hdf5_normalize_obs
-        self._hdf5_file = None
+        self.type = type
 
-        self.goal_obs_gap = goal_obs_gap
-
-        assert hdf5_cache_mode in ["all", "low_dim", None]
-        self.hdf5_cache_mode = hdf5_cache_mode
-
-        self.load_next_obs = load_next_obs
-        self.filter_by_attribute = filter_by_attribute
-
-        # get all keys that needs to be fetched
-        self.obs_keys = tuple(obs_keys)
-        self.dataset_keys = tuple(dataset_keys)
-
-        self.n_frame_stack = frame_stack
-        assert self.n_frame_stack >= 1
-
-        self.seq_length = seq_length
         self.seq_length_to_load = seq_length_to_load
-        assert self.seq_length >= 1
         assert self.seq_length_to_load >= 1
 
         self.goal_mode = goal_mode
         if self.goal_mode is not None:
             assert self.goal_mode in ["nstep"]
 
-        self.pad_seq_length = pad_seq_length
-        self.pad_frame_stack = pad_frame_stack
-        self.get_pad_mask = get_pad_mask
-
-        self.load_demo_info(filter_by_attribute=self.filter_by_attribute)
-
-        # maybe prepare for observation normalization
-        self.obs_normalization_stats = None
-        if self.hdf5_normalize_obs:
-            self.obs_normalization_stats = self.normalize_obs()
-
-        # maybe store dataset in memory for fast access
-        if self.hdf5_cache_mode in ["all", "low_dim"]:
-            obs_keys_in_memory = self.obs_keys
-            if self.hdf5_cache_mode == "low_dim":
-                # only store low-dim observations
-                obs_keys_in_memory = []
-                for k in self.obs_keys:
-                    if ObsUtils.key_is_obs_modality(k, "low_dim"):
-                        obs_keys_in_memory.append(k)
-            self.obs_keys_in_memory = obs_keys_in_memory
-
-            self.hdf5_cache = self.load_dataset_in_memory(
-                demo_list=self.demos,
-                hdf5_file=self.hdf5_file,
-                obs_keys=self.obs_keys_in_memory,
-                dataset_keys=self.dataset_keys,
-                load_next_obs=self.load_next_obs,
-            )
-
-            if self.hdf5_cache_mode == "all":
-                # cache getitem calls for even more speedup. We don't do this for
-                # "low-dim" since image observations require calls to getitem anyways.
-                print("SequenceDataset: caching get_item calls...")
-                self.getitem_cache = [
-                    self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))
-                ]
-                # don't need the previous cache anymore
-                del self.hdf5_cache
-                self.hdf5_cache = None
-        else:
-            self.hdf5_cache = None
-
-        self.end_buffer = end_buffer
-
-        self.close_and_delete_hdf5_handle()
+        self.goal_obs_gap = goal_obs_gap
 
         self.rgb_keys = [
             k for k in self.obs_keys if ObsUtils.key_is_obs_modality(k, "rgb")
         ]
 
-        self.robot_keys = []  # self.hdf5_file['mask']['robot_demos']
-        self.human_keys = []  # self.hdf5_file['mask']['human_demos']
 
-        if self.filter_by_attribute == "train":
-            # for k in self.hdf5_file['data'].keys():
-            key_list = self.hdf5_file["mask/train"][:].tolist()
-            decoded_key_list = [item.decode("utf-8") for item in key_list]
-            for k in decoded_key_list:
-                if "label" in self.hdf5_file["data"][k]:
-                    label = self.hdf5_file["data"][k]["label"]
-                    label = label[()][0]
-                else:
-                    print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
-                    label = 0
-
-                if label == 1:
-                    self.human_keys.append(k)
-                else:
-                    self.robot_keys.append(k)
-        elif self.filter_by_attribute == "valid":
-            # for k in self.hdf5_file['data'].keys():
-            key_list = self.hdf5_file["mask/valid"][:].tolist()
-            decoded_key_list = [item.decode("utf-8") for item in key_list]
-            for k in decoded_key_list:
-                if "label" in self.hdf5_file["data"][k]:
-                    label = self.hdf5_file["data"][k]["label"]
-                    label = label[()][0]
-                else:
-                    print("WARNING: NO TYPE LABEL SO ASSUMING ROBOT")
-                    label = 0
-
-                if label == 1:
-                    self.human_keys.append(k)
-                else:
-                    self.robot_keys.append(k)
+        self.close_and_delete_hdf5_handle()
 
     def get_item(self, index):
         """
@@ -273,19 +190,9 @@ class PlaydataSequenceDataset(SequenceDataset):
                 dont_load_fut=self.rgb_keys,
                 seq_length_to_load=self.seq_length_to_load,
             )
-
-        if demo_id in self.human_keys:
-            meta["type"] = 1  #'human'
-            # if self.goal_mode is not None:
-            #     meta['goal_obs']['type'] = 1 #'human'
-        elif demo_id in self.robot_keys:
-            meta["type"] = 0  #'robot'
-            # if self.goal_mode is not None:
-            #     meta['goal_obs']['type'] = 0 #'robot'
-
-        ## check meta for zero front_img and sample safe_index
-        # if not meta["obs"]["front_img_1"].any():
-        #     return self.get_item(0)
-        # if not meta["goal_obs"]["front_img_1"].any():
-        #     return self.get_item(0)
+        
+        if self.type == "robot":
+            meta["type"] = 0
+        elif self.type == "hand":
+            meta["type"] = 1
         return meta

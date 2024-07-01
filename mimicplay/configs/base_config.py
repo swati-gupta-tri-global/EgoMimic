@@ -167,8 +167,10 @@ class BaseConfig(Config):
 
         # Path to hdf5 dataset to use for training
         self.train.data = None
+        self.train.data_type = None
         self.train.alternate_val = None
         self.train.data_2 = None
+        self.train.data_2_type = None
 
         self.train.gpus_per_node = 1
         self.train.num_nodes = 1

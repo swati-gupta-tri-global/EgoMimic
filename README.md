@@ -79,13 +79,6 @@ Masking
 - `python scripts/pl_submit.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/maskedRobot.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/one_bowl_one_object_masked/plushiesLineMaskedMimicplay_label.hdf5 --name singlePolicy --description RobotandHand --num-nodes 1 --gpus-per-node 4 --batch-size 32 --lr 5e-5`
 
 
-
-Dirty laundry
-- Color jitter is manually implemented for ACT in _robomimic_to_act_data rather than using the ObsUtils color jitter
-- hardcoded extrinsics in val_utils.py
-- Added ac_key under base Algo in robomimic, I suppose this could just access the model.global_config
-- I haven't tested whether aloha_to_robomimic_v2 works with highlevelGMMPretrain
-
 ## Training policies (Without PL)
 Base High level:
 `python scripts/train.py --config configs/highlevel_real.json --dataset /coc/flash7/datasets/egoplay/humanoidStacking/humanoid_stackingMimicplay.hdf5 --name humanoidStacking --description v1`
@@ -115,8 +108,16 @@ python train.py --config ../configs/highlevel_dino_2_train_datasets.json --datas
 
 Set `co-train`, `kl`, `domain_discriminator` as `false` in  `../configs/highlevel_dino_2_train_datasets.json`
 
+## Update Notes
+Dirty laundry
+- Color jitter is manually implemented for ACT in _robomimic_to_act_data rather than using the ObsUtils color jitter
+- hardcoded extrinsics in val_utils.py
+- Added ac_key under base Algo in robomimic, I suppose this could just access the model.global_config
+- I haven't tested whether aloha_to_robomimic_v2 works with highlevelGMMPretrain
 
-Remember: type == 0 is robot, type==1 is hand
+- Remember: type == 0 is robot, type==1 is hand
+- Now that our hdf5's have either hand or robot data, we can just specify this from the config.  So simply set config.train.data_type and config.train.data2_type to hand or robot.
+
 
 Dataloader should output batch with following format.  Not currently using dones or rewards
 ```

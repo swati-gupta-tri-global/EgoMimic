@@ -18,7 +18,7 @@ from detr.main import (
 )
 from mimicplay.scripts.aloha_process.simarUtils import nds
 import matplotlib.pyplot as plt
-
+import robomimic.utils.obs_utils as ObsUtils
 
 @register_algo_factory_func("act")
 def algo_config_to_class(algo_config):
@@ -145,7 +145,8 @@ class ACT(BC_VAE):
         if ac_key in batch:
             input_batch["actions"] = batch[ac_key]
 
-        input_batch["type"] = batch["type"]
+        if "type" in batch:
+            input_batch["type"] = batch["type"]
 
         # we move to device first before float conversion because image observation modalities will be uint8 -
         # this minimizes the amount of data transferred to GPU
@@ -229,7 +230,7 @@ class ACT(BC_VAE):
 
         return predictions
 
-    def forward_eval(self, batch):
+    def forward_eval(self, batch, unnorm_stats):
         """
         Internal helper function for BC algo class. Compute forward pass
         and return network outputs in @predictions dict.
@@ -248,6 +249,9 @@ class ACT(BC_VAE):
         )
 
         predictions = OrderedDict(actions=a_hat)
+
+        if unnorm_stats:
+            predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
 
         return predictions
 

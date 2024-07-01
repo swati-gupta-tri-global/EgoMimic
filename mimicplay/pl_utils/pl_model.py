@@ -58,10 +58,6 @@ class ModelWrapper(LightningModule):
     def training_step(self, batch, batch_idx):
         DUAL_DL = isinstance(batch, list)
         # plt.imsave("debug/front_img_1.png", batch[0]["obs"]["front_img_1"][0, 0].cpu().numpy())
-        if DUAL_DL:
-            batch[1]["type"] = torch.ones_like(
-                batch[1]["type"]
-            )  # TODO fix hardcoding assumes that second DS is the hand DS
 
         # full_batch = batch
         # batch = full_batch[0]

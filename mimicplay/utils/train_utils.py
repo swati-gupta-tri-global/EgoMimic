@@ -83,7 +83,7 @@ def get_exp_dir(config, auto_remove_exp_dir=False, rank=0):
     return log_dir, output_dir, video_dir, time_str
 
 
-def load_data_for_training(config, obs_keys, dataset_path=None):
+def load_data_for_training(config, obs_keys, type, dataset_path=None):
     """
     Data loading at the start of an algorithm.
 
@@ -131,12 +131,14 @@ def load_data_for_training(config, obs_keys, dataset_path=None):
             obs_keys,
             filter_by_attribute=train_filter_by_attribute,
             dataset_path=dataset_path,
+            type=type
         )
         valid_dataset = dataset_factory(
             config,
             obs_keys,
             filter_by_attribute=valid_filter_by_attribute,
             dataset_path=dataset_path,
+            type=type
         )
     else:
         train_dataset = dataset_factory(
@@ -144,6 +146,7 @@ def load_data_for_training(config, obs_keys, dataset_path=None):
             obs_keys,
             filter_by_attribute=train_filter_by_attribute,
             dataset_path=dataset_path,
+            type=type
         )
         valid_dataset = None
 
@@ -155,7 +158,7 @@ def load_data_for_training(config, obs_keys, dataset_path=None):
     return train_dataset, valid_dataset
 
 
-def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=None):
+def dataset_factory(config, obs_keys, type, filter_by_attribute=None, dataset_path=None):
     """
     Create a PlaydataSequenceDataset instance to pass to a torch DataLoader.
 
@@ -194,6 +197,8 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
         hdf5_normalize_obs=config.train.hdf5_normalize_obs,
         filter_by_attribute=filter_by_attribute,
         seq_length_to_load=config.train.seq_length_to_load,
+        type=type,
+        ac_key=config.train.ac_key,
     )
     dataset = PlaydataSequenceDataset(**ds_kwargs)
 
