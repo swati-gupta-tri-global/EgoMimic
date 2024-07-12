@@ -20,9 +20,7 @@ import scipy
 CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
 EENORM = False
 VIGNETTE = False
-INTERP = True
-torch.manual_seed(0)
-np.random.seed(0)
+INTERP = False
 
 
 def evaluate_high_level_policy(
