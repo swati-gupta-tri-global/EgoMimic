@@ -148,7 +148,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             "goal_obs", None
         )  # goals may not be present
         if ac_key in batch:
-            input_batch["actions"] = batch[ac_key][:, 0, :]
+            input_batch["actions"] = batch[ac_key]
 
         if "type" in batch:
             input_batch["type"] = batch["type"]
@@ -160,6 +160,15 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         # call parent class method
         # return super().process_batch_for_training(batch)
         # return self.process_batch_for_training(batch)
+    
+    def postprocess_batch_for_training(self, batch, normalization_stats, normalize_actions=True):
+        batch = super().postprocess_batch_for_training(batch, normalization_stats, normalize_actions)
+
+        B, T, A = batch["actions"].shape
+        self.orig_shape = batch["actions"].shape
+        batch["actions"] = batch["actions"].view(B, -1)
+
+        return batch
 
     def _get_latent_plan(self, obs, goal):
         # assert 'agentview_image' in obs.keys() # only visual inputs can generate latent plans
@@ -238,6 +247,9 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
                 "actions": dists
             }
             if unnorm_stats:
+                if self.global_config.train.prestacked_actions:
+                    out_dict["actions"] = out_dict["actions"].view(self.orig_shape)
+
                 out_dict = ObsUtils.unnormalize_batch(out_dict, normalization_stats=unnorm_stats)
             
             out_dict["actions"] = out_dict["actions"]

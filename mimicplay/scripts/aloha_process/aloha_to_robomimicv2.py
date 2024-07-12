@@ -46,20 +46,26 @@ observations: dict with keys:  <KeysViewHDF5 ['effort', 'images', 'qpos', 'qvel'
 
 
 def get_future_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
-    future_traj = []
-
-    for i in range(POINT_GAP, (FUTURE_POINTS_COUNT + 1) * POINT_GAP, POINT_GAP):
-        # Identify the indices for the current and prior points
-        index_current = min(len(arr) - 1, i)
-
-        current_point = arr[index_current]
-        future_traj.extend(current_point)
-
-    return future_traj
+    """
+    arr: (T, ACTION_DIM)
+    POINT_GAP: how many timesteps to skip
+    FUTURE_POINTS_COUNT: how many future points to collect
+    given an array arr, prepack the future points into each timestep.  return an array of size (T, FUTURE_POINTS_COUNT, ACTION_DIM).  If there are not enough future points, pad with the last point.
+    do it purely vectorized
+    """
+    T, ACTION_DIM = arr.shape
+    result = np.zeros((T, FUTURE_POINTS_COUNT, ACTION_DIM))
+    
+    for t in range(T):
+        future_indices = np.arange(t, t + POINT_GAP * (FUTURE_POINTS_COUNT), POINT_GAP)
+        future_indices = np.clip(future_indices, 0, T - 1)
+        result[t] = arr[future_indices]
+    
+    return result
 
 
 def is_valid_path(path):
-    return not os.path.isdir(path) and "episode" in path
+    return not os.path.isdir(path) and "episode" in path and ".hdf5" in path
 
 
 if __name__ == "__main__":
@@ -83,6 +89,11 @@ if __name__ == "__main__":
         choices=["hand", "robot"],  # Restrict to only 'hand' or 'robot'
         help="Choose which data-type - hand or robot",
     )
+    parser.add_argument(
+        "--prestack",
+        action="store_true"
+    )
+
     args = parser.parse_args()
 
     chain = pk.build_serial_chain_from_urdf(
@@ -95,8 +106,10 @@ if __name__ == "__main__":
     # before converting everything, check it all at least opens
     for file in tqdm(os.listdir(args.dataset)):
         # print("Trying to open " + file)
-        if is_valid_path(os.path.join(args.dataset, file)):
-            with h5py.File(os.path.join(args.dataset, file), "r") as f:
+        to_open = os.path.join(args.dataset, file)
+        print(to_open)
+        if is_valid_path(to_open):
+            with h5py.File(to_open, "r") as f:
                 pass
 
     with h5py.File(args.out, "w", rdcc_nbytes=1024**2 * 2) as dataset:
@@ -112,10 +125,6 @@ if __name__ == "__main__":
             with h5py.File(aloha_demo_path, "r") as aloha_hdf5:
                 demo_number = aloha_demo.split("_")[1].split(".")[0]
                 demo_i_group = data_group.create_group(f"demo_{demo_number}")
-                if args.data_type == "hand":
-                    demo_i_group["label"] = np.array([1])
-                elif args.data_type == "robot":
-                    demo_i_group["label"] = np.array([0])
                 demo_i_group.attrs["num_samples"] = aloha_hdf5["action"].shape[0]
                 demo_i_obs_group = demo_i_group.create_group("obs")
 
@@ -157,27 +166,23 @@ if __name__ == "__main__":
                     POINT_GAP = 15
                     FUTURE_POINTS_COUNT = 10
 
-                future_traj_data = np.array(
-                    [
-                        get_future_points(
-                            fk_positions[j:], POINT_GAP, FUTURE_POINTS_COUNT
-                        )
-                        for j in range(len(fk_positions))
-                    ]
+                # actions_joints
+                joint_actions = aloha_hdf5["action"][:, 7:]
+                if args.prestack:
+                    joint_actions = get_future_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+                demo_i_group.create_dataset(
+                    "actions_joints", data=joint_actions
                 )
 
-                # breakpoint()
-                # actions
-                demo_i_group.create_dataset("actions", data=future_traj_data)
-                demo_i_group.create_dataset(
-                    "actions_joints", data=aloha_hdf5["action"][:, 7:]
-                )
+                # actions_xyz
                 fk_positions = chain.forward_kinematics(
                     torch.from_numpy(aloha_hdf5["action"][:, 7:13]), end_only=True
                 ).get_matrix()[:, :3, 3]
                 fk_positions = ee_pose_to_cam_frame(
                     fk_positions, EXTRINSICS[args.extrinsics]
                 )[:, :3]
+                if args.prestack:
+                    fk_positions = get_future_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
                 demo_i_group.create_dataset("actions_xyz", data=fk_positions)
 
                 # print(chain.forward_kinematics(torch.from_numpy(aloha_hdf5["observations"]["qpos"][10, 7:13])[None, :], end_only=True).get_matrix()[:, :3, 3])

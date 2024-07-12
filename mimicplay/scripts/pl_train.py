@@ -29,9 +29,17 @@ import matplotlib.pyplot as plt
 from mimicplay.pl_utils.pl_train_utils import train, eval
 from mimicplay.pl_utils.pl_data_utils import json_to_config
 import torch
+import numpy as np
 
 
 def main(args):
+    # set random seeds
+    torch.manual_seed(0)
+    torch.backends.cudnn.deterministic = True
+    # numpy seeds
+    np.random.seed(0)
+
+
     if args.config is not None:
         ext_cfg = json.load(open(args.config, "r"))
         config = config_factory(ext_cfg["algo_name"])
@@ -131,6 +139,7 @@ def main(args):
         config.experiment.name = "debug_run"
         config.train.gpus_per_node = 1
         config.train.num_nodes = 1
+        config.train.num_data_workers = 0
     elif args.profiler != "none":
         # shrink length of training to test whether this run is likely to crash
         config.unlock()

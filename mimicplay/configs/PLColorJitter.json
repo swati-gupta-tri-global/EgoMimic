@@ -40,10 +40,10 @@
         }
     },
     "train": {
-        "data": "/coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_aria_apr11/rawAria/oboo_aria_apr11/converted/oboo_aria_apr11_Mimicplay_LH3.hdf5",
+        "data": "/coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_aria_apr11/rawAria/oboo_aria_apr11/converted/oboo_aria_apr11_Mimicplay_LH3_prestacked.hdf5",
         "data_type": "hand",
         "data_2": null,
-        "alternate_val": "/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3Mimicplay.hdf5",
+        "alternate_val": "/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3Mimicplay_3dim.hdf5",
         "output_dir": "../trained_models_highlevel",
         "num_data_workers": 8,
         "hdf5_cache_mode": "low_dim",
@@ -53,11 +53,11 @@
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
-        "seq_length": 1,
+        "seq_length": 10,
+        "seq_length_to_load": 1,
+        "prestacked_actions": true,
         "dataset_keys": [
-            "actions",
-            "rewards",
-            "dones"
+            "actions"
         ],
         "goal_mode": null,
         "cuda": true,

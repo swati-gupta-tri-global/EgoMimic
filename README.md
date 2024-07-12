@@ -27,7 +27,7 @@ On robot run
 
 ex) 
 ```bash
-python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5  --extrinsics humanoidApr16 --data-type robot
+python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16_prestacked.hdf5  --extrinsics humanoidApr16 --data-type robot --prestack
 ```
 
 
@@ -117,6 +117,7 @@ Dirty laundry
 
 - Remember: type == 0 is robot, type==1 is hand
 - Now that our hdf5's have either hand or robot data, we can just specify this from the config.  So simply set config.train.data_type and config.train.data2_type to hand or robot.
+- Make sure to set train.prestacked_actions = True when dataset actions are prestacked.  Hand data is prestacked and of shape (N, T, 3) bc coordinate frame changes each step.  Set seq_length to load should be 1 for this case
 
 
 Dataloader should output batch with following format.  Not currently using dones or rewards

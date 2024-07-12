@@ -35,3 +35,4 @@ dependencies:
     - arm_pytorch_utilities
     - pytorch-kinematics
     - pytorch-lightning
+    - projectaria-tools'[all]'

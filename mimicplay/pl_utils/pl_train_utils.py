@@ -23,6 +23,7 @@ from mimicplay.pl_utils.pl_data_utils import (
     json_to_config,
 )
 import signal
+import json
 
 class PreemptionHandler(Callback):
     def __init__(self):
@@ -100,7 +101,7 @@ def eval(config, ckpt_path, type):
     datamodule = get_data_module(
         trainset, validset, train_sampler, valid_sampler, config
     )
-    model = ModelWrapper.load_from_checkpoint(ckpt_path, datamodule=datamodule)
+    model = ModelWrapper.load_from_checkpoint(ckpt_path, datamodule=datamodule, config_json=json.dumps(config))
     # model=ModelWrapper(model, datamodule)
     step_log = model.custom_eval(video_dir)
     # write step_log to file
