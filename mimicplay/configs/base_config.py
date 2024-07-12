@@ -219,6 +219,7 @@ class BaseConfig(Config):
         # and whether to pad the beginning / end of the sequence at boundaries of trajectory in dataset
         self.train.seq_length = 1
         self.train.seq_length_to_load = 1
+        self.train.prestacked_actions = False
         self.train.pad_seq_length = True
         self.train.frame_stack = 1
         self.train.pad_frame_stack = True

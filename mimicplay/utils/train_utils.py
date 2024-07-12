@@ -199,6 +199,7 @@ def dataset_factory(config, obs_keys, type, filter_by_attribute=None, dataset_pa
         seq_length_to_load=config.train.seq_length_to_load,
         type=type,
         ac_key=config.train.ac_key,
+        prestacked_actions=config.train.prestacked_actions,
     )
     dataset = PlaydataSequenceDataset(**ds_kwargs)
 
