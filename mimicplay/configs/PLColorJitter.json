@@ -40,16 +40,16 @@
         }
     },
     "train": {
-        "data": "/coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_aria_apr11/rawAria/oboo_aria_apr11/converted/oboo_aria_apr11_Mimicplay_LH3_prestacked.hdf5",
+        "data": "/coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_yellow_jun12/converted/oboo_yellow_jun12_ACTGMMCompat.hdf5",
         "data_type": "hand",
         "data_2": null,
-        "alternate_val": "/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3Mimicplay_3dim.hdf5",
+        "alternate_val": "/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3_ACTGMMCompat.hdf5",
         "output_dir": "../trained_models_highlevel",
         "num_data_workers": 8,
         "hdf5_cache_mode": "low_dim",
         "hdf5_use_swmr": true,
         "hdf5_normalize_obs": true,
-        "ac_key": "actions",
+        "ac_key": "actions_xyz",
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
@@ -57,7 +57,7 @@
         "seq_length_to_load": 1,
         "prestacked_actions": true,
         "dataset_keys": [
-            "actions"
+            "actions_xyz"
         ],
         "goal_mode": null,
         "cuda": true,
@@ -210,17 +210,9 @@
                     "flatten": true,
                     "backbone_class": "ViT_Rein",
                     "backbone_kwargs": {
-                        "pretrained": false,
-                        "input_coord_conv": false
+                        "return_key": "x_norm_clstoken"
                     },
-                    "pool_class": null,
-                    "pool_kwargs": {
-                        "num_kp": 32,
-                        "learnable_temperature": false,
-                        "temperature": 1.0,
-                        "noise_std": 0.0,
-                        "output_variance": false
-                    }
+                    "pool_class": null
                 },
                 "obs_randomizer_class": "CropResizeColorRandomizer",
                 "obs_randomizer_kwargs": {

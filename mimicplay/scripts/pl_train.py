@@ -284,7 +284,7 @@ def train_argparse():
     )
 
     parser.add_argument(
-        "--ckpt_path",
+        "--ckpt-path",
         type=str,
         default=None,
         help="path to pytorch lightning ckpt file",

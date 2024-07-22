@@ -109,12 +109,8 @@ class ACT(BC_VAE):
         self.a_hat_store = None
 
         rand_kwargs = self.global_config.observation.encoder.rgb.obs_randomizer_kwargs
-        brightness = 0.0 if "brightness" not in rand_kwargs else rand_kwargs.brightness
-        contrast = 0.0 if "contrast" not in rand_kwargs else rand_kwargs.contrast
-        saturation = 0.0 if "saturation" not in rand_kwargs else rand_kwargs.saturation
-        hue = 0.0 if "hue" not in rand_kwargs else rand_kwargs.hue
         self.color_jitter = transforms.ColorJitter(
-            brightness=brightness, contrast=contrast, saturation=saturation, hue=hue
+            brightness=(rand_kwargs.brightness_min, rand_kwargs.brightness_max), contrast=(rand_kwargs.contrast_min, rand_kwargs.contrast_max), saturation=(rand_kwargs.saturation_min, rand_kwargs.saturation_max), hue=(rand_kwargs.hue_min, rand_kwargs.hue_max)
         )
 
     def process_batch_for_training(self, batch):
@@ -181,8 +177,12 @@ class ACT(BC_VAE):
         images = []
         for cam_name in cam_keys:
             image = batch["obs"][cam_name]
-            image = self.color_jitter(image)
-            image = self.normalize(image)
+            # plt.imsave(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/actAugs/pre{time.time()}.png", image[0].permute(1, 2, 0).cpu().numpy())
+            if self.nets.training:
+                image = self.color_jitter(image)
+            
+            # plt.imsave(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/actAugs/post{time.time()}.png", image[0].permute(1, 2, 0).cpu().numpy())
+            # image = self.normalize(image)
             image = image.unsqueeze(axis=1)
             images.append(image)
         images = torch.cat(images, axis=1)

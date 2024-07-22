@@ -39,7 +39,10 @@
         }
     },
     "train": {
-        "data": null,
+        "data": "/coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_yellow_jun12/converted/oboo_yellow_jun12_ACTGMMCompat.hdf5",
+        "data_type": "hand",
+        "data_2": null,
+        "alternate_val": "/coc/flash7/datasets/egoplay/_DEBUG/hand_data_robo_cam_jun3/hand_data_robo_cam_jun3_ACTGMMCompat.hdf5",
         "output_dir":"../trained_models_highlevel",
         "num_data_workers": 5,
         "hdf5_cache_mode": "low_dim",
@@ -47,15 +50,16 @@
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
-        "hdf5_normalize_obs": false,
+        "hdf5_normalize_obs": true,
         "seq_length": 100,
-        "seq_length_to_load": 25,
-        "ac_key": "actions",
+        "seq_length_to_load": 1,
+        "prestacked_actions": true,
+        "ac_key": "actions_xyz_act",
         "pad_seq_length": true,
         "frame_stack": 1,
         "pad_frame_stack": true,
         "dataset_keys": [
-            "actions"
+            "actions_xyz_act"
         ],
         "goal_mode": null,
         "cuda": true,
@@ -88,7 +92,7 @@
         "act": {
             "hidden_dim": 512,
             "dim_feedforward": 3200,
-            "backbone": "resnet18",
+            "backbone": "vit",
             "enc_layers": 4,
             "dec_layers": 7,
             "nheads": 8,
@@ -148,10 +152,14 @@
                     "crop_width": 76,
                     "num_crops": 1,
                     "pos_enc": false,
-                    "brightness": 0.5,
-                    "contrast": 0.2,
-                    "saturation": 0.2,
-                    "hue": 0.05
+                    "brightness_min": 1.1,
+                    "brightness_max": 1.7,
+                    "contrast_min": 0.9,
+                    "contrast_max": 1.0,
+                    "saturation_min": 0.7,
+                    "saturation_max": 1.1,
+                    "hue_min": 0.02,
+                    "hue_max": 0.05
                 }
             },
             "depth": {

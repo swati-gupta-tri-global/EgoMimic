@@ -180,18 +180,18 @@ def train(config, ckpt_path=None):
             print("Normalization stats for dataset 2: ", trainset_2.get_obs_normalization_stats())
 
 
-    # setup for a new training runs
-    model = algo_factory(
-        algo_name=config.algo_name,
-        config=config,
-        obs_key_shapes=shape_meta["all_shapes"],
-        ac_dim=shape_meta["ac_dim"],
-        device="cuda",  # default to cpu, pl will move to gpu
-    )
+    # # setup for a new training runs
+    # model = algo_factory(
+    #     algo_name=config.algo_name,
+    #     config=config,
+    #     obs_key_shapes=shape_meta["all_shapes"],
+    #     ac_dim=shape_meta["ac_dim"],
+    #     device="cuda",  # default to cpu, pl will move to gpu
+    # )
 
-    print("\n============= Model Summary =============")
-    print(model)  # print model summary
-    print("")
+    # print("\n============= Model Summary =============")
+    # print(model)  # print model summary
+    # print("")
 
     # if config.train.ckpt_path is not None:
     #     model = ModelWrapper.load_from_checkpoint(config.train.ckpt_path, model=model).model
@@ -301,6 +301,9 @@ def train(config, ckpt_path=None):
         ac_key=config.train.ac_key,
     )
     model = ModelWrapper(config.dump(), shape_meta, datamodule)
+    print("\n============= Model Summary =============")
+    print(model)  # print model summary
+    print("")
 
     trainer.fit(
         model=model,

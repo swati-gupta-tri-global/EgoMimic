@@ -34,6 +34,8 @@ from mimicplay.scripts.aloha_process.simarUtils import (
     WIDE_LENS_HAND_LEFT_K,
 )
 
+from robomimic.utils.dataset import interpolate_keys, interpolate_arr
+
 HORIZON = 10
 STEP = 3.0
 
@@ -61,6 +63,9 @@ parser.add_argument(
 parser.add_argument(
     "--single-action", action="store_true", help="if true, stores current action"
 )
+# parser.add_argument(
+#     "--prestack", action="store_true", help="if true, stacks actions in Tx3"
+# )
 
 args = parser.parse_args()
 
@@ -138,231 +143,97 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
     transform = slam_to_rgb()
 
     for t in range(frame_length + 1):
-        # if t >= 5000:
+        # if t >= 2000:
         #     break
-        if not single_action:
-            if t + HORIZON * STEP < frame_length + 1:
-                if (t % 1000) == 0:
-                    print(f"{t} frames ingested")
-                ## sampled image and camera pose at time t
-                sample_timestamp_ns_t: int = stream_timestamps_ns["rgb"][t]
-                sample_frames = {
-                    key: provider.get_image_data_by_time_ns(
-                        stream_id,
-                        sample_timestamp_ns_t,
-                        time_domain,
-                        time_query_closest,
-                    )[0]
-                    for key, stream_id in stream_ids.items()
-                }
-                front_img_1_t = undistort_to_linear(
-                    provider,
-                    stream_ids,
-                    raw_image=sample_frames["rgb"].to_numpy_array(),
+        if t + HORIZON * STEP < frame_length + 1:
+            if (t % 1000) == 0:
+                print(f"{t} frames ingested")
+            ## sampled image and camera pose at time t
+            sample_timestamp_ns_t: int = stream_timestamps_ns["rgb"][t]
+            sample_frames = {
+                key: provider.get_image_data_by_time_ns(
+                    stream_id,
+                    sample_timestamp_ns_t,
+                    time_domain,
+                    time_query_closest,
+                )[0]
+                for key, stream_id in stream_ids.items()
+            }
+            front_img_1_t = undistort_to_linear(
+                provider,
+                stream_ids,
+                raw_image=sample_frames["rgb"].to_numpy_array(),
+            )
+            ## obs ee_pose
+            wrist_and_palm_pose_t = mps_data_provider.get_wrist_and_palm_pose(
+                sample_timestamp_ns_t, time_query_closest
+            )
+
+            rotation_matrix = np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])
+
+            if hand == "right":
+                ee_pose_obs_t_rot = (
+                    transform
+                    @ wrist_and_palm_pose_t.right_hand.palm_position_device
+                ).T
+                ee_pose_obs_t = np.dot(ee_pose_obs_t_rot, rotation_matrix.T)
+                actions_t = np.zeros((10, 3))
+            elif hand == "left":
+                ee_pose_obs_t_rot = (
+                    transform @ wrist_and_palm_pose_t.left_hand.palm_position_device
+                ).T
+                ee_pose_obs_t = np.dot(ee_pose_obs_t_rot, rotation_matrix.T)
+                actions_t = np.zeros((10, 3))
+            elif hand == "bimanual":
+                pose_l = (
+                    transform @ wrist_and_palm_pose_t.left_hand.palm_position_device
+                ).T
+                pose_r = (
+                    transform
+                    @ wrist_and_palm_pose_t.right_hand.palm_position_device
+                ).T
+
+                pose_l_rot = np.dot(pose_l, rotation_matrix.T)
+                pose_r_rot = np.dot(pose_r, rotation_matrix.T)
+
+                ee_pose_obs_t = np.concatenate(
+                    (pose_l_rot, pose_r_rot), axis=None
+                )  ## left, right -> [x, y, z, x, y, z]
+                actions_t = np.zeros((10, 6))
+            ## t to t + 9
+
+            # breakpoint()
+
+            pose_t = mps_data_provider.get_closed_loop_pose(
+                sample_timestamp_ns_t, time_query_closest
+            )
+
+            camera_matrix = build_camera_matrix(vrs_data_provider, pose_t)
+            camera_t_inv = np.linalg.inv(camera_matrix)
+
+            for offset in range(HORIZON):
+                sample_timestamp_ns = stream_timestamps_ns["rgb"][
+                    int(t + offset * STEP)
+                ]
+                wrist_and_palm_pose = mps_data_provider.get_wrist_and_palm_pose(
+                    sample_timestamp_ns, time_query_closest
                 )
-                ## obs ee_pose
-                wrist_and_palm_pose_t = mps_data_provider.get_wrist_and_palm_pose(
-                    sample_timestamp_ns_t, time_query_closest
-                )
-
-                rotation_matrix = np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])
-
-                if hand == "right":
-                    ee_pose_obs_t_rot = (
-                        transform
-                        @ wrist_and_palm_pose_t.right_hand.palm_position_device
-                    ).T
-                    ee_pose_obs_t = np.dot(ee_pose_obs_t_rot, rotation_matrix.T)
-                    actions_t = np.zeros((10, 3))
-                elif hand == "left":
-                    ee_pose_obs_t_rot = (
-                        transform @ wrist_and_palm_pose_t.left_hand.palm_position_device
-                    ).T
-                    ee_pose_obs_t = np.dot(ee_pose_obs_t_rot, rotation_matrix.T)
-                    actions_t = np.zeros((10, 3))
-                elif hand == "bimanual":
-                    pose_l = (
-                        transform @ wrist_and_palm_pose_t.left_hand.palm_position_device
-                    ).T
-                    pose_r = (
-                        transform
-                        @ wrist_and_palm_pose_t.right_hand.palm_position_device
-                    ).T
-
-                    pose_l_rot = np.dot(pose_l, rotation_matrix.T)
-                    pose_r_rot = np.dot(pose_r, rotation_matrix.T)
-
-                    ee_pose_obs_t = np.concatenate(
-                        (pose_l_rot, pose_r_rot), axis=None
-                    )  ## left, right -> [x, y, z, x, y, z]
-                    actions_t = np.zeros((10, 6))
-                ## t to t + 9
-
-                # breakpoint()
-
-                pose_t = mps_data_provider.get_closed_loop_pose(
-                    sample_timestamp_ns_t, time_query_closest
-                )
-
-                camera_matrix = build_camera_matrix(vrs_data_provider, pose_t)
-                camera_t_inv = np.linalg.inv(camera_matrix)
-
-                for offset in range(HORIZON):
-                    sample_timestamp_ns = stream_timestamps_ns["rgb"][
-                        int(t + offset * STEP)
-                    ]
-                    wrist_and_palm_pose = mps_data_provider.get_wrist_and_palm_pose(
-                        sample_timestamp_ns, time_query_closest
-                    )
-                    ## LR pose at time t + offset in camera t + offset frame
-                    right_palm = (
-                        transform @ wrist_and_palm_pose.right_hand.palm_position_device
-                    ).T
-                    left_palm = (
-                        transform @ wrist_and_palm_pose.left_hand.palm_position_device
-                    ).T
-
-                    pose_offset = mps_data_provider.get_closed_loop_pose(
-                        sample_timestamp_ns, time_query_closest
-                    )
-                    camera_matrix_offset = build_camera_matrix(
-                        vrs_data_provider, pose_offset
-                    )
-
-                    if hand == "right":
-                        if np.any(right_palm) or not np.all(right_palm == 0):
-                            right_palm_hom = np.append(right_palm, 1)
-                            hand_world = np.dot(
-                                camera_matrix_offset, right_palm_hom
-                            )  ## hand_pose[t + offset] in world frame
-                            hand_in_camera_t_frame = np.dot(
-                                camera_t_inv, hand_world
-                            )  ## hand_pose[t + offset] in camera t frame
-                            actions_t[offset] = hand_in_camera_t_frame[:3]
-                    elif hand == "left":
-                        if np.any(left_palm) or not np.all(left_palm == 0):
-                            left_palm_hom = np.append(left_palm, 1)
-                            hand_world = np.dot(
-                                camera_matrix_offset, left_palm_hom
-                            )  ## hand_pose[t + offset] in world frame
-                            hand_in_camera_t_frame = np.dot(
-                                camera_t_inv, hand_world
-                            )  ## hand_pose[t + offset] in camera t frame
-                            actions_t[offset] = hand_in_camera_t_frame[:3]
-                    elif hand == "bimanual":
-                        if (np.any(right_palm) or not np.all(right_palm == 0)) or (
-                            np.any(left_palm) or not np.all(left_palm == 0)
-                        ):
-                            ## right palm
-                            right_palm_hom = np.append(right_palm, 1)
-                            hand_world_r = np.dot(
-                                camera_matrix_offset, right_palm_hom
-                            )  ## right hand_pose[t + offset] in world frame
-                            hand_in_camera_t_frame_r = np.dot(
-                                camera_t_inv, hand_world_r
-                            )  ## right hand_pose[t + offset] in world frame
-
-                            ## left palm
-                            left_palm_hom = np.append(left_palm, 1)
-                            hand_world_l = np.dot(
-                                camera_matrix_offset, left_palm_hom
-                            )  ## left hand_pose[t + offset] in world frame
-                            hand_in_camera_t_frame_l = np.dot(
-                                camera_t_inv, hand_world_l
-                            )  ## left hand_pose[t + offset] in camera t frame
-                            actions_t[offset] = np.concatenate(
-                                (
-                                    hand_in_camera_t_frame_l[:3],
-                                    hand_in_camera_t_frame_r[:3],
-                                ),
-                                axis=None,
-                            )
-
-                if actions_t.shape == (10, 6):
-                    # [x1 y1 z1 x2 y2 z2] -> [[x1 y1 z1], [x2 y2 z2]]
-                    # actions_t_reshaped = actions_t.reshape(-1, 3)
-
-                    # # apply rotation
-                    # rotated_actions_t_reshaped = np.dot(actions_t_reshaped, rotation_matrix.T)
-
-                    # # Reshape back to [x1 y1 z1 x2 y2 z2]
-                    # rotated_actions_t = rotated_actions_t_reshaped.reshape(10, 6)
-                    actions_t_l = actions_t[:, :3]
-                    actions_t_r = actions_t[:, 3:]
-                    actions_t_rot_l = np.dot(actions_t_l, rotation_matrix.T)
-                    actions_t_rot_r = np.dot(actions_t_r, rotation_matrix.T)
-                    rotated_actions_t = np.concatenate(
-                        (actions_t_rot_l, actions_t_rot_r), axis=1
-                    )
-
-                else:
-                    rotated_actions_t = np.dot(actions_t, rotation_matrix.T)
-
-                if np.any(rotated_actions_t) or not np.all(rotated_actions_t == 0):
-                    actions.append(rotated_actions_t.flatten())
-                    front_img_1.append(front_img_1_t)
-                    ee_pose.append(np.ravel(ee_pose_obs_t))
-        else:
-            if t + 1 < frame_length + 1:
-                if (t % 1000) == 0:
-                    print(f"{t} frames ingested")
-
-                ## sampled image and camera pose at time t
-                sample_timestamp_ns_t: int = stream_timestamps_ns["rgb"][t]
-                sample_frames = {
-                    key: provider.get_image_data_by_time_ns(
-                        stream_id,
-                        sample_timestamp_ns_t,
-                        time_domain,
-                        time_query_closest,
-                    )[0]
-                    for key, stream_id in stream_ids.items()
-                }
-                front_img_1_t = undistort_to_linear(
-                    provider,
-                    stream_ids,
-                    raw_image=sample_frames["rgb"].to_numpy_array(),
-                )
-                ## obs ee_pose
-                wrist_and_palm_pose_t = mps_data_provider.get_wrist_and_palm_pose(
-                    sample_timestamp_ns_t, time_query_closest
-                )
-
-                pose_t = mps_data_provider.get_closed_loop_pose(
-                    sample_timestamp_ns_t, time_query_closest
-                )
-
-                camera_matrix = build_camera_matrix(vrs_data_provider, pose_t)
-                camera_t_inv = np.linalg.inv(camera_matrix)
-
-                sample_timestamp_ns_next = stream_timestamps_ns["rgb"][t + 1]
-                wrist_and_palm_pose_next = mps_data_provider.get_wrist_and_palm_pose(
-                    sample_timestamp_ns_next, time_query_closest
-                )
+                ## LR pose at time t + offset in camera t + offset frame
                 right_palm = (
-                    transform @ wrist_and_palm_pose_next.right_hand.palm_position_device
+                    transform @ wrist_and_palm_pose.right_hand.palm_position_device
                 ).T
                 left_palm = (
-                    transform @ wrist_and_palm_pose_next.left_hand.palm_position_device
+                    transform @ wrist_and_palm_pose.left_hand.palm_position_device
                 ).T
 
                 pose_offset = mps_data_provider.get_closed_loop_pose(
-                    sample_timestamp_ns_next, time_query_closest
+                    sample_timestamp_ns, time_query_closest
                 )
                 camera_matrix_offset = build_camera_matrix(
                     vrs_data_provider, pose_offset
                 )
 
-                rotation_matrix = np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])
-
                 if hand == "right":
-                    actions_t = np.zeros((3,))
-
-                    ee_pose_obs_t_rot = (
-                        transform
-                        @ wrist_and_palm_pose_t.right_hand.palm_position_device
-                    ).T
-                    ee_pose_obs_t = np.dot(ee_pose_obs_t_rot, rotation_matrix.T)
                     if np.any(right_palm) or not np.all(right_palm == 0):
                         right_palm_hom = np.append(right_palm, 1)
                         hand_world = np.dot(
@@ -371,13 +242,8 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
                         hand_in_camera_t_frame = np.dot(
                             camera_t_inv, hand_world
                         )  ## hand_pose[t + offset] in camera t frame
-                        actions_t = hand_in_camera_t_frame[:3]
+                        actions_t[offset] = hand_in_camera_t_frame[:3]
                 elif hand == "left":
-                    actions_t = np.zeros((3,))
-                    ee_pose_obs_t_rot = (
-                        transform @ wrist_and_palm_pose_t.left_hand.palm_position_device
-                    ).T
-                    ee_pose_obs_t = np.dot(ee_pose_obs_t_rot, rotation_matrix.T)
                     if np.any(left_palm) or not np.all(left_palm == 0):
                         left_palm_hom = np.append(left_palm, 1)
                         hand_world = np.dot(
@@ -386,23 +252,8 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
                         hand_in_camera_t_frame = np.dot(
                             camera_t_inv, hand_world
                         )  ## hand_pose[t + offset] in camera t frame
-                        actions_t = hand_in_camera_t_frame[:3]
+                        actions_t[offset] = hand_in_camera_t_frame[:3]
                 elif hand == "bimanual":
-                    actions_t = np.zeros((6,))
-                    pose_l = (
-                        transform @ wrist_and_palm_pose_t.left_hand.palm_position_device
-                    ).T
-                    pose_r = (
-                        transform
-                        @ wrist_and_palm_pose_t.right_hand.palm_position_device
-                    ).T
-
-                    pose_l_rot = np.dot(pose_l, rotation_matrix.T)
-                    pose_r_rot = np.dot(pose_r, rotation_matrix.T)
-
-                    ee_pose_obs_t = np.concatenate(
-                        (pose_l_rot, pose_r_rot), axis=None
-                    )  ## left, right -> [x, y, z, x, y, z]
                     if (np.any(right_palm) or not np.all(right_palm == 0)) or (
                         np.any(left_palm) or not np.all(left_palm == 0)
                     ):
@@ -423,7 +274,7 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
                         hand_in_camera_t_frame_l = np.dot(
                             camera_t_inv, hand_world_l
                         )  ## left hand_pose[t + offset] in camera t frame
-                        actions_t = np.concatenate(
+                        actions_t[offset] = np.concatenate(
                             (
                                 hand_in_camera_t_frame_l[:3],
                                 hand_in_camera_t_frame_r[:3],
@@ -431,29 +282,31 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
                             axis=None,
                         )
 
-                if actions_t.shape == (6,):
-                    # [x1 y1 z1 x2 y2 z2] -> [[x1 y1 z1], [x2 y2 z2]]
-                    # actions_t_reshaped = actions_t.reshape(-1, 3)
+            if actions_t.shape == (10, 6):
+                # [x1 y1 z1 x2 y2 z2] -> [[x1 y1 z1], [x2 y2 z2]]
+                # actions_t_reshaped = actions_t.reshape(-1, 3)
 
-                    # # apply rotation
-                    # rotated_actions_t_reshaped = np.dot(actions_t_reshaped, rotation_matrix.T)
+                # # apply rotation
+                # rotated_actions_t_reshaped = np.dot(actions_t_reshaped, rotation_matrix.T)
 
-                    # # Reshape back to [x1 y1 z1 x2 y2 z2]
-                    # rotated_actions_t = rotated_actions_t_reshaped.reshape(10, 6)
-                    actions_t_l = actions_t[:3]
-                    actions_t_r = actions_t[3:]
-                    actions_t_rot_l = np.dot(actions_t_l, rotation_matrix.T)
-                    actions_t_rot_r = np.dot(actions_t_r, rotation_matrix.T)
-                    rotated_actions_t = np.concatenate(
-                        (actions_t_rot_l, actions_t_rot_r)
-                    )
-                else:
-                    rotated_actions_t = np.dot(actions_t, rotation_matrix.T)
+                # # Reshape back to [x1 y1 z1 x2 y2 z2]
+                # rotated_actions_t = rotated_actions_t_reshaped.reshape(10, 6)
+                actions_t_l = actions_t[:, :3]
+                actions_t_r = actions_t[:, 3:]
+                actions_t_rot_l = np.dot(actions_t_l, rotation_matrix.T)
+                actions_t_rot_r = np.dot(actions_t_r, rotation_matrix.T)
+                rotated_actions_t = np.concatenate(
+                    (actions_t_rot_l, actions_t_rot_r), axis=1
+                )
 
-                if np.any(rotated_actions_t) or not np.all(rotated_actions_t == 0):
-                    actions.append(rotated_actions_t.flatten())
-                    front_img_1.append(front_img_1_t)
-                    ee_pose.append(np.ravel(ee_pose_obs_t))
+            else:
+                rotated_actions_t = np.dot(actions_t, rotation_matrix.T)
+
+            if np.any(rotated_actions_t) or not np.all(rotated_actions_t == 0):
+                actions.append(rotated_actions_t.flatten())
+                front_img_1.append(front_img_1_t)
+                ee_pose.append(np.ravel(ee_pose_obs_t))
+
 
     actions, front_img_1, ee_pose = (
         np.array(actions),
@@ -560,9 +413,17 @@ with h5py.File(args.out, "w") as f:
         for i in range(0, N, chunk_size):
             # print(i)
             group = data.create_group(f"demo_{demo_index}")
-            group.create_dataset("label", data=np.array([1]))
-            group.create_dataset("actions", data=actions[i : i + chunk_size])
-            group.attrs["num_samples"] = group["actions"].shape[0]
+            # group.create_dataset("label", data=np.array([1]))
+            # if args.prestack:
+            ac_reshape = actions[i : i + chunk_size].reshape(-1, HORIZON, 3)
+            group.create_dataset("actions_xyz", data=ac_reshape)
+
+            ac_reshape_interp = interpolate_arr(ac_reshape, 100)
+            group.create_dataset("actions_xyz_act", data=ac_reshape_interp)
+                
+            # else:
+            #     group.create_dataset("actions", data=actions[i : i + chunk_size])
+            group.attrs["num_samples"] = group["actions_xyz"].shape[0]
             group.create_dataset(
                 "obs/front_img_1", data=front_img_1[i : i + chunk_size]
             )

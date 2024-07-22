@@ -89,6 +89,8 @@ def nds(nested_ds, tab_level=0):
         print("dict with keys: ", nested_ds.keys())
     elif is_listy(nested_ds):
         print("list of len: ", len(nested_ds))
+    elif nested_ds is None:
+        print("None")
     else:
         # print('\t' * (tab_level), end='')
         print(nested_ds.shape)
