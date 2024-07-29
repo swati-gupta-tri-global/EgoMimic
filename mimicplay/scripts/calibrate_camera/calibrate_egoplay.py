@@ -7,14 +7,16 @@ import cv2
 import argparse
 import json
 import h5py
+from tqdm import tqdm
 
 from mimicplay.scripts.aloha_process.simarUtils import (
-    WIDE_LENS_ROBOT_LEFT_K,
-    WIDE_LENS_ROBOT_LEFT_D,
+    # WIDE_LENS_ROBOT_LEFT_K,
+    # WIDE_LENS_ROBOT_LEFT_D,
+    ARIA_INTRINSICS
 )
 
 from scipy.spatial.transform import Rotation as Rot
-
+import matplotlib.pyplot as plt
 from rpl_vision_utils.utils.apriltag_detector import AprilTagDetector
 
 
@@ -59,7 +61,7 @@ def main():
     # with open(os.path.join(args.config_folder, f"camera_{args.camera_id}_{args.camera_type}.json"), "r") as f:
     #     intrinsics = json.load(f)
     # TODO: THESE ARE JUST TEMP VALUES
-    intrinsics = WIDE_LENS_ROBOT_LEFT_K
+    intrinsics = ARIA_INTRINSICS
     intrinsics = {
         "color": {
             "fx": intrinsics[0, 0],
@@ -75,17 +77,17 @@ def main():
     t_base2gripper_list = []
     R_target2cam_list = []
     t_target2cam_list = []
-
+    calib = calib["data"]
     count = 0
     for key in calib.keys():
         demo = calib[key]
         T, H, W, _ = demo["obs/front_img_1"].shape
-        for t in range(T):
+        for t in tqdm(range(T)):
 
             img = demo["obs/front_img_1"][t]
-            img = cv2.undistort(
-                img, WIDE_LENS_ROBOT_LEFT_K[:, :3], WIDE_LENS_ROBOT_LEFT_D
-            )
+            # img = cv2.undistort(
+            #     img, WIDE_LENS_ROBOT_LEFT_K[:, :3], WIDE_LENS_ROBOT_LEFT_D
+            # )
 
             detect_result = april_detector.detect(
                 img,
@@ -97,7 +99,7 @@ def main():
             if len(detect_result) != 1:
                 print(f"wrong detection, skipping img {t}")
                 if args.debug:
-                    cv2.imwrite(f"calibration_imgs/{t}_fail.png", img)
+                    plt.imsave(f"calibration_imgs/{t}_fail.png", img)
 
                 continue
 
@@ -105,10 +107,10 @@ def main():
             # draw bounding box on img and save
             if args.debug:
                 img = april_detector.vis_tag(img)
-                cv2.imwrite(f"calibration_imgs/{t}_detection.png", img)
+                plt.imsave(f"calibration_imgs/{t}_detection.png", img)
 
             count += 1
-            pose = demo["obs/ee_pose"][t]
+            pose = demo["obs/ee_pose_robot_frame"][t]
             assert pose.shape == (7,)
             pos = pose[0:3]
             rot = Rot.from_quat(pose[3:])
