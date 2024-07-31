@@ -179,23 +179,6 @@ def train(config, ckpt_path=None):
         if config.train.hdf5_normalize_obs:
             print("Normalization stats for dataset 2: ", trainset_2.get_obs_normalization_stats())
 
-
-    # # setup for a new training runs
-    # model = algo_factory(
-    #     algo_name=config.algo_name,
-    #     config=config,
-    #     obs_key_shapes=shape_meta["all_shapes"],
-    #     ac_dim=shape_meta["ac_dim"],
-    #     device="cuda",  # default to cpu, pl will move to gpu
-    # )
-
-    # print("\n============= Model Summary =============")
-    # print(model)  # print model summary
-    # print("")
-
-    # if config.train.ckpt_path is not None:
-    #     model = ModelWrapper.load_from_checkpoint(config.train.ckpt_path, model=model).model
-
     # save the config as a json file
     if RANK == 0:
         with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
