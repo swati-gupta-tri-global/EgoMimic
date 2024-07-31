@@ -49,13 +49,13 @@
         "hdf5_validation_filter_key": "valid",
         "hdf5_normalize_obs": true,
         "seq_length": 100,
-        "seq_length_to_load": 100,
+        "seq_length_to_load": 1,
+        "prestacked_actions": true,
         "ac_key": "actions_joints",
         "pad_seq_length": true,
         "frame_stack": 1,
         "pad_frame_stack": true,
         "dataset_keys": [
-            "actions_xyz",
             "actions_joints"
         ],
         "goal_mode": null,
@@ -89,7 +89,7 @@
         "act": {
             "hidden_dim": 512,
             "dim_feedforward": 3200,
-            "backbone": "resnet18",
+            "backbone": "vit_rein",
             "enc_layers": 4,
             "dec_layers": 7,
             "nheads": 8,
@@ -148,7 +148,15 @@
                     "crop_height": 76,
                     "crop_width": 76,
                     "num_crops": 1,
-                    "pos_enc": false
+                    "pos_enc": false,
+                    "brightness_min": 1.1,
+                    "brightness_max": 1.7,
+                    "contrast_min": 0.9,
+                    "contrast_max": 1.0,
+                    "saturation_min": 0.7,
+                    "saturation_max": 1.1,
+                    "hue_min": 0.02,
+                    "hue_max": 0.05
                 }
             },
             "depth": {

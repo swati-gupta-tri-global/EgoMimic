@@ -36,3 +36,4 @@ dependencies:
     - pytorch-kinematics
     - pytorch-lightning
     - projectaria-tools'[all]'
+    - positional-encodings[pytorch]

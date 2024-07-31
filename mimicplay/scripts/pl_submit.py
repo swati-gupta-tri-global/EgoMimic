@@ -53,7 +53,7 @@ if __name__ == "__main__":
         slurm_qos=slurm_qos,
         slurm_mem_per_gpu="40G",
         timeout_min=60 * 24 * 2,
-        slurm_exclude="omgwth",
+        slurm_exclude="chappie",
     )
     # The submission interface is identical to concurrent.futures.Executor
 
