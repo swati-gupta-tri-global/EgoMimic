@@ -6,6 +6,7 @@ from mimicplay.scripts.aloha_process.simarUtils import (
     nds,
     EXTRINSICS,
     WIDE_LENS_ROBOT_LEFT_K,
+    ARIA_INTRINSICS,
     ee_pose_to_cam_frame,
     AlohaFK,
     robo_to_aria_imstyle,
@@ -17,7 +18,8 @@ import os
 from mimicplay.algo.act import ACT
 import scipy
 
-CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
+CURR_EXTRINSICS = EXTRINSICS["ariaJul29R"]
+INTRINSICS = ARIA_INTRINSICS
 EENORM = False
 VIGNETTE = False
 INTERP = False
@@ -50,7 +52,6 @@ def evaluate_high_level_policy(
         "final_mse": [],  # for each trajectory compute MSE(gt_t+T, pred_t+T)
     }
 
-    intrinsics = WIDE_LENS_ROBOT_LEFT_K
     aloha_fk = AlohaFK()
 
     count = 0
@@ -64,10 +65,17 @@ def evaluate_high_level_policy(
 
     model.set_eval()
 
+    front_cam_name = None
+    for cam_name in model.global_config.observation.modalities.obs.rgb:
+        if "front_img" in cam_name:
+            front_cam_name = cam_name
+    if front_cam_name is None:
+        raise ValueError("Front camera not found in observation modalities.  Val utils expects that the main front camera key contains 'front_img'")
+
     for i, data in enumerate(data_loader):
         if isinstance(data, list):
             data = data[0]
-        B = data["obs"]["front_img_1"].shape[0]
+        B = data[ac_key].shape[0]
         if max_samples is not None and i * B > max_samples:
             break
         # import matplotlib.pyplot as plt
@@ -98,7 +106,7 @@ def evaluate_high_level_policy(
         print(i)
         for b in range(B):
             im = (
-                input_batch["obs"]["front_img_1"][b].permute((1, 2, 0)).cpu().numpy()
+                input_batch["obs"][front_cam_name][b].permute((1, 2, 0)).cpu().numpy()
                 * 255
             ).astype(np.uint8)
             if isinstance(model, ACT):
@@ -121,7 +129,7 @@ def evaluate_high_level_policy(
                 if EENORM:
                     pred_values = pred_values - offset.cpu().numpy()
 
-            if ac_key == "actions_joints":
+            if "joints" in ac_key: 
                 pred_values_drawable, actions_drawable = aloha_fk.fk(
                     pred_values[:, :6]
                 ), aloha_fk.fk(actions[:, :6])
@@ -132,12 +140,10 @@ def evaluate_high_level_policy(
                 pred_values_drawable, actions_drawable = pred_values, actions
 
             pred_values_drawable = cam_frame_to_cam_pixels(
-                pred_values_drawable, intrinsics
+                pred_values_drawable, INTRINSICS
             )
-            actions_drawable = cam_frame_to_cam_pixels(actions_drawable, intrinsics)
+            actions_drawable = cam_frame_to_cam_pixels(actions_drawable, INTRINSICS)
             # heuristic to throw out bad actions
-            if actions_drawable.min(axis=0)[1] < 250:
-                continue
             frame = draw_dot_on_frame(
                 im, pred_values_drawable, show=False, palette="Purples"
             )
@@ -146,11 +152,6 @@ def evaluate_high_level_policy(
             )
 
             add_metrics(metrics, actions, pred_values)
-
-            if GOAL_COND:
-                goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
-                frame = miniviewer(frame, goal_frame)
-
             if count == T:
                 if video_dir is not None:
                     torchvision.io.write_video(
@@ -178,7 +179,7 @@ def evaluate_high_level_policy(
 
         summary_metrics[key] = mean_stat
 
-    if ac_key == "actions_joints":
+    if "joints" in ac_key:
         to_return = {
             f"{type}_paired_mse_avg": np.mean(summary_metrics["paired_mse"]),
             f"{type}_final_mse_avg": np.mean(summary_metrics["final_mse"]),

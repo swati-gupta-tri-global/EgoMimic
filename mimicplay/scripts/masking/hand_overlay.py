@@ -8,6 +8,7 @@ import h5py
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import cv2
+from mimicplay.scripts.masking.utils import Inpainter, inpaint_hdf5
 
 def show_mask(mask, ax, random_color=False, borders = True):
     if random_color:
@@ -76,7 +77,7 @@ def get_bounds(binary_image):
 
     return min_x, max_x, min_y, max_y
 
-def main(args):
+def sam_processing(dataset, debug=False):
     if torch.cuda.get_device_properties(0).major >= 8:
         # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -90,15 +91,17 @@ def main(args):
 
     predictor = SAM2ImagePredictor(sam2_model)
 
-    with h5py.File(args.dataset, "r+") as data:
+    with h5py.File(dataset, "r+") as data:
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
             for i in tqdm(range(len(data["data"].keys()))):
                 demo = data[f"data/demo_{i}"]
                 imgs = demo["obs/front_img_1"]
                 ee_poses = demo["obs/ee_pose"]
                 prompts = cam_frame_to_cam_pixels(ee_poses[:], ARIA_INTRINSICS)[:, :2]
+
                 masked_imgs = np.zeros_like(imgs)
                 overlayed_imgs = np.zeros_like(imgs)
+                raw_masks = np.zeros((imgs.shape[0], 480, 640)).astype(bool)
 
 
                 # TODO: this can be batched
@@ -121,9 +124,10 @@ def main(args):
                     
                     masked_img = img.copy()
                     masked_img[masks[0] == 1] = 0
+                    raw_masks[k] = masks[0].astype(bool)
                     masked_imgs[k] = masked_img
 
-                    if args.debug:
+                    if debug:
                         masked_img = cv2.cvtColor(masked_img, cv2.COLOR_BGR2RGB)
                         cv2.imwrite(f"./overlays/demo_{i}_masked_{k}.png", masked_img)
 
@@ -138,7 +142,7 @@ def main(args):
                     line_image = cv2.line(masked_img.copy(), (min_x,min_y),(max_x,max_y),color=(255,0,0), thickness=25)
                     overlayed_imgs[k] = line_image
 
-                    if args.debug:
+                    if debug:
                         cv2.imwrite(f"./overlays/demo_{i}_line_{k}.png", line_image)
 
                     # show_masks(img, masks, scores, point_coords=input_point, input_labels=input_label, borders=True)
@@ -150,39 +154,21 @@ def main(args):
                 if "front_img_1_line" in demo["obs"]:
                     print("Deleting existing line images")
                     del demo["obs/front_img_1_line"]
+                if "front_img_1_mask" in demo["obs"]:
+                    print("Deleting existing masks")
+                    del demo["obs/front_img_1_mask"]
 
                 demo["obs"].create_dataset("front_img_1_masked", data=masked_imgs, chunks=(1, 480, 640, 3))
+                demo["obs"].create_dataset("front_img_1_mask", data=raw_masks, chunks=(1, 480, 640), dtype=bool)
                 demo["obs"].create_dataset("front_img_1_line", data=overlayed_imgs, chunks=(1, 480, 640, 3))
 
-                # batched
-                # imgs_batch = [imgs[i] for i in range(imgs.shape[0])][:50]
-                # labels_batch = [np.array([[1]]) for i in range(imgs.shape[0])][:50]
-                # prompts_batch = [prompts[[i]][None, :] for i in range(imgs.shape[0])][:50]
+def main(args):
+    if args.sam:
+        sam_processing(args.dataset, args.debug)
 
-                # predictor.set_image_batch(imgs_batch)
-
-
-                # masks_batch, scores_batch, _ = predictor.predict_batch(prompts_batch, labels_batch, box_batch=None, multimask_output=True)
-
-                # # Select the best single mask per object
-                # best_masks = []
-                # for masks, scores in zip(masks_batch,scores_batch):
-                #     # best_masks.append(masks[range(len(masks)), np.argmax(scores, axis=-1)])
-                #     best_masks.append(masks[np.argmax(scores, axis=-1)])
-                
-                # count = 0
-                # # show the first mask and image
-                # for image, points, labels, best_mask in zip(imgs_batch, prompts_batch, labels_batch, best_masks):
-                #     plt.figure(figsize=(10, 10))
-                #     plt.imshow(image)   
-                #     # for mask in masks:
-                #     show_mask(best_mask, plt.gca(), random_color=True)
-                #     show_points(points, labels, plt.gca())
-                #     plt.savefig(f"best_mask_{count}.png")
-                #     plt.close()
-                #     count += 1
-                
-                # breakpoint()
+    if args.inpaint:
+        inpainter = Inpainter()
+        inpaint_hdf5(args.dataset, inpainter)
 
 
 if __name__ == '__main__':
@@ -192,6 +178,8 @@ if __name__ == '__main__':
     '''
     parser = argparse.ArgumentParser(description='Process an HDF5 file.')
     parser.add_argument('--dataset', type=str, help='HDF5 file name')
+    parser.add_argument('--sam', action='store_true', help='Use SAM2 for masking')
+    parser.add_argument('--inpaint', action='store_true', help='Inpaint the masked images')
     # parser.add_argument('--change_type', type=int, help='Type of change: 0-masked image 1-line on unmasked image 2-line on masked image')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
 

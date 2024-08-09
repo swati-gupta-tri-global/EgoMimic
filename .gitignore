@@ -25,3 +25,4 @@ mimicplay/*.png
 act/detr/detr.egg-info/PKG-INFO
 mimicplay/v_3_after.png
 mimicplay/v_3.png
+mimicplay/scripts/masking/overlays/
