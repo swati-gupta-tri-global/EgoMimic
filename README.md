@@ -27,7 +27,7 @@ On robot run
 
 ex) 
 ```bash
-python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16_prestacked.hdf5  --extrinsics humanoidApr16 --data-type robot --prestack
+python aloha_to_robomimicv2.py --dataset <ds path> --out </path/to/out.hdf5> --data-type robot --prestack --arm right --extrinsics ariaJul29R
 ```
 
 
