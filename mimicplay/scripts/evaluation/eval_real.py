@@ -20,26 +20,12 @@ Args:
 """
 
 import argparse
-import json
 import numpy as np
-import scipy
 import time
 import os
-import psutil
-import sys
-import traceback
-
-from collections import OrderedDict
 
 import torch
-from torch.utils.data import DataLoader
-
-import robomimic.utils.train_utils as TrainUtils
-import robomimic.utils.torch_utils as TorchUtils
 import robomimic.utils.obs_utils as ObsUtils
-import robomimic.utils.env_utils as EnvUtils
-import robomimic.utils.file_utils as FileUtils
-from robomimic.utils.log_utils import PrintLogger, DataLogger
 from torchvision.utils import save_image
 import cv2
 from interbotix_common_modules.common_robot.robot import (
@@ -48,9 +34,8 @@ from interbotix_common_modules.common_robot.robot import (
     robot_startup,
 )
 from mimicplay.scripts.evaluation.norm_stats import NORM_STATS
-from aloha.constants import DT
+from aloha.constants import DT, FOLLOWER_GRIPPER_JOINT_OPEN, START_ARM_POSE
 
-PUPPET_GRIPPER_JOINT_OPEN = 1.0
 
 from mimicplay.scripts.aloha_process.simarUtils import (
     cam_frame_to_cam_pixels,
@@ -70,15 +55,14 @@ from mimicplay.configs import config_factory
 from mimicplay.pl_utils.pl_model import ModelWrapper
 import datetime
 
-from aloha.robot_utils import move_grippers  # requires aloha
+from aloha.robot_utils import move_grippers, move_arms  # requires aloha
 from aloha.real_env import make_real_env  # requires aloha
 
 from mimicplay.scripts.evaluation.real_utils import *
 import matplotlib.pyplot as plt
 from mimicplay.algo.act import ACT
+from mimicplay.scripts.masking.utils import SAM
 
-from IPython.core import ultratb
-import sys
 
 # For debugging
 # sys.excepthook = ultratb.FormattedTB(mode="Plain", color_scheme="Neutral", call_pdb=1)
@@ -88,45 +72,96 @@ CURR_INTRINSICS = ARIA_INTRINSICS
 CURR_EXTRINSICS = EXTRINSICS["ariaJul29R"]
 CAMERA_NAMES = ["cam_high", "cam_right_wrist"]
 # NORM_STATS = to_torch(NORM_STATS, torch.device("cuda"))
+CAM_KEY = "front_img_1_line"
+TEMPORAL_AGG = False
 
 
-def eval_real(model, config, env, rollout_dir):
+class TemporalAgg:
+    def __init__(self):
+        self.recent_actions = []
+    
+    def add_action(self, action):
+        """
+            actions: (100, 7) tensor
+        """
+        self.recent_actions.append(action)
+        if len(self.recent_actions) > 4:
+            del self.recent_actions[0]
+
+    def smoothed_action(self):
+        """
+            returns smooth action (100, 7)
+        """
+        mask = []
+        count = 0
+
+        shifted_actions = []
+        # breakpoint()
+
+        for ac in self.recent_actions[::-1]:
+            basic_mask = np.zeros(100)
+            basic_mask[:100-count] = 1
+            mask.append(basic_mask)
+            shifted_ac = ac[count:]
+            shifted_ac = np.concatenate([shifted_ac, np.zeros((count, 7))], axis=0)
+            shifted_actions.append(shifted_ac)
+            count += 25
+
+        mask = mask[::-1]
+        mask = ~(np.array(mask).astype(bool))
+        recent_actions = shifted_actions[::-1]
+        recent_actions = np.array(recent_actions)
+        # breakpoint()
+        mask = np.repeat(mask[:, :, None], 7, axis=2)
+        smoothed_action = np.ma.array(recent_actions, mask=mask).mean(axis=0)
+
+        # PLOT_JOINT = 0
+        # for i in range(recent_actions.shape[0]):
+        #     plt.plot(recent_actions[i, :, PLOT_JOINT], label=f"index{i}")
+        # plt.plot(smoothed_action[:, PLOT_JOINT], label="smooth")
+        # plt.legend()
+        # plt.savefig("smoothing.png")
+        # plt.close()
+        # breakpoint()
+
+        return smoothed_action
+
+def eval_real(model, env, rollout_dir):
     device = torch.device("cuda")
 
     aloha_fk = AlohaFK()
+    sam = SAM()
 
-    # query_frequency = policy_config['num_queries']
-    # if temporal_agg:
-    #     query_frequency = 1
-    #     num_queries = policy_config['num_queries']
-    query_frequency = 100
+    query_frequency = 25
+
 
     # max_timesteps = int(max_timesteps * 1)  # may increase for real-world tasks
-
+    qpos_t, actions_t = [], []
     num_rollouts = 50
     for rollout_id in range(num_rollouts):
-        rollout_id += 0
+        if TEMPORAL_AGG:
+            TA = TemporalAgg()
 
         ts = env.reset()
 
         t0 = time.time()
         with torch.inference_mode():
             rollout_images = []
-            for t in range(700):
+            for t in range(1000):
                 obs = ts.observation
                 # plt.imsave(os.path.join(rollout_dir, f"viz{t}.png"), obs["images"]["cam_high"])
                 # plt.imsave(os.path.join(rollout_dir, f"wrist{t}.png"), obs["images"]["cam_right_wrist"])
 
                 qpos = np.array(obs["qpos"])
                 qpos = torch.from_numpy(qpos).float().unsqueeze(0).to(device)
+                inference_t = time.time()
+
 
                 ### query policy
                 if t % query_frequency == 0:
+                    # put observation into robomimic format
                     data = {
                         "obs": {
-                            "front_img_1": (
-                                torch.from_numpy(obs["images"]["cam_high"][None, None, :])
-                            ).to(torch.uint8),
                             "right_wrist_img": (
                                 torch.from_numpy(obs["images"]["cam_right_wrist"][None, None, :])
                             ).to(torch.uint8),
@@ -137,87 +172,115 @@ def eval_real(model, config, env, rollout_dir):
                         "type": torch.tensor([0]),
                     }
 
+                    # add regular or line overlay top camera
+                    if CAM_KEY == "front_img_1":
+                        data["obs"][CAM_KEY] = torch.from_numpy(
+                            obs["images"]["cam_high"][None, None, :]
+                        ).to(torch.uint8)
+                    elif CAM_KEY == "front_img_1_line":
+                        _, line_image = sam.get_robot_mask(obs["images"]["cam_high"][None, :], qpos[..., 7:])
+                        line_image = line_image[0]
+                        data["obs"][CAM_KEY] = torch.from_numpy(
+                            line_image[None, None, :]
+                        ).to(torch.uint8)
+
                     # postprocess_batch
                     input_batch = model.process_batch_for_training(
                         data, "actions_joints"
                     )
-                    input_batch["obs"]["front_img_1"] = input_batch["obs"][
-                        "front_img_1"
-                    ].permute(0, 3, 1, 2)
-                    input_batch["obs"]["right_wrist_img"] = input_batch["obs"][
-                        "right_wrist_img"
-                    ].permute(0, 3, 1, 2)
-                    input_batch["obs"]["front_img_1"] /= 255.0
+                    input_batch["obs"][CAM_KEY] = input_batch["obs"][CAM_KEY].permute(0, 3, 1, 2)
+                    input_batch["obs"]["right_wrist_img"] = input_batch["obs"]["right_wrist_img"].permute(0, 3, 1, 2)
+                    input_batch["obs"][CAM_KEY] /= 255.0
                     input_batch["obs"]["right_wrist_img"] /= 255.0
                     input_batch = ObsUtils.normalize_batch(input_batch, normalization_stats=NORM_STATS, normalize_actions=False)
                     info = model.forward_eval(input_batch, unnorm_stats=NORM_STATS)
 
+                    all_actions = info["actions"].cpu().numpy()
 
-                    # Draw Actions
-                    im = data["obs"]["front_img_1"][0, 0].cpu().numpy()
-                    pred_values = info["actions"][0].cpu().numpy()
-
-                    if "joints" in model.ac_key:
-                        pred_values_drawable = aloha_fk.fk(pred_values[:, :6])
-                        pred_values_drawable = ee_pose_to_cam_frame(pred_values_drawable, CURR_EXTRINSICS)
-                    else:
-                        pred_values_drawable = pred_values
-
-                    all_actions = info["actions"]
-
-                    pred_values_drawable = cam_frame_to_cam_pixels(
-                        pred_values_drawable, CURR_INTRINSICS
-                    )
-
-                    im = np.array(im, dtype="uint8")
-                    frame = draw_dot_on_frame(
-                        im, pred_values_drawable[[0, 10, 20, 30, 40, 50, 60, 70, 80, 90]], show=False, palette="Greens"
-                    )
+                    if TEMPORAL_AGG:
+                        TA.add_action(all_actions[0])
+                        all_actions = TA.smoothed_action()[None, :]
 
 
-                    # Draw ee_pose
-                    ee_pose_input = aloha_fk.fk(qpos[:, 7:13]).to(device)
-                    ee_pose_cam_frame = ee_pose_to_cam_frame(
-                        ee_pose_input.cpu().numpy(), CURR_EXTRINSICS
-                    )[:, None, :]
-                    ee_pose_pixels = cam_frame_to_cam_pixels(
-                        ee_pose_cam_frame[0], CURR_INTRINSICS
-                    )
-                    frame = draw_dot_on_frame(
-                        frame, ee_pose_pixels, show=False, palette="Set1"
-                    )
+                    if rollout_dir:
+                        # Draw Actions
+                        im = data["obs"][CAM_KEY][0, 0].cpu().numpy()
+                        pred_values = info["actions"][0].cpu().numpy()
+
+                        if "joints" in model.ac_key:
+                            pred_values_drawable = aloha_fk.fk(pred_values[:, :6])
+                            pred_values_drawable = ee_pose_to_cam_frame(pred_values_drawable, CURR_EXTRINSICS)
+                        else:
+                            pred_values_drawable = pred_values
 
 
-                    # Save images
-                    rollout_images.append(frame)
-                    plt.imsave(os.path.join(rollout_dir, f"viz{t}.png"), frame)
-                    plt.imsave(os.path.join(rollout_dir, f"wrist_rgb{t}.png"), data["obs"]["right_wrist_img"][0, 0].cpu().numpy())
-
-                    if False:
-                        all_actions_numpy = all_actions.cpu().numpy()
-                        # fig, ax = plt.subplots()
-                        # ax = plot_joint_pos(ax, all_actions_numpy)
-                        all_actions_numpy = scipy.ndimage.gaussian_filter1d(
-                            all_actions_numpy, axis=1, sigma=2
+                        pred_values_drawable = cam_frame_to_cam_pixels(
+                            pred_values_drawable, CURR_INTRINSICS
                         )
-                        # ax = plot_joint_pos(ax, all_actions_numpy, linestyle="dotted")
-                        # fig.savefig(os.path.join(ckpt_dir, f"rolloutViz_{rollout_id}", "actions.png"))
-                        all_actions = torch.from_numpy(all_actions_numpy).to(
-                            all_actions.device
+
+                        im = np.array(im, dtype="uint8")
+                        frame = draw_dot_on_frame(
+                            im, pred_values_drawable[[0, 10, 20, 30, 40, 50, 60, 70, 80, 90]], show=False, palette="Greens"
                         )
+
+
+                        # Draw ee_pose
+                        ee_pose_input = aloha_fk.fk(qpos[:, 7:13]).to(device)
+                        ee_pose_cam_frame = ee_pose_to_cam_frame(
+                            ee_pose_input.cpu().numpy(), CURR_EXTRINSICS
+                        )[:, None, :]
+                        ee_pose_pixels = cam_frame_to_cam_pixels(
+                            ee_pose_cam_frame[0], CURR_INTRINSICS
+                        )
+                        frame = draw_dot_on_frame(
+                            frame, ee_pose_pixels, show=False, palette="Set1"
+                        )
+
+
+                        # Save images
+                        rollout_images.append(frame)
+                        plt.imsave(os.path.join(rollout_dir, f"viz{t}.png"), frame)
+                        plt.imsave(os.path.join(rollout_dir, f"wrist_rgb{t}.png"), data["obs"]["right_wrist_img"][0, 0].cpu().numpy())
+                    
+                    print(f"Inference time: {time.time() - inference_t}")
 
                 raw_action = all_actions[:, t % query_frequency]
 
                 ### post-process actions
-                raw_action = raw_action.squeeze(0).cpu().numpy()
+                raw_action = raw_action[0]
                 # action = post_process(raw_action)
                 target_qpos = raw_action
                 # target_qpos = action
 
                 ### step the environment
                 target_qpos = np.concatenate([np.zeros(7), target_qpos])
+                print(f"DT: {time.time() - t0}")
+                t0 = time.time()
                 ts = env.step(target_qpos)
-                time.sleep(DT*2)
+
+                # debugging control loop
+                qpos_t.append(ts.observation["qpos"])
+                actions_t.append(target_qpos)
+
+                if not (t + 1) % query_frequency == 0:
+                    time.sleep(DT*2)
+        
+        if rollout_dir:
+            qpos_t = np.array(qpos_t)
+            actions_t = np.array(actions_t)
+            for i in range(7, 14):
+                plt.plot(qpos_t[:, i], label=f"qpos joint {i}")
+                plt.plot(actions_t[:, i], label=f"ac joint {i}")
+                plt.legend()
+
+                plt.savefig(f"/home/rl2-bonjour/EgoPlay/EgoPlay/debug_ims/joint{i}_actions.png")
+                plt.close()
+
+                plt.plot(actions_t[:, i] - qpos_t[:, i], label="error joint{i}")
+                plt.legend()
+
+                plt.savefig(f"/home/rl2-bonjour/EgoPlay/EgoPlay/debug_ims/joint{i}_error.png")
+                plt.close()
 
 
         # save_images(rollout_images, viz_dir)
@@ -226,8 +289,10 @@ def eval_real(model, config, env, rollout_dir):
 
         print("moving robot")
         move_grippers(
-            [env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5
+            [env.follower_bot_right], [FOLLOWER_GRIPPER_JOINT_OPEN], moving_time=0.5
         )  # open
+        move_arms([env.follower_bot_right], [START_ARM_POSE[:6]], moving_time=1.0)
+        time.sleep(12.0)
     return
 
 
@@ -235,14 +300,6 @@ def main(args):
     """
     Train a model using the algorithm.
     """
-
-    ext_cfg = json.load(open(args.config, "r"))
-    config = config_factory(ext_cfg["algo_name"])
-    # update config with external json - this will throw errors if
-    # the external config has keys not present in the base algo config
-    with config.values_unlocked():
-        config.update(ext_cfg)
-
     # first set seeds
     np.random.seed(101)
     torch.manual_seed(101)
@@ -264,7 +321,10 @@ def main(args):
     if not os.path.exists(rollout_dir):
         os.mkdir(rollout_dir)
 
-    eval_real(model.model, config, env, rollout_dir)
+    if not args.debug:
+        rollout_dir = None
+
+    eval_real(model.model, env, rollout_dir)
 
 
 
@@ -280,28 +340,6 @@ if __name__ == "__main__":
             If omitted, default settings are used. This is the preferred way to run experiments.",
     )
 
-    # Algorithm Name
-    # parser.add_argument(
-    #     "--algo",
-    #     type=str,
-    #     help="(optional) name of algorithm to run. Only needs to be provided if --config is not provided",
-    # )
-
-    # Experiment Name (for tensorboard, saving models, etc.)
-    parser.add_argument(
-        "--name",
-        type=str,
-        default=None,
-        help="(optional) if provided, override the experiment name defined in the config",
-    )
-
-    parser.add_argument(
-        "--description",
-        type=str,
-        default=None,
-        help="(optional) if provided, override the experiment description defined in the config",
-    )
-
     parser.add_argument(
         "--eval-path",
         type=str,
@@ -310,11 +348,8 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--gen-vid",
-        type=int,
-        default=1,
-        help="(optional) whether to generate videos or not 0 false 1 true.",
-        choices=[0, 1],
+        "--debug",
+        action="store_true"
     )
 
     args = parser.parse_args()

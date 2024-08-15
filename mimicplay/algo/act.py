@@ -409,7 +409,7 @@ class ACTSP(ACT):
 
         return predictions
 
-    def forward_eval(self, batch):
+    def forward_eval(self, batch, unnorm_stats=None):
         """
         Internal helper function for BC algo class. Compute forward pass
         and return network outputs in @predictions dict.
@@ -419,6 +419,8 @@ class ACTSP(ACT):
         Returns:
             predictions (dict): dictionary containing network outputs
         """
+        if unnorm_stats is not None:
+            print("Warning: unnorm stats are being ignored by actSP")
 
         modality = self._modality_check(batch)
         # TODO: remove hardcoding, this is because the current dataset I'm using lacks the type label
