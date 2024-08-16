@@ -72,7 +72,7 @@ CURR_INTRINSICS = ARIA_INTRINSICS
 CURR_EXTRINSICS = EXTRINSICS["ariaJul29R"]
 CAMERA_NAMES = ["cam_high", "cam_right_wrist"]
 # NORM_STATS = to_torch(NORM_STATS, torch.device("cuda"))
-CAM_KEY = "front_img_1_line"
+CAM_KEY = "front_img_1"
 TEMPORAL_AGG = False
 
 
@@ -148,6 +148,10 @@ def eval_real(model, env, rollout_dir):
         with torch.inference_mode():
             rollout_images = []
             for t in range(1000):
+                time.sleep(max(0, DT*2 - (time.time() - t0)))
+                # print(f"DT: {time.time() - t0}")
+                t0 = time.time()
+
                 obs = ts.observation
                 # plt.imsave(os.path.join(rollout_dir, f"viz{t}.png"), obs["images"]["cam_high"])
                 # plt.imsave(os.path.join(rollout_dir, f"wrist{t}.png"), obs["images"]["cam_right_wrist"])
@@ -254,17 +258,12 @@ def eval_real(model, env, rollout_dir):
 
                 ### step the environment
                 target_qpos = np.concatenate([np.zeros(7), target_qpos])
-                print(f"DT: {time.time() - t0}")
-                t0 = time.time()
                 ts = env.step(target_qpos)
 
                 # debugging control loop
                 qpos_t.append(ts.observation["qpos"])
                 actions_t.append(target_qpos)
 
-                if not (t + 1) % query_frequency == 0:
-                    time.sleep(DT*2)
-        
         if rollout_dir:
             qpos_t = np.array(qpos_t)
             actions_t = np.array(actions_t)
@@ -273,13 +272,13 @@ def eval_real(model, env, rollout_dir):
                 plt.plot(actions_t[:, i], label=f"ac joint {i}")
                 plt.legend()
 
-                plt.savefig(f"/home/rl2-bonjour/EgoPlay/EgoPlay/debug_ims/joint{i}_actions.png")
+                plt.savefig(f"/home/rl2-bonjour/EgoPlay/EgoPlay/debug_ims/joint{i}_actions.png", dpi=300)
                 plt.close()
 
                 plt.plot(actions_t[:, i] - qpos_t[:, i], label="error joint{i}")
                 plt.legend()
 
-                plt.savefig(f"/home/rl2-bonjour/EgoPlay/EgoPlay/debug_ims/joint{i}_error.png")
+                plt.savefig(f"/home/rl2-bonjour/EgoPlay/EgoPlay/debug_ims/joint{i}_error.png", dpi=300)
                 plt.close()
 
 
