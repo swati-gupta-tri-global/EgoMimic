@@ -87,7 +87,7 @@ class ModelWrapper(LightningModule):
                 self.model, batch, self.current_epoch, validate=False
             )
             batch = self.model.process_batch_for_training(batch, ac_key)
-            batch = self.model.postprocess_batch_for_training(batch, norm_dict)
+            batch = self.model.postprocess_batch_for_training(batch, norm_dict, normalize_actions=self.model.global_config.train.hdf5_normalize_actions)
             predictions = self.model._forward_training(batch)
             losses = self.model._compute_losses(predictions, batch)
             loss_dicts.append(losses)

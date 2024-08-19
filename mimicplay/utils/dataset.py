@@ -34,6 +34,7 @@ class PlaydataSequenceDataset(SequenceDataset):
         load_next_obs=True,
         seq_length_to_load=1,
         prestacked_actions=False,
+        hdf5_normalize_actions=False
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -100,7 +101,8 @@ class PlaydataSequenceDataset(SequenceDataset):
             filter_by_attribute=filter_by_attribute,
             load_next_obs=load_next_obs,
             ac_key=ac_key,
-            prestacked_actions=prestacked_actions
+            prestacked_actions=prestacked_actions,
+            hdf5_normalize_actions=hdf5_normalize_actions
         )
 
         self.type = type

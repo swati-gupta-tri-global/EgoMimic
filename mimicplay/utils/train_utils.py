@@ -200,6 +200,7 @@ def dataset_factory(config, obs_keys, type, filter_by_attribute=None, dataset_pa
         type=type,
         ac_key=config.train.ac_key,
         prestacked_actions=config.train.prestacked_actions,
+        hdf5_normalize_actions=config.train.hdf5_normalize_actions
     )
     dataset = PlaydataSequenceDataset(**ds_kwargs)
 

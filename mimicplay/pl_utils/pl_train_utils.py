@@ -25,6 +25,8 @@ from mimicplay.pl_utils.pl_data_utils import (
 import signal
 import json
 
+import pickle
+
 class PreemptionHandler(Callback):
     def __init__(self):
         super().__init__()
@@ -161,6 +163,9 @@ def train(config, ckpt_path=None):
     )
     if config.train.hdf5_normalize_obs:
         print("Normalization stats for dataset 1: ", trainset.get_obs_normalization_stats())
+        with open(os.path.join(log_dir, "..", "ds1_norm_stats.pkl"), "wb") as pickle_file:
+            pickle.dump(trainset.get_obs_normalization_stats(), pickle_file)
+
 
     if dataset_path_2:
         config_2 = copy.deepcopy(config)
@@ -175,9 +180,12 @@ def train(config, ckpt_path=None):
         config_2.train.ac_key = config_2.train.ac_key_hand
         config_2.train.seq_length = config_2.train.seq_length_hand
         config_2.train.seq_length_to_load = config_2.train.seq_length_to_load_hand
-        trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2, type=config.train.data2_type)
+        config_2.train.hdf5_filter_key = "train" #TODO: this is hardcoded for now, but should be a config option
+        trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2, type=config.train.data_2_type)
         if config.train.hdf5_normalize_obs:
             print("Normalization stats for dataset 2: ", trainset_2.get_obs_normalization_stats())
+            with open(os.path.join(log_dir, "..", "ds2_norm_stats.pkl"), "wb") as pickle_file:
+                pickle.dump(trainset_2.get_obs_normalization_stats(), pickle_file)
 
     # save the config as a json file
     if RANK == 0:

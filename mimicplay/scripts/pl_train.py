@@ -83,6 +83,9 @@ def main(args):
 
     if args.batch_size:
         config.train.batch_size = args.batch_size
+    
+    if args.train_key:
+        config.train.hdf5_filter_key = args.train_key
 
     if args.brightness is not None:
         config.observation.encoder.rgb.obs_randomizer_kwargs.brightness_min = (
@@ -342,6 +345,10 @@ def train_argparse():
 
     parser.add_argument(
         "--hue", nargs=2, help="hue min and max", default=None, type=float
+    )
+
+    parser.add_argument(
+        "--train-key", type=str, default=None
     )
 
     args = parser.parse_args()
