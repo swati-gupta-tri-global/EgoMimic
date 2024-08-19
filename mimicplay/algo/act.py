@@ -468,6 +468,8 @@ class ACTSP(ACT):
         Returns:
             predictions (dict): dictionary containing network outputs
         """
+        if unnorm_stats is not None:
+            print("Warning: unnorm stats are being ignored by actSP")
 
         modality = self._modality_check(batch)
 

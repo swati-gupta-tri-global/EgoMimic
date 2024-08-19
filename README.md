@@ -37,11 +37,7 @@ python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBO
 - This will output the transform matrices
 
 ### Overlays
-Create SAM environment
-```
-conda env create -f sam_env.yaml
-```
-Then follow SAM2 install (instructions)[https://github.com/facebookresearch/segment-anything-2]
+Install SAM to `eplay` via (instructions)[https://github.com/facebookresearch/segment-anything-2].  It should be possible to have both in same env, encountered issues on skynet but worked on local PC
 
 Hand overlay
 ```
