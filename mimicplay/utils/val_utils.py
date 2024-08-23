@@ -6,6 +6,7 @@ from mimicplay.scripts.aloha_process.simarUtils import (
     nds,
     EXTRINSICS,
     WIDE_LENS_ROBOT_LEFT_K,
+    ARIA_INTRINSICS,
     ee_pose_to_cam_frame,
     AlohaFK,
     robo_to_aria_imstyle,
@@ -14,13 +15,30 @@ import torchvision
 import numpy as np
 import torch
 import os
-from mimicplay.algo.act import ACT
+from mimicplay.algo.act import ACT, ACTSP
 import scipy
 
-CURR_EXTRINSICS = EXTRINSICS["humanoidApr16"]
+CURR_EXTRINSICS = EXTRINSICS["ariaJul29R"]
+INTRINSICS = ARIA_INTRINSICS
 EENORM = False
 VIGNETTE = False
 INTERP = False
+
+def draw_actions_on_frame(im, type, color, actions):
+    aloha_fk = AlohaFK()
+    if type == "joints": 
+        actions = aloha_fk.fk(actions[:, :6])
+        actions_drawable = ee_pose_to_cam_frame(actions, CURR_EXTRINSICS)
+    else:
+        actions_drawable = actions
+
+    actions_drawable = cam_frame_to_cam_pixels(actions_drawable, INTRINSICS)
+    im = draw_dot_on_frame(
+        im, actions_drawable, show=False, palette=color
+    )
+
+    return im
+
 
 
 def evaluate_high_level_policy(
@@ -50,7 +68,6 @@ def evaluate_high_level_policy(
         "final_mse": [],  # for each trajectory compute MSE(gt_t+T, pred_t+T)
     }
 
-    intrinsics = WIDE_LENS_ROBOT_LEFT_K
     aloha_fk = AlohaFK()
 
     count = 0
@@ -58,16 +75,21 @@ def evaluate_high_level_policy(
     T = 700
     video = torch.zeros((T, 480, 640, 3))
 
-    GOAL_COND = model.global_config.train.goal_mode
-
     normalization_stats = data_loader.dataset.get_obs_normalization_stats()
 
     model.set_eval()
 
+    front_cam_name = None
+    for cam_name in model.global_config.observation.modalities.obs.rgb:
+        if "front_img" in cam_name:
+            front_cam_name = cam_name
+    if front_cam_name is None:
+        raise ValueError("Front camera not found in observation modalities.  Val utils expects that the main front camera key contains 'front_img'")
+
     for i, data in enumerate(data_loader):
         if isinstance(data, list):
             data = data[0]
-        B = data["obs"]["front_img_1"].shape[0]
+        B = data[ac_key].shape[0]
         if max_samples is not None and i * B > max_samples:
             break
         # import matplotlib.pyplot as plt
@@ -78,79 +100,42 @@ def evaluate_high_level_policy(
         input_batch = model.postprocess_batch_for_training(
             input_batch, normalization_stats=normalization_stats, normalize_actions=False
         )  # TODO: look into obs norm
-        if GOAL_COND and "ee_pose" in input_batch["goal_obs"]:
-            del input_batch["goal_obs"]["ee_pose"]
+        unnorm_stats = normalization_stats if model.global_config.train.hdf5_normalize_actions else None
 
-        # offset and cam style change
-        if EENORM:
-            # offset = torch.tensor([[.05, .07, .13]]).to(input_batch["obs"]["ee_pose"].device)
-            offset = torch.tensor([[0.1, 0.07, 0.13]]).to(
-                input_batch["obs"]["ee_pose"].device
-            )
-            # offset = torch.tensor([[.07, .04, .0]]).to(input_batch["obs"]["ee_pose"].device)
-            input_batch["obs"]["ee_pose"] = input_batch["obs"]["ee_pose"] + offset
-        if VIGNETTE:
-            input_batch["obs"]["front_img_1"] = robo_to_aria_imstyle(
-                input_batch["obs"]["front_img_1"]
-            )
-
-        info = model.forward_eval(input_batch, unnorm_stats=normalization_stats)
+        info = model.forward_eval(input_batch, unnorm_stats=unnorm_stats)
         print(i)
         for b in range(B):
             im = (
-                input_batch["obs"]["front_img_1"][b].permute((1, 2, 0)).cpu().numpy()
+                input_batch["obs"][front_cam_name][b].permute((1, 2, 0)).cpu().numpy()
                 * 255
             ).astype(np.uint8)
-            if isinstance(model, ACT):
-                pred_values = info["actions"][b].cpu().numpy()
-                actions = input_batch["actions"][b].cpu().numpy()
-                if actions.shape[1] == 30:
-                    # print("Warning: using act model with dim 30 actions, so truncating to 3")
-                    # actions = actions[:, :3]
-                    assert (
-                        False
-                    ), "need to reimplement after realizing the hand data 30 dim action issue"
+            if isinstance(model, ACTSP) or isinstance(model, ACT):
+                if type == "robot":
+                    actions = input_batch["actions_joints_act"][b].cpu().numpy()
+                    pred_values = info["actions_joints_act"][b].cpu().numpy()
+                elif type == "hand":
+                    actions = input_batch["actions_xyz_act"][b].cpu().numpy()
+                    pred_values = info["actions_xyz_act"][b].cpu().numpy()
+                else:
+                    raise ValueError("type must be 'robot' or 'hand'")
             else:
-                pred_values = info["actions"][b].view((10, 3)).cpu().numpy()
-                actions = input_batch["actions"][b].view((10, 3)).cpu().numpy()
-                if INTERP:
-                    interp = scipy.interpolate.interp1d(
-                        np.linspace(0, 1, 10), actions, axis=0
-                    )
-                    actions = interp(np.linspace(0, 0.5, 10))
-                if EENORM:
-                    pred_values = pred_values - offset.cpu().numpy()
+                pred_values = info[ac_key][b].cpu().numpy()
+                actions = input_batch[ac_key][b].cpu().numpy()
 
-            if ac_key == "actions_joints":
-                pred_values_drawable, actions_drawable = aloha_fk.fk(
-                    pred_values[:, :6]
-                ), aloha_fk.fk(actions[:, :6])
-                pred_values_drawable, actions_drawable = ee_pose_to_cam_frame(
-                    pred_values_drawable, CURR_EXTRINSICS
-                ), ee_pose_to_cam_frame(actions_drawable, CURR_EXTRINSICS)
-            else:
-                pred_values_drawable, actions_drawable = pred_values, actions
+                if pred_values.shape == (30,):
+                    pred_values = pred_values.reshape(-1, 3)
+                if actions.shape == (30,):
+                    actions = actions.reshape(-1, 3)
 
-            pred_values_drawable = cam_frame_to_cam_pixels(
-                pred_values_drawable, intrinsics
-            )
-            actions_drawable = cam_frame_to_cam_pixels(actions_drawable, intrinsics)
-            # heuristic to throw out bad actions
-            if actions_drawable.min(axis=0)[1] < 250:
-                continue
-            frame = draw_dot_on_frame(
-                im, pred_values_drawable, show=False, palette="Purples"
-            )
-            frame = draw_dot_on_frame(
-                frame, actions_drawable, show=False, palette="Greens"
-            )
+            ac_type = "joints" if "joints" in ac_key else "xyz"
+
+            im = draw_actions_on_frame(im, ac_type, "Greens", actions)
+            im = draw_actions_on_frame(im, ac_type, "Purples", pred_values)
+
+            if isinstance(model, ACTSP) and type == "robot":
+                im = draw_actions_on_frame(im, "xyz", "Reds", info["actions_xyz_act"][b].cpu().numpy())
 
             add_metrics(metrics, actions, pred_values)
-
-            if GOAL_COND:
-                goal_frame = data["goal_obs"]["front_img_1"][b, 0].numpy()
-                frame = miniviewer(frame, goal_frame)
-
             if count == T:
                 if video_dir is not None:
                     torchvision.io.write_video(
@@ -162,7 +147,7 @@ def evaluate_high_level_policy(
                 count = 0
                 vids_written += 1
                 video = torch.zeros((T, 480, 640, 3))
-            video[count] = torch.from_numpy(frame)
+            video[count] = torch.from_numpy(im)
 
             count += 1
 
@@ -178,7 +163,7 @@ def evaluate_high_level_policy(
 
         summary_metrics[key] = mean_stat
 
-    if ac_key == "actions_joints":
+    if "joints" in ac_key:
         to_return = {
             f"{type}_paired_mse_avg": np.mean(summary_metrics["paired_mse"]),
             f"{type}_final_mse_avg": np.mean(summary_metrics["final_mse"]),

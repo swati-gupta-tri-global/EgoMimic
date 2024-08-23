@@ -163,15 +163,15 @@ if __name__ == "__main__":
                     POINT_GAP = 4
                     FUTURE_POINTS_COUNT = 10
                 elif args.data_type == "robot":
-                    POINT_GAP = 15
-                    FUTURE_POINTS_COUNT = 10
+                    POINT_GAP = 2
+                    FUTURE_POINTS_COUNT = 100
 
                 # actions_joints
                 joint_actions = aloha_hdf5["action"][:, 7:]
                 if args.prestack:
                     joint_actions = get_future_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
                 demo_i_group.create_dataset(
-                    "actions_joints", data=joint_actions
+                    "actions_joints_act", data=joint_actions
                 )
 
                 # actions_xyz
@@ -183,7 +183,7 @@ if __name__ == "__main__":
                 )[:, :3]
                 if args.prestack:
                     fk_positions = get_future_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-                demo_i_group.create_dataset("actions_xyz", data=fk_positions)
+                demo_i_group.create_dataset("actions_xyz_act", data=fk_positions)
 
                 # print(chain.forward_kinematics(torch.from_numpy(aloha_hdf5["observations"]["qpos"][10, 7:13])[None, :], end_only=True).get_matrix()[:, :3, 3])
                 # print(convert_qpos_to_eef(aloha_hdf5["observations"]["qpos"][10, 7:13]))

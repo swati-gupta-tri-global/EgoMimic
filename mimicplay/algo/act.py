@@ -139,7 +139,7 @@ class ACT(BC_VAE):
             "goal_obs", None
         )  # goals may not be present
         if ac_key in batch:
-            input_batch["actions"] = batch[ac_key]
+            input_batch[ac_key] = batch[ac_key]
 
         if "type" in batch:
             input_batch["type"] = batch["type"]
@@ -189,7 +189,7 @@ class ACT(BC_VAE):
 
         env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # this is not used
 
-        actions = batch["actions"] if "actions" in batch else None
+        actions = batch[self.ac_key] if self.ac_key in batch else None
         is_pad = batch["obs"]["pad_mask"] == 0  # from 1.0 or 0 to False and True
         is_pad = is_pad.squeeze(dim=-1)
         B, T = is_pad.shape
@@ -248,7 +248,8 @@ class ACT(BC_VAE):
             qpos, images, env_state, actions=None, is_pad=is_pad
         )
 
-        predictions = OrderedDict(actions=a_hat)
+        predictions = OrderedDict()
+        predictions[self.ac_key] = a_hat
 
         if unnorm_stats:
             predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
@@ -358,12 +359,56 @@ class ACTSP(ACT):
             self.global_config.observation_hand.modalities.obs.low_dim.copy()
         )
 
+        self.ac_key_hand = self.global_config.train.ac_key_hand
+        self.ac_key_robot = self.global_config.train.ac_key
+
         # self.proprio_dim = 0
         # for k in self.proprio_keys_hand:
         #     self.proprio_dim_hand += self.obs_key_shapes[k][0]
 
     def build_model_opt(self, policy_config):
         return build_single_policy_model_and_optimizer(policy_config)
+    
+    def process_batch_for_training(self, batch, ac_key):
+        """
+        Processes input batch from a data loader to filter out
+        relevant information and prepare the batch for training.
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader
+        Returns:
+            input_batch (dict): processed and filtered batch that
+                will be used for training
+        """
+
+        input_batch = dict()
+        input_batch["obs"] = {
+            k: batch["obs"][k][:, 0, :]
+            for k in batch["obs"]
+            if k != "pad_mask" and k != "type"
+        }
+        input_batch["obs"]["pad_mask"] = batch["obs"]["pad_mask"]
+        input_batch["goal_obs"] = batch.get(
+            "goal_obs", None
+        )  # goals may not be present
+
+        input_batch[self.ac_key_hand] = batch[self.ac_key_hand]
+        if self.ac_key_robot in batch:
+            input_batch[self.ac_key_robot] = batch[self.ac_key_robot]
+
+        if "type" in batch:
+            input_batch["type"] = batch["type"]
+
+        # we move to device first before float conversion because image observation modalities will be uint8 -
+        # this minimizes the amount of data transferred to GPU
+        return TensorUtils.to_float(TensorUtils.to_device(input_batch, self.device))
+
+    def _robomimic_to_act_data(self, batch, cam_keys, proprio_keys):
+        qpos, images, env_state, actions, is_pad = super()._robomimic_to_act_data(batch, cam_keys, proprio_keys)
+        actions_hand = batch[self.ac_key_hand]
+        actions_robot = batch[self.ac_key_robot] if self.ac_key_robot in batch else None
+
+        return qpos, images, env_state, actions_hand, actions_robot, is_pad
 
     def _forward_training(self, batch):
         """
@@ -377,27 +422,33 @@ class ACTSP(ACT):
         """
 
         modality = self._modality_check(batch)
-        if modality == "hand":
-            batch["actions"] = batch["actions"][
-                :, :, :3
-            ]  # HACK bc current ds is 30 dim
         cam_keys = (
             self.camera_keys if modality == "robot" else self.camera_keys[:1]
         )  # TODO Simar rm hardcoding
         proprio_keys = (
             self.proprio_keys_hand if modality == "hand" else self.proprio_keys
         )
-        qpos, images, env_state, actions, is_pad = self._robomimic_to_act_data(
+        qpos, images, env_state, actions_hand, actions_robot, is_pad = self._robomimic_to_act_data(
             batch, cam_keys, proprio_keys
         )
+    
+        actions = actions_hand if modality == "hand" else actions_robot
 
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](
             qpos, images, env_state, modality, actions=actions, is_pad=is_pad
         )
         total_kld, dim_wise_kld, mean_kld = self.kl_divergence(mu, logvar)
         loss_dict = dict()
-        all_l1 = F.l1_loss(actions, a_hat, reduction="none")
-        l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
+
+        if modality == "hand":
+            all_l1 = F.l1_loss(actions_hand, a_hat, reduction="none")
+            l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean() * self.global_config.algo.sp.hand_lambda
+            total_kld = total_kld * self.global_config.algo.sp.hand_lambda
+        elif modality == "robot":
+            all_l1_robot = F.l1_loss(actions_robot, a_hat[0], reduction="none")
+            all_l1_hand = F.l1_loss(actions_hand, a_hat[1], reduction="none")
+            l1 = (all_l1_robot * ~is_pad.unsqueeze(-1)).mean() + (all_l1_hand * ~is_pad.unsqueeze(-1)).mean()
+
         loss_dict["l1"] = l1
         loss_dict["kl"] = total_kld[0]
 
@@ -409,7 +460,7 @@ class ACTSP(ACT):
 
         return predictions
 
-    def forward_eval(self, batch):
+    def forward_eval(self, batch, unnorm_stats):
         """
         Internal helper function for BC algo class. Compute forward pass
         and return network outputs in @predictions dict.
@@ -421,15 +472,6 @@ class ACTSP(ACT):
         """
 
         modality = self._modality_check(batch)
-        # TODO: remove hardcoding, this is because the current dataset I'm using lacks the type label
-        if "right_wrist_img" in batch["obs"]:
-            modality = "robot"
-        else:
-            modality = "hand"
-        if modality == "hand":
-            batch["actions"] = batch["actions"][
-                :, :, :3
-            ]  # HACK bc current ds is 30 dim
 
         cam_keys = (
             self.camera_keys if modality == "robot" else self.camera_keys[:1]
@@ -437,13 +479,22 @@ class ACTSP(ACT):
         proprio_keys = (
             self.proprio_keys_hand if modality == "hand" else self.proprio_keys
         )
-        qpos, images, env_state, actions, is_pad = self._robomimic_to_act_data(
+        qpos, images, env_state, _, _, is_pad = self._robomimic_to_act_data(
             batch, cam_keys, proprio_keys
         )
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](
             qpos, images, env_state, modality, actions=None, is_pad=is_pad
         )
 
-        predictions = OrderedDict(actions=a_hat)
+        # a_hat = a_hat[0] if modality == "robot" else a_hat
+        if modality == "robot":
+            predictions = OrderedDict()
+            predictions[self.ac_key_robot] = a_hat[0]
+            predictions[self.ac_key_hand] = a_hat[1]
+            predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
+        else:
+            predictions = OrderedDict()
+            predictions[self.ac_key_hand] = a_hat
+            predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
 
         return predictions

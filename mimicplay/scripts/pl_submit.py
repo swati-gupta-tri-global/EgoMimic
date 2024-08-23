@@ -44,6 +44,7 @@ if __name__ == "__main__":
         )
 
     executor.update_parameters(
+        slurm_job_name=args.description,
         slurm_partition=slurm_partition,
         slurm_account=slurm_account,
         cpus_per_task=13,
