@@ -27,7 +27,7 @@ On robot run
 
 ex) 
 ```bash
-python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16_prestacked.hdf5  --extrinsics humanoidApr16 --data-type robot --prestack
+python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16_prestacked.hdf5  --extrinsics <newest extrinsics in SimarUtils.py> --data-type robot --prestack
 ```
 
 
@@ -37,7 +37,7 @@ python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBO
 - This will output the transform matrices
 
 ### Overlays
-Install SAM to `eplay` via (instructions)[https://github.com/facebookresearch/segment-anything-2].  It should be possible to have both in same env, encountered issues on skynet but worked on local PC
+Install SAM to `eplay` via [instructions](https://github.com/facebookresearch/segment-anything-2).  It should be possible to have both in same env, encountered issues on skynet but worked on local PC
 
 Hand overlay
 ```
@@ -52,28 +52,28 @@ python robot_overlay.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOTWA/obo
 
 ## Training Policies via Pytorch Lightning
 ACT Style
-`python scripts/pl_train.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --debug`
+`python scripts/pl_train.py --config configs/act.json --debug`
 
-GMM Style
-`python scripts/pl_train.py --config configs/highlevel_dino_lora.json --dataset /coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_aria_apr11/rawAria/oboo_aria_apr11/converted/oboo_aria_apr11_Mimicplay_LH3.hdf5 --debug`
-
-Launching with pl
-`python scripts/pl_submit.py --config configs/act.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --name vanillaACTPL --description 8GBS32LR5e5 --num-nodes 1 --gpus-per-node 8 --batch-size 32 --lr 1e-4`
+GMM Styles
+`python scripts/pl_train.py --config configs/GMMResnet.json` or `python scripts/pl_train.py --config configs/GMMViT.json`
 
 Use `--debug` to check that the pipeline works
+
+Launching with pl
+`python scripts/pl_submit.py --config <config> --name <name> --description <description> --gpus-per-node <gpus-per-node>`
+
+
 
 
 Offline Eval:
-`python scripts/pl_train.py --dataset /coc/flash7/datasets/egoplay/oboo_black/oboo_black.hdf5 --ckpt_path /coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/trained_models_highlevel/singlePolicy/RobotandHandBlack_DT_2024-05-16-20-42-39/models/model_epoch_epoch=699.ckpt --eval`
+`python scripts/pl_train.py --dataset <dataset> --ckpt_path <ckpt> --eval`
 
 Eval real:
-`python scripts/evaluation/eval_real.py --config configs/act.json --eval-path /home/rl2-aloha/Documents/EgoplaySP/EgoPlay/trained_models_highlevel/7dimQpos_DT_2024-05-22-14-40-12/7dimQpos_DT_2024-05-22-14-40-12/models/model_epoch_epoch=2949.ckpt`
-
-Use `--debug` to check that the pipeline works
+`python scripts/evaluation/eval_real.py --config <config> --eval-path <ckpt>`
 
 
 ### Single Policy Multi Dataset (Hand + Robot Data)
-- `python scripts/pl_train.py --config configs/actSP.json --dataset /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --dataset_2 /coc/flash7/datasets/egoplay/oboov2_robot_apr16/oboov2_robot_apr16ACT.hdf5 --debug --name pldebug --description debug`
+- `python scripts/pl_train.py --config configs/actSP.json --debug`
 
 
 ## Patch Notes
