@@ -119,8 +119,8 @@ def evaluate_high_level_policy(
                 else:
                     raise ValueError("type must be 'robot' or 'hand'")
             else:
-                pred_values = info["actions"][b].cpu().numpy()
-                actions = input_batch["actions"][b].cpu().numpy()
+                pred_values = info[ac_key][b].cpu().numpy()
+                actions = input_batch[ac_key][b].cpu().numpy()
 
                 if pred_values.shape == (30,):
                     pred_values = pred_values.reshape(-1, 3)

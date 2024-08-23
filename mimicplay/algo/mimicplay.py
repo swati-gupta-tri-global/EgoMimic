@@ -148,7 +148,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             "goal_obs", None
         )  # goals may not be present
         if ac_key in batch:
-            input_batch["actions"] = batch[ac_key]
+            input_batch[ac_key] = batch[ac_key]
 
         if "type" in batch:
             input_batch["type"] = batch["type"]
@@ -164,9 +164,9 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
     def postprocess_batch_for_training(self, batch, normalization_stats, normalize_actions=True):
         batch = super().postprocess_batch_for_training(batch, normalization_stats, normalize_actions)
 
-        B, T, A = batch["actions"].shape
-        self.orig_shape = batch["actions"].shape
-        batch["actions"] = batch["actions"].view(B, -1)
+        B, T, A = batch[self.ac_key].shape
+        self.orig_shape = batch[self.ac_key].shape
+        batch[self.ac_key] = batch[self.ac_key].view(B, -1)
 
         return batch
 
@@ -235,7 +235,7 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
     def forward_eval(self, batch, unnorm_stats=None):
         """
-        returns outdict of form {"actions": (B, ac_dim)}
+        returns outdict of form {self.ac_key: (B, ac_dim)}
         """
         with torch.no_grad():
             dists, latent, _ = self.nets["policy"].forward_train(
@@ -244,10 +244,10 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
 
             dists = dists.mean
             out_dict = {
-                "actions": dists
+                self.ac_key: dists
             }
             if self.global_config.train.prestacked_actions:
-                out_dict["actions"] = out_dict["actions"].view(self.orig_shape)
+                out_dict[self.ac_key] = out_dict[self.ac_key].view(self.orig_shape)
             if unnorm_stats:
                 out_dict = ObsUtils.unnormalize_batch(out_dict, normalization_stats=unnorm_stats)
             
@@ -271,58 +271,17 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
         elif isinstance(batch, list):
             self.both_human_robot = True
 
-        if self.both_human_robot:
-            ## Set batch_1 => Hand and batch_2 => Robot
-            if torch.all(batch[0]["obs"]["type"] == 1):
-                batch_hand = batch[0]
-                batch_robot = batch[1]
-            elif torch.all(batch[1]["obs"]["type"] == 1):
-                batch_hand = batch[1]
-                batch_robot = batch[0]
+        dists, enc_out, mlp_out = self.nets["policy"].forward_train(
+            obs_dict=batch["obs"], goal_dict=batch["goal_obs"], return_latent=True
+        )
 
-            dists, enc_out, mlp_out = self.nets["policy"].forward_train(
-                obs_dict=batch_hand["obs"],
-                goal_dict=batch_hand["goal_obs"],
-                return_latent=True,
-            )
+        assert len(dists.batch_shape) == 1
+        log_probs = dists.log_prob(batch[self.ac_key])
 
-            dists_2, enc_out_2, mlp_out_2 = self.nets["policy"].forward_train(
-                obs_dict=batch_robot["obs"],
-                goal_dict=batch_robot["goal_obs"],
-                return_latent=True,
-            )
-
-            # make sure that this is a batch of multivariate action distributions, so that
-            # the log probability computation will be correct
-            # breakpoint()
-            assert len(dists.batch_shape) == 1
-            # log_probs = dists.log_prob(batch["actions"])
-            log_probs = dists.log_prob(batch_hand["actions"])
-
-            if self.algo_config.gmm.cotrain == True:
-                log_probs = torch.cat(
-                    (
-                        dists.log_prob(batch_hand["actions"]),
-                        dists_2.log_prob(batch_robot["actions"]),
-                    )
-                )
-
-            predictions = OrderedDict(
-                log_probs=log_probs, enc_out=enc_out, enc_out_2=enc_out_2
-            )
-        else:
-            dists, enc_out, mlp_out = self.nets["policy"].forward_train(
-                obs_dict=batch["obs"], goal_dict=batch["goal_obs"], return_latent=True
-            )
-
-            assert len(dists.batch_shape) == 1
-            # log_probs = dists.log_prob(batch["actions"])
-            log_probs = dists.log_prob(batch["actions"])
-
-            predictions = OrderedDict(
-                log_probs=log_probs,
-                enc_out=enc_out,
-            )
+        predictions = OrderedDict(
+            log_probs=log_probs,
+            enc_out=enc_out,
+        )
         return predictions
 
     def _compute_losses(self, predictions, batch):
@@ -572,7 +531,7 @@ class Lowlevel_GPT_mimicplay(BC_RNN):
 
         input_batch["goal_obs"] = batch["goal_obs"]
 
-        input_batch["actions"] = batch["actions"]
+        input_batch[self.ac_key] = batch[self.ac_key]
 
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
@@ -598,7 +557,7 @@ class Lowlevel_GPT_mimicplay(BC_RNN):
         # make sure that this is a batch of multivariate action distributions, so that
         # the log probability computation will be correct
         assert len(dists.batch_shape) == 2  # [B, T]
-        log_probs = dists.log_prob(batch["actions"])
+        log_probs = dists.log_prob(batch[self.ac_key])
 
         predictions = OrderedDict(
             log_probs=log_probs,
@@ -772,7 +731,7 @@ class Baseline_GPT_from_scratch(BC_RNN):
 
         input_batch["goal_obs"] = batch["goal_obs"]
 
-        input_batch["actions"] = batch["actions"]
+        input_batch[self.ac_key] = batch[self.ac_key]
 
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
@@ -792,7 +751,7 @@ class Baseline_GPT_from_scratch(BC_RNN):
         # make sure that this is a batch of multivariate action distributions, so that
         # the log probability computation will be correct
         assert len(dists.batch_shape) == 2  # [B, T]
-        log_probs = dists.log_prob(batch["actions"])
+        log_probs = dists.log_prob(batch[self.ac_key])
 
         predictions = OrderedDict(
             log_probs=log_probs,
@@ -960,7 +919,7 @@ class BC_RNN_GMM(BC_RNN):
             input_batch["obs"][key] = input_batch["obs"][key]
 
         input_batch["goal_obs"] = batch["goal_obs"]
-        input_batch["actions"] = batch["actions"]
+        input_batch[self.ac_key] = batch[self.ac_key]
 
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
@@ -984,7 +943,7 @@ class BC_RNN_GMM(BC_RNN):
         # make sure that this is a batch of multivariate action distributions, so that
         # the log probability computation will be correct
         assert len(dists.batch_shape) == 2  # [B, T]
-        log_probs = dists.log_prob(batch["actions"])
+        log_probs = dists.log_prob(batch[self.ac_key])
 
         predictions = OrderedDict(
             log_probs=log_probs,
