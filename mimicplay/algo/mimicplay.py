@@ -246,14 +246,11 @@ class Highlevel_GMM_pretrain(BC_Gaussian):
             out_dict = {
                 "actions": dists
             }
+            if self.global_config.train.prestacked_actions:
+                out_dict["actions"] = out_dict["actions"].view(self.orig_shape)
             if unnorm_stats:
-                if self.global_config.train.prestacked_actions:
-                    out_dict["actions"] = out_dict["actions"].view(self.orig_shape)
-
                 out_dict = ObsUtils.unnormalize_batch(out_dict, normalization_stats=unnorm_stats)
             
-            out_dict["actions"] = out_dict["actions"]
-
             return out_dict     
 
     def _forward_training(self, batch):

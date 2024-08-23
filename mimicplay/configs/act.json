@@ -7,7 +7,7 @@
         "logging": {
             "terminal_output_to_txt": true,
             "log_wandb": true,
-            "wandb_proj_name": "egoplay"
+            "wandb_proj_name": "ACTSP"
         },
         "save": {
             "enabled": true,
@@ -50,7 +50,7 @@
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
         "hdf5_normalize_obs": true,
-        "hdf5_normalize_actions": false,
+        "hdf5_normalize_actions": true,
         "seq_length": 100,
         "seq_length_to_load": 1,
         "prestacked_actions": true,

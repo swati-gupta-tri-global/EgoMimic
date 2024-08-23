@@ -139,7 +139,7 @@ class ACT(BC_VAE):
             "goal_obs", None
         )  # goals may not be present
         if ac_key in batch:
-            input_batch["actions"] = batch[ac_key]
+            input_batch[ac_key] = batch[ac_key]
 
         if "type" in batch:
             input_batch["type"] = batch["type"]
@@ -189,7 +189,7 @@ class ACT(BC_VAE):
 
         env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # this is not used
 
-        actions = batch["actions"] if "actions" in batch else None
+        actions = batch[self.ac_key] if self.ac_key in batch else None
         is_pad = batch["obs"]["pad_mask"] == 0  # from 1.0 or 0 to False and True
         is_pad = is_pad.squeeze(dim=-1)
         B, T = is_pad.shape
@@ -248,7 +248,8 @@ class ACT(BC_VAE):
             qpos, images, env_state, actions=None, is_pad=is_pad
         )
 
-        predictions = OrderedDict(actions=a_hat)
+        predictions = OrderedDict()
+        predictions[self.ac_key] = a_hat
 
         if unnorm_stats:
             predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
@@ -441,7 +442,8 @@ class ACTSP(ACT):
 
         if modality == "hand":
             all_l1 = F.l1_loss(actions_hand, a_hat, reduction="none")
-            l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
+            l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean() * self.global_config.algo.sp.hand_lambda
+            total_kld = total_kld * self.global_config.algo.sp.hand_lambda
         elif modality == "robot":
             all_l1_robot = F.l1_loss(actions_robot, a_hat[0], reduction="none")
             all_l1_hand = F.l1_loss(actions_hand, a_hat[1], reduction="none")
@@ -468,8 +470,6 @@ class ACTSP(ACT):
         Returns:
             predictions (dict): dictionary containing network outputs
         """
-        if unnorm_stats is not None:
-            print("Warning: unnorm stats are being ignored by actSP")
 
         modality = self._modality_check(batch)
 
@@ -488,8 +488,13 @@ class ACTSP(ACT):
 
         # a_hat = a_hat[0] if modality == "robot" else a_hat
         if modality == "robot":
-            predictions = OrderedDict(actions=a_hat[0], actions_hand=a_hat[1])
+            predictions = OrderedDict()
+            predictions[self.ac_key_robot] = a_hat[0]
+            predictions[self.ac_key_hand] = a_hat[1]
+            predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
         else:
-            predictions = OrderedDict(actions=a_hat)
+            predictions = OrderedDict()
+            predictions[self.ac_key_hand] = a_hat
+            predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
 
         return predictions

@@ -5,6 +5,8 @@ import torch
 from pytorch_lightning import Trainer, seed_everything, Callback
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.strategies import DDPStrategy
+from pytorch_lightning.plugins.environments import SLURMEnvironment
 
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.file_utils as FileUtils
@@ -24,13 +26,16 @@ from mimicplay.pl_utils.pl_data_utils import (
 )
 import signal
 import json
-
+from datetime import timedelta
 import pickle
+import time
+import mimicplay
 
 class PreemptionHandler(Callback):
     def __init__(self):
         super().__init__()
         signal.signal(signal.SIGUSR1, self.handle_preemption)
+        signal.signal(signal.SIGUSR2, self.handle_preemption)
         self.trainer_ref = None
 
     def setup(self, trainer, pl_module, stage):
@@ -39,13 +44,28 @@ class PreemptionHandler(Callback):
 
     def handle_preemption(self, signum, frame):
         if self.trainer_ref is not None:
-            print("Preemption signal received. Saving checkpoint.")
-            print("root dir: ", self.trainer_ref.default_root_dir)
-            path = os.path.join(self.trainer_ref.default_root_dir, "models/last.ckpt")
-            print("path: ", path)
-            self.trainer_ref.save_checkpoint(path)
-            # Optionally, terminate the process
-            os._exit(128 + signum)
+            if self.trainer_ref.global_rank == 0:
+                print("Preemption signal received. Saving checkpoint.")
+                print("root dir: ", self.trainer_ref.default_root_dir)
+                path = os.path.join(self.trainer_ref.default_root_dir, f"models/{int(time.time())}.ckpt")
+                self.trainer_ref.save_checkpoint(path)
+
+                # make symlink from last.ckpt to this checkpoint
+                last_path = os.path.join(self.trainer_ref.default_root_dir, 'models/last.ckpt')
+                abs_last_path = os.path.join(mimicplay.__path__[0], last_path)
+                abs_path = os.path.join(mimicplay.__path__[0], path)
+                print(f"linking {abs_path} to {abs_last_path}")
+                # os.system(f"ln -sf {abs_path} {abs_last_path}")
+                if os.path.exists(abs_last_path) or os.path.islink(abs_last_path):
+                    os.remove(abs_last_path)
+                os.symlink(abs_path, abs_last_path)
+
+                # Optionally, terminate the process
+                # os._exit(143)
+                os.system(f"scontrol requeue {os.environ['SLURM_JOB_ID']}")
+            else:
+                print("Exiting on non rank 0 processes")
+
         else:
             print("Trainer reference is not set. Cannot save checkpoint.")
 
@@ -119,17 +139,20 @@ def train(config, ckpt_path=None):
     """
     Train a model using the algorithm.
     """
+    os.environ['NCCL_BLOCKING_WAIT'] = '1'
+    os.environ['TORCH_NCCL_BLOCKING_WAIT'] = '1'
+
     RANK = int(os.environ["SLURM_PROCID"])
     torch.set_float32_matmul_precision("medium")
     seed_everything(config.train.seed, workers=True)
 
     if ckpt_path is not None:
-        resume_dir = os.path.dirname(os.path.dirname(ckpt_path))
+        exp_dir = os.path.dirname(os.path.dirname(ckpt_path))
 
         log_dir, ckpt_dir, video_dir = (
-            os.path.join(resume_dir, "logs"),
-            os.path.join(resume_dir, "models"),
-            os.path.join(resume_dir, "videos"),
+            os.path.join(exp_dir, "logs"),
+            os.path.join(exp_dir, "models"),
+            os.path.join(exp_dir, "videos"),
         )
     else:
         print("\n============= New Training Run with Config =============")
@@ -253,17 +276,19 @@ def train(config, ckpt_path=None):
         precision=32,
         reload_dataloaders_every_n_epochs=0,
         use_distributed_sampler=True,
-        # strategy=DDPStrategy(
-        #     find_unused_parameters=False,
-        #     static_graph=True,
-        #     gradient_as_bucket_view=True,
-        # ),
-        strategy="ddp_find_unused_parameters_true",
+        strategy=DDPStrategy(
+            find_unused_parameters=True,
+            process_group_backend="nccl",
+            timeout=timedelta(minutes=60)
+        ),
+        # strategy="ddp_find_unused_parameters_true",
         profiler="simple",
         # profiler=AdvancedProfiler(dirpath=".", filename="perf_logs")
         # if args.profiler != "none"
         # else None,
     )
+    print(f"NCCL WAIT TIME: {os.environ.get('NCCL_BLOCKING_WAIT', None)}")
+    print(f"NCCL WAIT TIME: {os.environ.get('TORCH_NCCL_BLOCKING_WAIT', None)}")
 
     train_sampler = trainset.get_dataset_sampler()
     valid_sampler = validset.get_dataset_sampler()

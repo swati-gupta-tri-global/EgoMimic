@@ -91,3 +91,7 @@ class ACTSPConfig(ACTConfig):
         super(ACTSPConfig, self).observation_config()
         self.observation_hand.modalities.obs.low_dim = ["joint_positions"]
         self.observation_hand.modalities.obs.rgb = ["front_img_1"]
+    
+    def algo_config(self):
+        super(ACTSPConfig, self).algo_config()
+        self.algo.sp.hand_lambda = 1.0

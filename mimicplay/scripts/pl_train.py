@@ -30,6 +30,7 @@ from mimicplay.pl_utils.pl_train_utils import train, eval
 from mimicplay.pl_utils.pl_data_utils import json_to_config
 import torch
 import numpy as np
+import mimicplay
 
 
 def main(args):
@@ -57,6 +58,14 @@ def main(args):
     else:
         assert False, "Must provide a config file or a ckpt path"
 
+    if args.name is not None and args.description is not None:
+        base_output_dir = os.path.dirname(mimicplay.__file__)
+        possible_resume = os.path.join(base_output_dir, "../trained_models_highlevel", args.name, args.description, "models/last.ckpt")
+        print(f"TRYING TO RESUME FROM: {possible_resume}")
+        if os.path.exists(possible_resume) or os.path.islink(possible_resume):
+            args.ckpt_path = possible_resume
+            print("RESUMING FROM LAST CHECKPOINT")    
+
     if args.dataset is not None:
         config.train.data = args.dataset
 
@@ -80,6 +89,9 @@ def main(args):
 
     if args.lr:
         config.algo.optim_params.policy.learning_rate.initial = args.lr
+    
+    if args.hand_lambda is not None:
+        config.algo.sp.hand_lambda = args.hand_lambda
 
     if args.batch_size:
         config.train.batch_size = args.batch_size
@@ -277,6 +289,8 @@ def train_argparse():
     )
 
     parser.add_argument("--lr", type=float, default=None, help="learning rate")
+
+    parser.add_argument("--hand-lambda", type=float, default=None, help="hand data weighting")
 
     parser.add_argument("--batch-size", type=int, default=None, help="batch size")
 

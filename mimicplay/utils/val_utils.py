@@ -109,16 +109,23 @@ def evaluate_high_level_policy(
                 input_batch["obs"][front_cam_name][b].permute((1, 2, 0)).cpu().numpy()
                 * 255
             ).astype(np.uint8)
-            if isinstance(model, ACTSP):
+            if isinstance(model, ACTSP) or isinstance(model, ACT):
                 if type == "robot":
-                    input_batch["actions"] = input_batch["actions_joints_act"]
+                    actions = input_batch["actions_joints_act"][b].cpu().numpy()
+                    pred_values = info["actions_joints_act"][b].cpu().numpy()
                 elif type == "hand":
-                    input_batch["actions"] = input_batch["actions_xyz_act"]
+                    actions = input_batch["actions_xyz_act"][b].cpu().numpy()
+                    pred_values = info["actions_xyz_act"][b].cpu().numpy()
                 else:
                     raise ValueError("type must be 'robot' or 'hand'")
+            else:
+                pred_values = info["actions"][b].cpu().numpy()
+                actions = input_batch["actions"][b].cpu().numpy()
 
-            pred_values = info["actions"][b].cpu().numpy()
-            actions = input_batch["actions"][b].cpu().numpy()
+                if pred_values.shape == (30,):
+                    pred_values = pred_values.reshape(-1, 3)
+                if actions.shape == (30,):
+                    actions = actions.reshape(-1, 3)
 
             ac_type = "joints" if "joints" in ac_key else "xyz"
 
@@ -126,7 +133,7 @@ def evaluate_high_level_policy(
             im = draw_actions_on_frame(im, ac_type, "Purples", pred_values)
 
             if isinstance(model, ACTSP) and type == "robot":
-                im = draw_actions_on_frame(im, "xyz", "Reds", info["actions_hand"][b].cpu().numpy())
+                im = draw_actions_on_frame(im, "xyz", "Reds", info["actions_xyz_act"][b].cpu().numpy())
 
             add_metrics(metrics, actions, pred_values)
             if count == T:
