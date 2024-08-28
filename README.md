@@ -41,7 +41,7 @@ Install SAM to `eplay` via [instructions](https://github.com/facebookresearch/se
 
 Hand overlay
 ```
-python hand_overlay.py --hdf5_file /coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_yellow_jun12/converted/oboo_yellow_jun12_ACTGMMCompat_masked.hdf5 --debug
+python hand_overlay.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_yellow_jun12/converted/oboo_yellow_jun12_ACTGMMCompat_masked.hdf5 --sam --debug
 ```
 
 Robot Overlay
