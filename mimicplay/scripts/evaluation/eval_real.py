@@ -33,7 +33,7 @@ from interbotix_common_modules.common_robot.robot import (
     robot_shutdown,
     robot_startup,
 )
-from mimicplay.scripts.evaluation.norm_stats import NORM_STATS
+
 from aloha.constants import DT, FOLLOWER_GRIPPER_JOINT_OPEN, START_ARM_POSE
 
 
@@ -63,6 +63,8 @@ import matplotlib.pyplot as plt
 from mimicplay.algo.act import ACT
 from mimicplay.scripts.masking.utils import SAM
 
+import pickle
+
 
 # For debugging
 # sys.excepthook = ultratb.FormattedTB(mode="Plain", color_scheme="Neutral", call_pdb=1)
@@ -72,7 +74,7 @@ CURR_INTRINSICS = ARIA_INTRINSICS
 CURR_EXTRINSICS = EXTRINSICS["ariaJul29R"]
 CAMERA_NAMES = ["cam_high", "cam_right_wrist"]
 # NORM_STATS = to_torch(NORM_STATS, torch.device("cuda"))
-CAM_KEY = "front_img_1"
+CAM_KEY = "front_img_1_line"
 TEMPORAL_AGG = False
 
 
@@ -126,7 +128,7 @@ class TemporalAgg:
 
         return smoothed_action
 
-def eval_real(model, env, rollout_dir):
+def eval_real(model, env, rollout_dir, norm_stats):
     device = torch.device("cuda")
 
     aloha_fk = AlohaFK()
@@ -190,16 +192,16 @@ def eval_real(model, env, rollout_dir):
 
                     # postprocess_batch
                     input_batch = model.process_batch_for_training(
-                        data, "actions_joints"
+                        data, "actions_joints_act"
                     )
                     input_batch["obs"][CAM_KEY] = input_batch["obs"][CAM_KEY].permute(0, 3, 1, 2)
                     input_batch["obs"]["right_wrist_img"] = input_batch["obs"]["right_wrist_img"].permute(0, 3, 1, 2)
                     input_batch["obs"][CAM_KEY] /= 255.0
                     input_batch["obs"]["right_wrist_img"] /= 255.0
-                    input_batch = ObsUtils.normalize_batch(input_batch, normalization_stats=NORM_STATS, normalize_actions=False)
-                    info = model.forward_eval(input_batch, unnorm_stats=NORM_STATS)
+                    input_batch = ObsUtils.normalize_batch(input_batch, normalization_stats=norm_stats, normalize_actions=False)
+                    info = model.forward_eval(input_batch, unnorm_stats=norm_stats)
 
-                    all_actions = info["actions"].cpu().numpy()
+                    all_actions = info["actions_joints_act"].cpu().numpy()
 
                     if TEMPORAL_AGG:
                         TA.add_action(all_actions[0])
@@ -209,7 +211,7 @@ def eval_real(model, env, rollout_dir):
                     if rollout_dir:
                         # Draw Actions
                         im = data["obs"][CAM_KEY][0, 0].cpu().numpy()
-                        pred_values = info["actions"][0].cpu().numpy()
+                        pred_values = info["actions_joints_act"][0].cpu().numpy()
 
                         if "joints" in model.ac_key:
                             pred_values_drawable = aloha_fk.fk(pred_values[:, :6])
@@ -310,9 +312,12 @@ def main(args):
 
     # breakpoint()
     model = ModelWrapper.load_from_checkpoint(args.eval_path, datamodule=None)
+    norm_stats = os.path.join(os.path.dirname(os.path.dirname(args.eval_path)), "ds1_norm_stats.pkl")
+    norm_stats = open(norm_stats, "rb")
+    norm_stats = pickle.load(norm_stats)
     
     node = create_interbotix_global_node('aloha')
-    env = make_real_env(node, active_arms="right", setup_robots=False)
+    env = make_real_env(node, active_arms="right", setup_robots=True)
     robot_startup(node)
     model.eval()
     rollout_dir = os.path.dirname(os.path.dirname(args.eval_path))
@@ -323,7 +328,7 @@ def main(args):
     if not args.debug:
         rollout_dir = None
 
-    eval_real(model.model, env, rollout_dir)
+    eval_real(model.model, env, rollout_dir, norm_stats)
 
 
 
