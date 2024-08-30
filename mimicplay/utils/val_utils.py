@@ -59,6 +59,7 @@ def draw_both_actions_on_frame(im, type, color, actions, arm="both"):
             left_actions_drawable = ee_pose_to_cam_frame(left_actions, EXTRINSICS_LEFT)
             actions_drawable = left_actions_drawable
     else:
+        actions = actions.reshape(-1, 3)
         actions_drawable = actions
     
     actions_drawable = cam_frame_to_cam_pixels(actions_drawable, INTRINSICS)
@@ -161,17 +162,20 @@ def evaluate_high_level_policy(
 
             # im = draw_actions_on_frame(im, ac_type, "Greens", actions)
             # im = draw_actions_on_frame(im, ac_type, "Purples", pred_values)
-            if actions.shape[1] == 14:
+            arm = "both"
+            if actions.shape[1] == 14 or actions.shape[1] == 6:
                 arm = "both"
-            elif actions.shape[1] == 7:
+            elif actions.shape[1] == 7 or actions.shape[1] == 3:
                 arm = "right"
+
             im = draw_both_actions_on_frame(im, ac_type, "Greens", actions, arm=arm)
             im = draw_both_actions_on_frame(im, ac_type, "Purples", pred_values, arm=arm)
 
             if isinstance(model, ACTSP) and type == "robot":
                 # im = draw_actions_on_frame(im, "xyz", "Reds", info["actions_xyz_act"][b].cpu().numpy())
-                im = draw_both_actions_on_frame(im, "xyz", "Reds", info["actions_xyz_act"][b].cpu().numpy(), arm=arm)
-
+                actions_xyz = info["actions_xyz_act"][b].cpu().numpy()
+                actions_xyz = actions_xyz.reshape(-1, 3)
+                im = draw_both_actions_on_frame(im, "xyz", "Reds", actions_xyz, arm=arm)
             add_metrics(metrics, actions, pred_values)
             if count == T:
                 if video_dir is not None:
