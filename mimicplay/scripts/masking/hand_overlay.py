@@ -128,52 +128,7 @@ def sam_processing(dataset, debug=False):
                 imgs = demo["obs/front_img_1"]
                 ee_poses = demo["obs/ee_pose"]
 
-                if ee_poses.shape[-1] == 6:
-                    prompts_l = cam_frame_to_cam_pixels(ee_poses[:, :3], ARIA_INTRINSICS)[:, :2]
-                    prompts_r = cam_frame_to_cam_pixels(ee_poses[:, 3:], ARIA_INTRINSICS)[:, :2]
-
-                    masked_img_l, raw_masks_l = sam.get_mask(imgs, prompts_l, neg_prompts=prompts_r)
-                    mask = np.arange(640)[None, :] < prompts_l[:, [0]] + 100
-                    mask = mask[:, None, :]
-                    raw_masks_l = raw_masks_l & mask
-
-                    masked_img_r, raw_masks_r = sam.get_mask(imgs, prompts_r, neg_prompts=prompts_l)
-                    mask = np.arange(640)[None, :] > prompts_r[:, [0]] - 100
-                    mask = mask[:, None, :]
-                    raw_masks_r = raw_masks_r & mask
-
-
-                    masked_imgs = imgs[:].copy()
-                    masked_imgs[raw_masks_l] = 0
-                    masked_imgs[raw_masks_r] = 0
-                    # masked_imgs[raw_masks_l, 0] = 255
-                    # masked_imgs[raw_masks_r, 1] = 255
-                    raw_masks = raw_masks_l | raw_masks_r
-                    
-                    overlayed_imgs = line_on_hand(masked_imgs, raw_masks_r, "right")
-                    overlayed_imgs = line_on_hand(overlayed_imgs, raw_masks_l, "left")
-
-                elif ee_poses.shape[-1] == 3:
-                    prompts_l = None
-                    prompts_r = cam_frame_to_cam_pixels(ee_poses, ARIA_INTRINSICS)[:, :2]
-
-                    masked_imgs, raw_masks = sam.get_mask(imgs, prompts_r)
-
-                    overlayed_imgs = line_on_hand(masked_imgs, raw_masks, "right")
-                else:
-                    raise ValueError(f"Invalid shape for ee_poses: {ee_poses.shape}")
-                
-                #cv2 imsave the masked_img_l and masked_img_r, bgr to rgb as well
-                if debug:
-                    # cv2.imwrite(f"masked_img_l_{i}.png", cv2.cvtColor(masked_img_l[200], cv2.COLOR_BGR2RGB))
-                    # cv2.imwrite(f"masked_img_r_{i}.png", cv2.cvtColor(masked_img_r[200], cv2.COLOR_BGR2RGB))
-                    for j in range(overlayed_imgs.shape[0]):
-                        overlayed_imgs[j] = cv2.cvtColor(overlayed_imgs[j], cv2.COLOR_BGR2RGB)
-                        overlayed_imgs[j] = draw_dot_on_frame(overlayed_imgs[j], prompts_l[[j]], palette="Set1")
-                        overlayed_imgs[j] = draw_dot_on_frame(overlayed_imgs[j], prompts_r[[j]], palette="Set2")
-                        cv2.imwrite(f"./overlays/overlayed_img_{i}_{j}.png", overlayed_imgs[j])
-                        cv2.imwrite(f"./overlays/masked_img_{i}_{j}.png", cv2.cvtColor(masked_imgs[j], cv2.COLOR_BGR2RGB))
-                        cv2.imwrite(f"./overlays/mask_{i}_{j}.png", raw_masks[j].astype(np.uint8) * 255)
+                overlayed_imgs, masked_imgs, raw_masks = sam.get_hand_mask_line_batched(imgs, ee_poses, ARIA_INTRINSICS, debug=debug)
                 
                 if "front_img_1_masked" in demo["obs"]:
                     print("Deleting existing masked images")
