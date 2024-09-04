@@ -189,55 +189,13 @@ class SAM:
         self.predictor = predictor
         self.fk = AlohaFK()
     
-    def get_robot_mask(self, images, qpos):
+    def get_robot_mask_line_batched_from_qpos(self, images, qpos, extrinsics, intrinsics, arm="right"):
         """
             images: tensor (B, H, W, 3)
             qpos: B, 7
         """
-        
-        joint_pos = self.fk.chain.forward_kinematics(qpos[:, :-1], end_only=False)
-        
-        gripper_positions = joint_pos['vx300s/ee_gripper_link'].get_matrix()[:, :3, 3]
-        elbow_positions = joint_pos['vx300s/upper_forearm_link'].get_matrix()[:, :3, 3]
-        lower_forearm_positions = joint_pos['vx300s/lower_forearm_link'].get_matrix()[:, :3, 3]
-
-        px_val_gripper = ee_pose_to_cam_pixels(gripper_positions, EXTRINSICS["ariaJul29R"], ARIA_INTRINSICS)
-        px_val_elbow = ee_pose_to_cam_pixels(elbow_positions, EXTRINSICS["ariaJul29R"], ARIA_INTRINSICS)
-        px_val_lower_forearm = ee_pose_to_cam_pixels(lower_forearm_positions, EXTRINSICS["ariaJul29R"], ARIA_INTRINSICS)
-
-        line_images = np.zeros_like(images)
-        mask_images = np.zeros_like(images)
-
-        for i, image in enumerate(images):
-            pt1, pt2 = px_val_lower_forearm[[i]][:, :2], px_val_gripper[[i]][:, :2]
-            pt3 = (pt1 + pt2)/2
-            input_point = np.concatenate([pt1, pt2, pt3], axis=0)
-
-            input_label = np.array([1, 1, 1])
-
-            self.predictor.set_image(image)
-
-            masks, scores, logits = self.predictor.predict(
-                point_coords=input_point,
-                point_labels=input_label,
-                multimask_output=True,
-            )
-            sorted_ind = np.argsort(scores)[::-1]
-            masks = masks[sorted_ind]
-            scores = scores[sorted_ind]
-            logits = logits[sorted_ind]
-            
-            masked_img = image.copy()
-            masked_img[masks[0] == 1] = 0
-            mask_images[i] = masked_img
-
-            line_img = cv2.line(masked_img.copy(), (int(px_val_gripper[i,0]),int(px_val_gripper[i,1])),(int(px_val_elbow[i,0]),int(px_val_elbow[i,1])),color=(255,0,0), thickness=25)
-            # line_images[i] = image
-            # plt.imsave("robo_overlay/masked.png", image)
-            # breakpoint()
-
-            line_images[i] = line_img
-
+        px_dict = self.project_joint_positions_to_image(qpos, extrinsics, intrinsics, arm=arm)
+        mask_images, line_images =  self.get_robot_mask_line_batched(images, px_dict, arm=arm)
         return mask_images, line_images
 
     def get_mask(self, images, pos_prompts, neg_prompts=None):
@@ -462,7 +420,7 @@ class SAM:
             return {**px_dict_left, **px_dict_right}
         elif arm == "right":
             if qpos.shape[1] == 14:
-                qpos = qpos[:, :7]
+                qpos = qpos[:, 7:]
             return self.project_single_joint_position_to_image(qpos[:, :-1], extrinsics["right"], intrinsics, arm="right")
         elif arm == "left":
             if qpos.shape[1] == 14:
@@ -559,6 +517,9 @@ class SAM:
                     color=(255, 0, 0),
                     thickness=25
                 )
+
+            # masked_img = draw_dot_on_frame(line_img, input_point, palette="tab10")
+            # breakpoint()
 
             mask_images[i] = masked_img
             line_images[i] = line_img
