@@ -141,27 +141,35 @@ def get_valid_points(points, img_shape):
         keep_pt3 = False
 
     if keep_pt1 and keep_pt2 and keep_pt3:
+        # print("1st case")
         input_point = np.concatenate([pt1, pt2, pt3], axis=0)
         input_label = np.array([1, 1, 1])
     elif keep_pt1 and not keep_pt2 and keep_pt3:
+        # print("2nd case")
         input_point = np.concatenate([pt1, pt3], axis=0)
         input_label = np.array([1, 1])
     elif not keep_pt1 and keep_pt2 and keep_pt3:
-        input_point = np.concatenate([pt2, pt3], axis=0)
-        input_label = np.array([1, 1])
+        # print("3rd case")
+        input_point = np.concatenate([pt3], axis=0)
+        input_label = np.array([1])
     elif keep_pt1 and keep_pt2 and not keep_pt3:
+        # print("4th case")
         input_point = np.concatenate([pt1, pt2], axis=0)
         input_label = np.array([1, 1])
     elif keep_pt1 and not keep_pt2 and not keep_pt3:
+        # print("5th case")
         input_point = pt1
         input_label = np.array([1])
     elif not keep_pt1 and keep_pt2 and not keep_pt3:
+        # print("6th case")
         input_point = pt2
         input_label = np.array([1])
     elif not keep_pt1 and not keep_pt2 and keep_pt3:
+        # print("7th case")
         input_point = pt3
         input_label = np.array([1])
     else:
+        # print("8th case")
         input_point = np.array([])
         input_label = np.array([])
 
@@ -336,7 +344,10 @@ class SAM:
         for k in range(images.shape[0]):
             img = images[k]
 
-            output = self.get_hand_mask(img, pos_prompts[[k]], neg_prompt=neg_prompts[[k]])
+            if neg_prompts is not None:
+                output = self.get_hand_mask(img, pos_prompts[[k]], neg_prompt=neg_prompts[[k]])
+            else:
+                output = self.get_hand_mask(img, pos_prompts[[k]])
             if output is None:
                 continue
             else:
@@ -365,7 +376,7 @@ class SAM:
             input_point = np.concatenate([input_point, neg_prompt], axis=0)
             input_label = np.array([1, 0])
 
-        masked_img, masks, scores, logits = self.get_mask(img, input_point, input_label)
+        masked_img, masks, scores, logits = self.get_mask(img.copy(), input_point, input_label)
 
         raw_mask = masks[0].astype(bool)
         return masked_img, raw_mask
@@ -393,7 +404,7 @@ class SAM:
         scores = scores[sorted_ind]
         logits = logits[sorted_ind]
         
-        masked_img = image.copy()
+        masked_img = image
         masked_img[masks[0] == 1] = 0
 
         return masked_img, masks, scores, logits
@@ -467,18 +478,18 @@ class SAM:
         if arm == "both":
             pt1_left = px_dict["px_val_wrist_left"]
             pt2_left = px_dict["px_val_gripper_left"]
-            pt3_left = (pt1_left + pt2_left)/2
+            pt3_left = px_dict["px_val_arm_left"] #(pt1_left + pt2_left)/2
             pt1_right = px_dict["px_val_wrist_right"]
             pt2_right = px_dict["px_val_gripper_right"]
-            pt3_right = (pt1_right + pt2_right)/2
+            pt3_right = px_dict["px_val_arm_right"] #(pt1_right + pt2_right)/2
         elif arm == "left":
             pt1_left = px_dict["px_val_wrist_left"]
             pt2_left = px_dict["px_val_gripper_left"]
-            pt3_left = (pt1_left + pt2_left)/2
+            pt3_left =  px_dict["px_val_arm_left"] #(pt1_left + pt2_left)/2
         elif arm == "right":
             pt1_right = px_dict["px_val_wrist_right"]
             pt2_right = px_dict["px_val_gripper_right"]
-            pt3_right = (pt1_right + pt2_right)/2
+            pt3_right =  px_dict["px_val_arm_right"] #(pt1_right + pt2_right)/2
 
 
         for i,image in enumerate(images[:]):
@@ -503,6 +514,10 @@ class SAM:
                 right1, right2, right3 = pt1_right[[i]], pt2_right[[i]], pt3_right[[i]]
                 input_point_right, input_label_right = get_valid_points((right1, right2, right3), line_images[0].shape)
 
+            # print("i", i)
+            # print("left", left1, left2, left3)
+            # print("right", right1, right2, right3)
+
             ## Set Input Points
             if input_point_left.size == 0 and input_point_right.size > 0:
                 input_point = input_point_right
@@ -517,8 +532,12 @@ class SAM:
                 mask_images[i] = masked_img
                 line_images[i] = masked_img.copy()
                 continue
-
-            masked_img, masks, scores, logits = self.get_mask(image, input_point, input_label)
+            
+            if input_point_left.size > 0:
+                masked_img, masks, scores, logits = self.get_mask(masked_img, input_point_left, input_label_left)
+            if input_point_right.size > 0:
+                masked_img, masks, scores, logits = self.get_mask(masked_img, input_point_right, input_label_right)
+            # masked_img, masks, scores, logits = self.get_mask(image, input_point, input_label)
 
             line_img = masked_img.copy()
 
@@ -543,6 +562,14 @@ class SAM:
 
             mask_images[i] = masked_img
             line_images[i] = line_img
+
+            # for pt in input_point:
+            #     image = cv2.circle(image, (int(pt[0]), int(pt[1])), 5, (0, 0, 255), -1)
+            #     masked_img = cv2.circle(masked_img, (int(pt[0]), int(pt[1])), 5, (0, 0, 255), -1)
+            #     line_img = cv2.circle(line_img, (int(pt[0]), int(pt[1])), 5, (0, 0, 255), -1)
+
+            # # print("WRITING")
+            # cv2.imwrite(f"/nethome/dpatel756/flash/egoPlay_unified/EgoPlay/mimicplay/scripts/masking/overlays/masked_img_{i}.png", cv2.cvtColor(line_img, cv2.COLOR_BGR2RGB))
 
 
         return mask_images, line_images         
