@@ -16,12 +16,12 @@ if __name__ == "__main__":
     # %j is replaced by the job id at runtime
     assert args.name is not None, "Must provide a name for the experiment"
     assert args.description is not None, "Must provide a description for the experiment"
-    base_dir = f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/trained_models_highlevel/{args.name}/"
+    base_dir = f"/coc/flash7/dpatel756/egoPlay_unified/EgoPlay/trained_models_highlevel/{args.name}/"
     if "DT" not in args.description:
         time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
     log_dir = os.path.join(base_dir, args.description, "slurm")
-    os.makedirs(log_dir)
+    os.makedirs(log_dir, exist_ok=True)
 
     log_file = os.path.join(log_dir, "command_log.txt")
     with open(log_file, "w") as f:
