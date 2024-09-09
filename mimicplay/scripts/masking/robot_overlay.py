@@ -68,12 +68,12 @@ def main(args):
         torch.backends.cudnn.allow_tf32 = True
 
 
-    sam2_checkpoint = "/coc/flash9/skareer6/Projects/EgoPlay/segment-anything-2/checkpoints/sam2_hiera_tiny.pt"
-    model_cfg = "sam2_hiera_t.yaml"
+    # sam2_checkpoint = "/coc/flash9/skareer6/Projects/EgoPlay/segment-anything-2/checkpoints/sam2_hiera_tiny.pt"
+    # model_cfg = "sam2_hiera_t.yaml"
 
-    sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
+    # sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
 
-    predictor = SAM2ImagePredictor(sam2_model)
+    # predictor = SAM2ImagePredictor(sam2_model)
 
     sam = SAM()
 

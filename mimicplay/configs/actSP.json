@@ -101,7 +101,7 @@
         "act": {
             "hidden_dim": 512,
             "dim_feedforward": 3200,
-            "backbone": "vit_rein",
+            "backbone": "resnet18",
             "enc_layers": 4,
             "dec_layers": 7,
             "nheads": 8,

@@ -198,46 +198,46 @@ class SAM:
         mask_images, line_images =  self.get_robot_mask_line_batched(images, px_dict, arm=arm)
         return mask_images, line_images
 
-    def get_mask(self, images, pos_prompts, neg_prompts=None):
-        """
-            images: tensor (B, H, W, 3)
-            pos_prompts: tensor (B, 2)
+    # def get_mask(self, images, pos_prompts, neg_prompts=None):
+    #     """
+    #         images: tensor (B, H, W, 3)
+    #         pos_prompts: tensor (B, 2)
 
-            returns: raw_masks
-        """
-        masked_imgs = np.zeros_like(images)
-        raw_masks = np.zeros((images.shape[0], 480, 640)).astype(bool)
+    #         returns: raw_masks
+    #     """
+    #     masked_imgs = np.zeros_like(images)
+    #     raw_masks = np.zeros((images.shape[0], 480, 640)).astype(bool)
 
-        for k in range(images.shape[0]):
-            img = images[k]
-            input_point = pos_prompts[[k]]
-            if input_point[0, 0] > 640 or input_point[0, 1] > 480 or input_point[0, 0] < 0 or input_point[0, 1] < 0:
-                print("skipping image", k)
-                masked_imgs[k] = img
-                continue
-            input_label = np.array([1])
-            if neg_prompts is not None:
-                input_point = np.concatenate([input_point, neg_prompts[[k]]], axis=0)
-                input_label = np.array([1, 0])
+    #     for k in range(images.shape[0]):
+    #         img = images[k]
+    #         input_point = pos_prompts[[k]]
+    #         if input_point[0, 0] > 640 or input_point[0, 1] > 480 or input_point[0, 0] < 0 or input_point[0, 1] < 0:
+    #             print("skipping image", k)
+    #             masked_imgs[k] = img
+    #             continue
+    #         input_label = np.array([1])
+    #         if neg_prompts is not None:
+    #             input_point = np.concatenate([input_point, neg_prompts[[k]]], axis=0)
+    #             input_label = np.array([1, 0])
 
-            self.predictor.set_image(img)
+    #         self.predictor.set_image(img)
 
-            masks, scores, logits = self.predictor.predict(
-                point_coords=input_point,
-                point_labels=input_label,
-                multimask_output=True,
-            )
-            sorted_ind = np.argsort(scores)[::-1]
-            masks = masks[sorted_ind]
-            scores = scores[sorted_ind]
-            logits = logits[sorted_ind]
+    #         masks, scores, logits = self.predictor.predict(
+    #             point_coords=input_point,
+    #             point_labels=input_label,
+    #             multimask_output=True,
+    #         )
+    #         sorted_ind = np.argsort(scores)[::-1]
+    #         masks = masks[sorted_ind]
+    #         scores = scores[sorted_ind]
+    #         logits = logits[sorted_ind]
             
-            masked_img = img.copy()
-            masked_img[masks[0] == 1] = 0
-            raw_masks[k] = masks[0].astype(bool)
-            masked_imgs[k] = masked_img
+    #         masked_img = img.copy()
+    #         masked_img[masks[0] == 1] = 0
+    #         raw_masks[k] = masks[0].astype(bool)
+    #         masked_imgs[k] = masked_img
 
-        return masked_imgs, raw_masks
+    #     return masked_imgs, raw_masks
     
     def get_hand_mask_line_batched(self, imgs, ee_poses, intrinsics, debug=False):
         ## both hands
@@ -518,12 +518,13 @@ class SAM:
                     thickness=25
                 )
 
-            # masked_img = draw_dot_on_frame(line_img, input_point, palette="tab10")
-            # breakpoint()
 
             mask_images[i] = masked_img
             line_images[i] = line_img
 
+            # masked_img = draw_dot_on_frame(line_img, input_point, palette="tab10")
+            # breakpoint()
+            
             # for pt in input_point:
             #     image = cv2.circle(image, (int(pt[0]), int(pt[1])), 5, (0, 0, 255), -1)
             #     masked_img = cv2.circle(masked_img, (int(pt[0]), int(pt[1])), 5, (0, 0, 255), -1)
