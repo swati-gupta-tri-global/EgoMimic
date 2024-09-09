@@ -344,3 +344,25 @@ def apply_vignette(image_tensor, exponent=2):
     )  # Expand to match the batch of images
     vignette_mask = vignette_mask.to(image_tensor.device)
     return image_tensor * vignette_mask
+
+def add_extra_train_splits(data, split_percentages):
+    """
+    data: hdf5 file in robomimic format
+    split_percentages: list of percentages for each split, e.g. [0.7, 0.1, 0.2]
+    add key "mask/train_{split_name}" which subsamples "mask/train" by split_percentages
+    """
+    N = len(data["mask/train"][:])
+    random_order = np.random.permutation(N)
+    mask = data["mask/train"][:]
+    splits = []
+    for split in split_percentages:
+        # data[f"mask/train_{split_percentages:.2f}"] = random_order[:int(N*split)]
+        sorted_order = np.sort(random_order[:int(N*split)])
+        print(sorted_order)
+        splits.append(sorted_order)
+        print(mask[sorted_order])
+        data[f"mask/train_{int(split*100)}%"] = mask[sorted_order]
+    
+    for i in range(4):
+        print(i)
+        assert set(splits[i]).issubset(set(splits[i+1]))
