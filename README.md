@@ -3,6 +3,7 @@
 
 ```
 git clone --recursive git@github.com:SimarKareer/EgoPlay.git
+cd EgoPlay
 conda env create -f environment.yaml
 pip install -e external/robomimic
 pip install -e external/act
