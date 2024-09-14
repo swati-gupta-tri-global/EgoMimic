@@ -7,7 +7,7 @@
         "logging": {
             "terminal_output_to_txt": true,
             "log_wandb": true,
-            "wandb_proj_name": "egoplay"
+            "wandb_proj_name": "ACTSP"
         },
         "save": {
             "enabled": true,
@@ -18,10 +18,10 @@
             "on_best_validation": true,
             "on_best_rollout_return": false,
             "on_best_rollout_success_rate": true,
-            "video_freq": 50
+            "video_freq": 200
         },
         "epoch_every_n_steps": 100,
-        "validation_freq": 50,
+        "validation_freq": 200,
         "validation_max_samples": 15000,
         "env": null,
         "additional_envs": null,
@@ -49,7 +49,8 @@
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
-        "hdf5_normalize_obs": true,
+        "hdf5_normalize_obs": false,
+        "hdf5_normalize_actions": false,
         "seq_length": 100,
         "seq_length_to_load": 1,
         "prestacked_actions": true,
@@ -91,7 +92,7 @@
         "act": {
             "hidden_dim": 512,
             "dim_feedforward": 3200,
-            "backbone": "vit_rein",
+            "backbone": "resnet18",
             "enc_layers": 4,
             "dec_layers": 7,
             "nheads": 8,
@@ -110,7 +111,7 @@
                 "low_dim": [
                     "ee_pose"
                 ],
-                "rgb": ["front_img_1"],
+                "rgb": ["front_img_1_line"],
                 "depth": [],
                 "scan": []
             },
