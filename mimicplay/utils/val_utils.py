@@ -18,7 +18,9 @@ import os
 from mimicplay.algo.act import ACT, ACTSP
 import scipy
 
-CURR_EXTRINSICS = EXTRINSICS["ariaJul29R"]
+EXTRINSICS_RIGHT = EXTRINSICS["ariaJul29R"]
+EXTRINSICS_LEFT = EXTRINSICS["ariaJul29L"]
+
 INTRINSICS = ARIA_INTRINSICS
 EENORM = False
 VIGNETTE = False
@@ -28,7 +30,7 @@ def draw_actions_on_frame(im, type, color, actions):
     aloha_fk = AlohaFK()
     if type == "joints": 
         actions = aloha_fk.fk(actions[:, :6])
-        actions_drawable = ee_pose_to_cam_frame(actions, CURR_EXTRINSICS)
+        actions_drawable = ee_pose_to_cam_frame(actions, EXTRINSICS_RIGHT)
     else:
         actions_drawable = actions
 
@@ -38,6 +40,35 @@ def draw_actions_on_frame(im, type, color, actions):
     )
 
     return im
+
+def draw_both_actions_on_frame(im, type, color, actions, arm="both"):
+    aloha_fk = AlohaFK()
+    if type == "joints": 
+        if arm == "both":
+            right_actions = aloha_fk.fk(actions[:, 7:13])
+            right_actions_drawable = ee_pose_to_cam_frame(right_actions, EXTRINSICS_RIGHT)
+            left_actions = aloha_fk.fk(actions[:, :6])
+            left_actions_drawable = ee_pose_to_cam_frame(left_actions, EXTRINSICS_LEFT)
+            actions_drawable = np.concatenate((left_actions_drawable, right_actions_drawable), axis=0)
+        elif arm == "right":
+            right_actions = aloha_fk.fk(actions[:, :6])
+            right_actions_drawable = ee_pose_to_cam_frame(right_actions, EXTRINSICS_RIGHT)
+            actions_drawable = right_actions_drawable
+        elif arm == "left":
+            left_actions = aloha_fk.fk(actions[:, :6])
+            left_actions_drawable = ee_pose_to_cam_frame(left_actions, EXTRINSICS_LEFT)
+            actions_drawable = left_actions_drawable
+    else:
+        actions = actions.reshape(-1, 3)
+        actions_drawable = actions
+    
+    actions_drawable = cam_frame_to_cam_pixels(actions_drawable, INTRINSICS)
+    im = draw_dot_on_frame(
+        im, actions_drawable, show=False, palette=color
+    )
+
+    return im
+
 
 
 
@@ -129,12 +160,22 @@ def evaluate_high_level_policy(
 
             ac_type = "joints" if "joints" in ac_key else "xyz"
 
-            im = draw_actions_on_frame(im, ac_type, "Greens", actions)
-            im = draw_actions_on_frame(im, ac_type, "Purples", pred_values)
+            # im = draw_actions_on_frame(im, ac_type, "Greens", actions)
+            # im = draw_actions_on_frame(im, ac_type, "Purples", pred_values)
+            arm = "both"
+            if actions.shape[1] == 14 or actions.shape[1] == 6:
+                arm = "both"
+            elif actions.shape[1] == 7 or actions.shape[1] == 3:
+                arm = "right"
+
+            im = draw_both_actions_on_frame(im, ac_type, "Greens", actions, arm=arm)
+            im = draw_both_actions_on_frame(im, ac_type, "Purples", pred_values, arm=arm)
 
             if isinstance(model, ACTSP) and type == "robot":
-                im = draw_actions_on_frame(im, "xyz", "Reds", info["actions_xyz_act"][b].cpu().numpy())
-
+                # im = draw_actions_on_frame(im, "xyz", "Reds", info["actions_xyz_act"][b].cpu().numpy())
+                actions_xyz = info["actions_xyz_act"][b].cpu().numpy()
+                actions_xyz = actions_xyz.reshape(-1, 3)
+                im = draw_both_actions_on_frame(im, "xyz", "Reds", actions_xyz, arm=arm)
             add_metrics(metrics, actions, pred_values)
             if count == T:
                 if video_dir is not None:

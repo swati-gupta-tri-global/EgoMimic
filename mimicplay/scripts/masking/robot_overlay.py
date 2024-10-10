@@ -11,6 +11,7 @@ import torch
 import matplotlib.pyplot as plt
 from sam2.build_sam import build_sam2_video_predictor, build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
+from utils import *
 
 """
 aloha_hdf5 has the following format
@@ -40,6 +41,25 @@ def get_future_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
 def is_valid_path(path):
     return not os.path.isdir(path) and "episode" in path
 
+def plot_points_on_image(image, points, save_path):
+    """
+    Plots an array of points on an image and saves the result.
+
+    Parameters:
+    image (ndarray): The image on which to plot the points.
+    points (ndarray): An array of points with shape (n, 2), where n is the number of points.
+    save_path (str): The file path to save the resulting image.
+    """
+    plt.imshow(image)  # Display the image
+
+    # Plot each point in the array
+    for point in points:
+        plt.plot(point[0], point[1], 'ro')  # 'ro' means red circle marker
+
+    plt.axis('off')  # Optionally turn off the axis
+    plt.savefig(save_path, bbox_inches='tight', pad_inches=0)  # Save the image
+    plt.close()  # Close the plot to free memory
+
 
 def main(args):
     if torch.cuda.get_device_properties(0).major >= 8:
@@ -48,70 +68,31 @@ def main(args):
         torch.backends.cudnn.allow_tf32 = True
 
 
-    sam2_checkpoint = "/coc/flash9/skareer6/Projects/EgoPlay/segment-anything-2/checkpoints/sam2_hiera_tiny.pt"
-    model_cfg = "sam2_hiera_t.yaml"
+    # sam2_checkpoint = "/coc/flash9/skareer6/Projects/EgoPlay/segment-anything-2/checkpoints/sam2_hiera_tiny.pt"
+    # model_cfg = "sam2_hiera_t.yaml"
 
-    sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
+    # sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
 
-    predictor = SAM2ImagePredictor(sam2_model)
+    # predictor = SAM2ImagePredictor(sam2_model)
 
+    sam = SAM()
 
+    arm = args.arm
     chain = pk.build_serial_chain_from_urdf(open("/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf").read(), "vx300s/ee_gripper_link")
 
     with h5py.File(args.dataset, 'r+') as aloha_hdf5, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-        for j in tqdm(range(0,len(aloha_hdf5['data']))):
-            joint_pos = chain.forward_kinematics(torch.from_numpy(aloha_hdf5[f'data/demo_{j}/obs/joint_positions'][:,:-1]), end_only=False)
+        keys_list = list(aloha_hdf5['data'].keys())
+        keys_list = [k.split('_')[1] for k in keys_list]
+        for j in tqdm(keys_list):
+        # for j in tqdm(range(0, 1)):
+            print(f"Processing episode {j}")
+            print(torch.from_numpy(aloha_hdf5[f'data/demo_{j}/obs/joint_positions'][:,:-1]).shape)
             
-            fk_positions = joint_pos['vx300s/ee_gripper_link'].get_matrix()[:, :3, 3]
-            elbow_positions = joint_pos['vx300s/upper_forearm_link'].get_matrix()[:, :3, 3]
-            lower_forearm_positions = joint_pos['vx300s/lower_forearm_link'].get_matrix()[:, :3, 3]
+            px_dict = sam.project_joint_positions_to_image(torch.from_numpy(aloha_hdf5[f'data/demo_{j}/obs/joint_positions'][:, :]), EXTRINSICS[args.extrinsics], ARIA_INTRINSICS, arm=arm)
 
-            fk_positions = ee_pose_to_cam_frame(fk_positions, EXTRINSICS[args.extrinsics])[:, :3]
-            elbow_positions = ee_pose_to_cam_frame(elbow_positions, EXTRINSICS[args.extrinsics])[:, :3]
-            lower_forearm_positions = ee_pose_to_cam_frame(lower_forearm_positions, EXTRINSICS[args.extrinsics])[:, :3]
-            
-            px_val_gripper = cam_frame_to_cam_pixels(fk_positions, ARIA_INTRINSICS)[:, :2]
-            px_val_elbow = cam_frame_to_cam_pixels(elbow_positions, ARIA_INTRINSICS)[:, :2]
-            px_val_lower_forearm = cam_frame_to_cam_pixels(lower_forearm_positions, ARIA_INTRINSICS)[:, :2]
+            mask_images, line_images = sam.get_robot_mask_line_batched(
+                aloha_hdf5[f'data/demo_{j}/obs/front_img_1'], px_dict, arm=arm)
 
-            line_images = np.zeros_like(aloha_hdf5[f'data/demo_{j}/obs/front_img_1'])
-            mask_images = np.zeros_like(aloha_hdf5[f'data/demo_{j}/obs/front_img_1'])
-
-            for i,image in enumerate(aloha_hdf5[f'data/demo_{j}/obs/front_img_1'][:]):
-                # input_point = px_val_gripper[[i]]
-                # get the point between px_val_lower_forearm
-                pt1, pt2 = px_val_lower_forearm[[i]], px_val_gripper[[i]]
-                pt3 = (pt1 + pt2)/2
-                input_point = np.concatenate([pt1, pt2, pt3], axis=0)
-
-                input_label = np.array([1, 1, 1])
-
-                predictor.set_image(image)
-
-                masks, scores, logits = predictor.predict(
-                    point_coords=input_point,
-                    point_labels=input_label,
-                    multimask_output=True,
-                )
-                sorted_ind = np.argsort(scores)[::-1]
-                masks = masks[sorted_ind]
-                scores = scores[sorted_ind]
-                logits = logits[sorted_ind]
-                
-                masked_img = image.copy()
-                masked_img[masks[0] == 1] = 0
-                mask_images[i] = masked_img
-
-                line_img = cv2.line(masked_img.copy(), (int(px_val_gripper[i,0]),int(px_val_gripper[i,1])),(int(px_val_elbow[i,0]),int(px_val_elbow[i,1])),color=(255,0,0), thickness=25)
-                # line_images[i] = image
-                # plt.imsave("robo_overlay/masked.png", image)
-                # breakpoint()
-
-                line_images[i] = line_img
-
-                # plt.imsave(f"overlays/lineMask{i}_{j}.png", line_img)
-                # plt.imsave(f"overlays/masked{i}_{j}.png", masked_img)
-            
             if "front_img_1_line" in aloha_hdf5[f'data/demo_{j}/obs']:
                 del aloha_hdf5[f'data/demo_{j}/obs/front_img_1_line']
             
@@ -143,4 +124,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args)
-

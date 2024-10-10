@@ -1,6 +1,6 @@
 from sam2.build_sam import build_sam2_video_predictor, build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-from mimicplay.scripts.aloha_process.simarUtils import nds, cam_frame_to_cam_pixels, ARIA_INTRINSICS
+from mimicplay.scripts.aloha_process.simarUtils import nds, cam_frame_to_cam_pixels, ARIA_INTRINSICS, draw_dot_on_frame
 import argparse
 import torch
 import numpy as np
@@ -8,7 +8,7 @@ import h5py
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import cv2
-from mimicplay.scripts.masking.utils import Inpainter, inpaint_hdf5
+from mimicplay.scripts.masking.utils import Inpainter, inpaint_hdf5, SAM
 
 def show_mask(mask, ax, random_color=False, borders = True):
     if random_color:
@@ -67,6 +67,9 @@ def get_bounds(binary_image):
     max_x = max_y = 0
     min_x = min_y = float('inf')
 
+    if len(contours) == 0:
+        return None, None, None, None
+
     # Loop through all contours to find max and min x and y values
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
@@ -77,6 +80,38 @@ def get_bounds(binary_image):
 
     return min_x, max_x, min_y, max_y
 
+def line_on_hand(images, masks, arm):
+    """
+    Draw a line on the hand
+    images: np.array of shape (n, h, w, c)
+    masks: np.array of shape (n, h, w)
+    arm: str, "left" or "right"
+    """
+    overlayed_imgs = np.zeros_like(images)
+    for k, (image, mask) in enumerate(zip(images, masks)):
+        min_x, max_x, min_y, max_y = get_bounds(mask.astype(np.uint8))
+        if min_x is None:
+            overlayed_imgs[k] = image
+            continue
+
+        gamma = 0.8
+        alpha = 0.2
+        scale = max_y - min_y
+        min_x = int(max_x + gamma * (min_x - max_x))
+        min_y = int(max_y + gamma * (min_y - max_y))
+        max_x = int(max_x - scale * alpha)
+
+        if arm == "right":
+            line_image = cv2.line(image.copy(), (min_x,min_y),(max_x,max_y),color=(255,0,0), thickness=25)
+        elif arm == "left":
+            line_image = cv2.line(image.copy(), (min_x,max_y),(max_x,min_y),color=(255,0,0), thickness=25)
+        else:
+            raise ValueError(f"Invalid arm: {arm}")
+        overlayed_imgs[k] = line_image
+    
+    return overlayed_imgs
+
+
 def sam_processing(dataset, debug=False):
     if torch.cuda.get_device_properties(0).major >= 8:
         # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
@@ -84,12 +119,7 @@ def sam_processing(dataset, debug=False):
         torch.backends.cudnn.allow_tf32 = True
 
 
-    sam2_checkpoint = "/coc/flash9/skareer6/Projects/EgoPlay/segment-anything-2/checkpoints/sam2_hiera_tiny.pt"
-    model_cfg = "sam2_hiera_t.yaml"
-
-    sam2_model = build_sam2(model_cfg, sam2_checkpoint, device="cuda")
-
-    predictor = SAM2ImagePredictor(sam2_model)
+    sam = SAM()
 
     with h5py.File(dataset, "r+") as data:
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
@@ -97,56 +127,8 @@ def sam_processing(dataset, debug=False):
                 demo = data[f"data/demo_{i}"]
                 imgs = demo["obs/front_img_1"]
                 ee_poses = demo["obs/ee_pose"]
-                prompts = cam_frame_to_cam_pixels(ee_poses[:], ARIA_INTRINSICS)[:, :2]
 
-                masked_imgs = np.zeros_like(imgs)
-                overlayed_imgs = np.zeros_like(imgs)
-                raw_masks = np.zeros((imgs.shape[0], 480, 640)).astype(bool)
-
-
-                # TODO: this can be batched
-                for k in range(imgs.shape[0]):
-                    img = imgs[k]
-                    input_point = prompts[[k]]
-                    input_label = np.array([1])
-
-                    predictor.set_image(img)
-
-                    masks, scores, logits = predictor.predict(
-                        point_coords=input_point,
-                        point_labels=input_label,
-                        multimask_output=True,
-                    )
-                    sorted_ind = np.argsort(scores)[::-1]
-                    masks = masks[sorted_ind]
-                    scores = scores[sorted_ind]
-                    logits = logits[sorted_ind]
-                    
-                    masked_img = img.copy()
-                    masked_img[masks[0] == 1] = 0
-                    raw_masks[k] = masks[0].astype(bool)
-                    masked_imgs[k] = masked_img
-
-                    if debug:
-                        masked_img = cv2.cvtColor(masked_img, cv2.COLOR_BGR2RGB)
-                        cv2.imwrite(f"./overlays/demo_{i}_masked_{k}.png", masked_img)
-
-                    min_x, max_x, min_y, max_y = get_bounds(masks[0].astype(np.uint8))
-                    gamma = 0.8
-                    alpha = 0.2
-                    scale = max_y - min_y
-                    min_x = int(max_x + gamma * (min_x - max_x))
-                    min_y = int(max_y + gamma * (min_y - max_y))
-                    max_x = int(max_x - scale * alpha)
-
-                    line_image = cv2.line(masked_img.copy(), (min_x,min_y),(max_x,max_y),color=(255,0,0), thickness=25)
-                    overlayed_imgs[k] = line_image
-
-                    if debug:
-                        cv2.imwrite(f"./overlays/demo_{i}_line_{k}.png", line_image)
-
-                    # show_masks(img, masks, scores, point_coords=input_point, input_labels=input_label, borders=True)
-                    # breakpoint()
+                overlayed_imgs, masked_imgs, raw_masks = sam.get_hand_mask_line_batched(imgs, ee_poses, ARIA_INTRINSICS, debug=debug)
                 
                 if "front_img_1_masked" in demo["obs"]:
                     print("Deleting existing masked images")

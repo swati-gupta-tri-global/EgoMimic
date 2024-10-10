@@ -392,7 +392,8 @@ class ACTSP(ACT):
             "goal_obs", None
         )  # goals may not be present
 
-        input_batch[self.ac_key_hand] = batch[self.ac_key_hand]
+        if self.ac_key_hand in batch:
+            input_batch[self.ac_key_hand] = batch[self.ac_key_hand]
         if self.ac_key_robot in batch:
             input_batch[self.ac_key_robot] = batch[self.ac_key_robot]
 
@@ -405,7 +406,7 @@ class ACTSP(ACT):
 
     def _robomimic_to_act_data(self, batch, cam_keys, proprio_keys):
         qpos, images, env_state, actions, is_pad = super()._robomimic_to_act_data(batch, cam_keys, proprio_keys)
-        actions_hand = batch[self.ac_key_hand]
+        actions_hand = batch.get(self.ac_key_hand, None)
         actions_robot = batch[self.ac_key_robot] if self.ac_key_robot in batch else None
 
         return qpos, images, env_state, actions_hand, actions_robot, is_pad

@@ -12,16 +12,16 @@
         "save": {
             "enabled": true,
             "every_n_seconds": null,
-            "every_n_epochs": 50,
+            "every_n_epochs": 200,
             "top_n": 5,
             "epochs": [],
             "on_best_validation": true,
             "on_best_rollout_return": false,
             "on_best_rollout_success_rate": true,
-            "video_freq": 50
+            "video_freq": 200
         },
         "epoch_every_n_steps": 100,
-        "validation_freq": 50,
+        "validation_freq": 200,
         "validation_max_samples": 15000,
         "env": null,
         "additional_envs": null,
@@ -49,6 +49,7 @@
         "hdf5_use_swmr": true,
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
+        "hdf5_2_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
         "hdf5_normalize_obs": true,
         "hdf5_normalize_actions": true,
@@ -100,7 +101,7 @@
         "act": {
             "hidden_dim": 512,
             "dim_feedforward": 3200,
-            "backbone": "vit_rein",
+            "backbone": "resnet18",
             "enc_layers": 4,
             "dec_layers": 7,
             "nheads": 8,

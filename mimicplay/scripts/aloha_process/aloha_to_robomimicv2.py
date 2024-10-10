@@ -7,6 +7,7 @@ from mimicplay.scripts.aloha_process.simarUtils import (
     nds,
     ee_pose_to_cam_frame,
     EXTRINSICS,
+    AlohaFK
 )
 import pytorch_kinematics as pk
 import torch
@@ -14,6 +15,9 @@ import torch
 # from modern_robotics import FKinSpace
 from robomimic.scripts.split_train_val import split_train_val_from_hdf5
 import json
+
+from external.robomimic.robomimic.utils.dataset import interpolate_arr
+
 
 """
 aloha_hdf5 has the following format
@@ -60,8 +64,21 @@ def get_future_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
         future_indices = np.arange(t, t + POINT_GAP * (FUTURE_POINTS_COUNT), POINT_GAP)
         future_indices = np.clip(future_indices, 0, T - 1)
         result[t] = arr[future_indices]
-    
     return result
+
+
+def sample_interval_points(arr, POINT_GAP=15, FUTURE_POINTS_COUNT=10):
+    """
+    arr: (T, ACTION_DIM)
+    POINT_GAP: how many timesteps to skip between points
+    FUTURE_POINTS_COUNT: how many future points to collect
+    Returns an array of points sampled at intervals of POINT_GAP * FUTURE_POINTS_COUNT.
+    """
+    num_samples, T, ACTION_DIM = arr.shape
+    interval = T / 10
+    indices = np.arange(0, T, interval).astype(int)
+    sampled_points = arr[:, indices, :]
+    return sampled_points
 
 
 def is_valid_path(path):
@@ -103,9 +120,24 @@ if __name__ == "__main__":
         "vx300s/ee_gripper_link",
     )
 
+    if args.arm == "both":
+        if not isinstance(EXTRINSICS[args.extrinsics], dict):
+            print("Error: Both arms selected. Expected extrinsics for both arms.")
+        left_extrinsics = EXTRINSICS[args.extrinsics]["left"]
+        right_extrinsics = EXTRINSICS[args.extrinsics]["right"]
+    elif args.arm == "left":
+        extrinsics = EXTRINSICS[args.extrinsics]["left"]
+    elif args.arm == "right":
+        extrinsics = EXTRINSICS[args.extrinsics]["right"]
+
+    aloha_fk = AlohaFK()
+
     # before converting everything, check it all at least opens
     for file in tqdm(os.listdir(args.dataset)):
-        # print("Trying to open " + file)
+        #  if os.path.isfile(os.path.join(args.dataset, file)):
+        #     print(file.split("_")[1].split(".")[0])
+        #     if int(file.split("_")[1].split(".")[0]) <= 5:
+        print("Trying to open " + file)
         to_open = os.path.join(args.dataset, file)
         print(to_open)
         if is_valid_path(to_open):
@@ -120,6 +152,9 @@ if __name__ == "__main__":
             if not is_valid_path(os.path.join(args.dataset, aloha_demo)):
                 continue
 
+            # number = int(aloha_demo.split("_")[1].split(".")[0])
+            # if number <= 5:
+
             aloha_demo_path = os.path.join(args.dataset, aloha_demo)
 
             with h5py.File(aloha_demo_path, "r") as aloha_hdf5:
@@ -127,6 +162,23 @@ if __name__ == "__main__":
                 demo_i_group = data_group.create_group(f"demo_{demo_number}")
                 demo_i_group.attrs["num_samples"] = aloha_hdf5["action"].shape[0]
                 demo_i_obs_group = demo_i_group.create_group("obs")
+
+                # Extract the data from the aloha hdf5 file
+                if args.arm == "left":
+                    joint_start = 0
+                    joint_end = 7
+                elif args.arm == "right":
+                    joint_start = 7
+                    joint_end = 14
+                elif args.arm == "both":
+                    joint_start = 0
+                    joint_end = 14
+
+                    #Needed for forward kinematics
+                    joint_left_start = 0
+                    joint_left_end = 7
+                    joint_right_start = 7
+                    joint_right_end = 14
 
                 # Extract the data from the aloha hdf5 file
                 if args.arm == "right":
@@ -139,22 +191,54 @@ if __name__ == "__main__":
                     dtype="uint8",
                     chunks=(1, 480, 640, 3),
                 )
+
+                if args.arm in ["left", "both"]:
+                    demo_i_obs_group.create_dataset(
+                        "left_wrist_img",
+                        data=aloha_hdf5["observations"]["images"]["cam_left_wrist"],
+                        dtype="uint8",
+                        chunks=(1, 480, 640, 3),
+                    )
+                
+                if args.arm in ["right", "both"]:
+                    demo_i_obs_group.create_dataset(
+                        "right_wrist_img",
+                        data=aloha_hdf5["observations"]["images"]["cam_right_wrist"],
+                        dtype="uint8",
+                        chunks=(1, 480, 640, 3),
+                    )
+                
                 demo_i_obs_group.create_dataset(
-                    "right_wrist_img",
-                    data=aloha_hdf5["observations"]["images"]["cam_right_wrist"],
-                    dtype="uint8",
-                    chunks=(1, 480, 640, 3),
+                    "joint_positions", data=aloha_hdf5["observations"]["qpos"][:, joint_start:joint_end]
                 )
-                demo_i_obs_group.create_dataset(
-                    "joint_positions", data=aloha_hdf5["observations"]["qpos"][:, 7:]
-                )
-                fk_positions = chain.forward_kinematics(
-                    torch.from_numpy(aloha_hdf5["observations"]["qpos"][:, 7:13]),
-                    end_only=True,
-                ).get_matrix()[:, :3, 3]
-                fk_positions = ee_pose_to_cam_frame(
-                    fk_positions, EXTRINSICS[args.extrinsics]
-                )[:, :3]
+                # fk_positions = chain.forward_kinematics(
+                #     torch.from_numpy(aloha_hdf5["observations"]["qpos"][:, 7:13]),
+                #     end_only=True,
+                # ).get_matrix()[:, :3, 3]
+                # fk_positions = ee_pose_to_cam_frame(
+                #     fk_positions, EXTRINSICS[args.extrinsics]
+                # )[:, :3]
+
+
+                if args.arm == "both":
+                    fk_left_positions = aloha_fk.fk(aloha_hdf5["observations"]["qpos"][:, joint_left_start:joint_left_end - 1])
+                    fk_right_positions = aloha_fk.fk(aloha_hdf5["observations"]["qpos"][:, joint_right_start:joint_right_end - 1])
+                else:    
+                    fk_positions = aloha_fk.fk(aloha_hdf5["observations"]["qpos"][:, joint_start:joint_end - 1])
+                
+                if args.arm == "both":
+                    fk_left_positions = ee_pose_to_cam_frame(
+                        fk_left_positions, left_extrinsics
+                    )[:, :3]
+                    fk_right_positions = ee_pose_to_cam_frame(
+                        fk_right_positions, right_extrinsics
+                    )[:, :3]
+                    fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
+                else:
+                    #breakpoint()
+                    fk_positions = ee_pose_to_cam_frame(
+                        fk_positions, extrinsics
+                    )[:, :3]
 
                 demo_i_obs_group.create_dataset("ee_pose", data=fk_positions)
 
@@ -167,23 +251,52 @@ if __name__ == "__main__":
                     FUTURE_POINTS_COUNT = 100
 
                 # actions_joints
-                joint_actions = aloha_hdf5["action"][:, 7:]
+                joint_actions = aloha_hdf5["action"][:,  joint_start:joint_end]
                 if args.prestack:
                     joint_actions = get_future_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+                    joint_actions_sampled =  sample_interval_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+                demo_i_group.create_dataset(
+                    "actions_joints", data=joint_actions_sampled
+                )
                 demo_i_group.create_dataset(
                     "actions_joints_act", data=joint_actions
                 )
 
                 # actions_xyz
-                fk_positions = chain.forward_kinematics(
-                    torch.from_numpy(aloha_hdf5["action"][:, 7:13]), end_only=True
-                ).get_matrix()[:, :3, 3]
-                fk_positions = ee_pose_to_cam_frame(
-                    fk_positions, EXTRINSICS[args.extrinsics]
-                )[:, :3]
+                #fk_positions = chain.forward_kinematics(
+                #    torch.from_numpy(aloha_hdf5["action"][:, 7:13]), end_only=True
+                #).get_matrix()[:, :3, 3]
+                if args.arm == "both":
+                    fk_left_positions = aloha_fk.fk(aloha_hdf5["action"][:, joint_left_start:joint_left_end - 1])
+                    fk_right_positions = aloha_fk.fk(aloha_hdf5["action"][:, joint_right_start:joint_right_end - 1])
+                else:
+                    fk_positions = aloha_fk.fk(aloha_hdf5["action"][:, joint_start:joint_end - 1])
+                
+                if args.arm == "both":
+                    fk_left_positions = ee_pose_to_cam_frame(
+                        fk_left_positions, left_extrinsics
+                    )[:, :3]
+                    fk_right_positions = ee_pose_to_cam_frame(
+                        fk_right_positions, right_extrinsics
+                    )[:, :3]
+                    fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
+                else:         
+                    fk_positions = ee_pose_to_cam_frame(
+                        fk_positions, extrinsics
+                    )[:, :3]
+
+                # fk_positions = ee_pose_to_cam_frame(
+                #     fk_positions, EXTRINSICS[args.extrinsics]
+                # )[:, :3]
                 if args.prestack:
+                    print("prestacking", fk_positions.shape)
                     fk_positions = get_future_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+                    print("AFTER prestacking", fk_positions.shape)
+                    fk_positions_sampled = sample_interval_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+
+                # breakpoint()
                 demo_i_group.create_dataset("actions_xyz_act", data=fk_positions)
+                demo_i_group.create_dataset("actions_xyz", data=fk_positions_sampled)
 
                 # print(chain.forward_kinematics(torch.from_numpy(aloha_hdf5["observations"]["qpos"][10, 7:13])[None, :], end_only=True).get_matrix()[:, :3, 3])
                 # print(convert_qpos_to_eef(aloha_hdf5["observations"]["qpos"][10, 7:13]))

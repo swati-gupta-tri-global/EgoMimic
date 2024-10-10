@@ -76,6 +76,17 @@ EXTRINSICS = {
             [0.0, 0.0, 0.0, 1.0],
         ]
     ),
+    "ariaJul29": {
+        "left": np.array([[-0.02701913, -0.77838164,  0.62720969,  0.1222102 ],
+       [ 0.99958387, -0.01469678,  0.02482135,  0.17666979],
+       [-0.01010252,  0.62761934,  0.77845482,  0.00423704],
+       [ 0.        ,  0.        ,  0.        ,  1.        ]]),
+
+       "right": np.array([[ 0.07280155, -0.81760187,  0.57116295,  0.12038065],
+       [ 0.9973441 ,  0.05843903, -0.04346979, -0.31690207],
+       [ 0.00216277,  0.57281067,  0.81968485, -0.03742754],
+       [ 0.        ,  0.        ,  0.        ,  1.        ]])
+    },
     "ariaJul29L": np.array([[-0.02701913, -0.77838164,  0.62720969,  0.1222102 ],
        [ 0.99958387, -0.01469678,  0.02482135,  0.17666979],
        [-0.01010252,  0.62761934,  0.77845482,  0.00423704],
@@ -333,3 +344,25 @@ def apply_vignette(image_tensor, exponent=2):
     )  # Expand to match the batch of images
     vignette_mask = vignette_mask.to(image_tensor.device)
     return image_tensor * vignette_mask
+
+def add_extra_train_splits(data, split_percentages):
+    """
+    data: hdf5 file in robomimic format
+    split_percentages: list of percentages for each split, e.g. [0.7, 0.1, 0.2]
+    add key "mask/train_{split_name}" which subsamples "mask/train" by split_percentages
+    """
+    N = len(data["mask/train"][:])
+    random_order = np.random.permutation(N)
+    mask = data["mask/train"][:]
+    splits = []
+    for split in split_percentages:
+        # data[f"mask/train_{split_percentages:.2f}"] = random_order[:int(N*split)]
+        sorted_order = np.sort(random_order[:int(N*split)])
+        print(sorted_order)
+        splits.append(sorted_order)
+        print(mask[sorted_order])
+        data[f"mask/train_{int(split*100)}%"] = mask[sorted_order]
+    
+    for i in range(4):
+        print(i)
+        assert set(splits[i]).issubset(set(splits[i+1]))
