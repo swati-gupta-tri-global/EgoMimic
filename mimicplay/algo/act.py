@@ -20,6 +20,8 @@ from mimicplay.scripts.aloha_process.simarUtils import nds
 import matplotlib.pyplot as plt
 import robomimic.utils.obs_utils as ObsUtils
 
+from mimicplay.configs import config_factory
+
 from mimicplay.models.act_nets import Transformer, StyleEncoder
 
 from robomimic.models.transformers import PositionalEncoding
@@ -28,6 +30,8 @@ import robomimic.models.base_nets as BaseNets
 import mimicplay.models.policy_nets as PolicyNets
 import robomimic.utils.tensor_utils as TensorUtils
 import robomimic.utils.obs_utils as ObsUtils
+
+import json
 
 
 @register_algo_factory_func("act")
@@ -85,6 +89,7 @@ class ACTModel(nn.Module):
             state_dim,
             num_queries,
             camera_names,
+            num_channels,
     ):
         super(ACTModel, self).__init__()
 
@@ -93,7 +98,6 @@ class ACTModel(nn.Module):
         self.state_dim = state_dim
         self.num_queries = num_queries
         self.camera_names = camera_names
-
         self.transformer = transformer
         self.encoder = encoder
         hidden_dim = transformer.d
@@ -102,9 +106,11 @@ class ACTModel(nn.Module):
         self.is_pad_head = nn.Linear(hidden_dim, 1)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
 
+        self.num_channels = num_channels
+
         if backbones is not None:
             self.input_proj = nn.Conv2d(
-                backbones[0].num_channels, hidden_dim, kernel_size=1
+                self.num_channels, hidden_dim, kernel_size=1
             )
             self.backbones = nn.ModuleList(backbones)
             self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
@@ -121,7 +127,7 @@ class ACTModel(nn.Module):
         )  # project latent sample to embedding
         self.additional_pos_embed = nn.Embedding(
             2, hidden_dim
-        )  # learned position embedding for proprio and latent
+        ) 
 
     def forward(self, qpos, image, env_state=None, actions=None, is_pad=None):
         '''
@@ -132,7 +138,7 @@ class ACTModel(nn.Module):
 
         '''
         is_training = actions is not None
-        batch_size = qpose.size(0)
+        batch_size = qpos.size(0)
 
         if is_training:
             # Use StyleEncoder to get latent distribution and sample
@@ -159,8 +165,10 @@ class ACTModel(nn.Module):
             batch_size, hidden_dim, height, width = src.shape
             src = src.flatten(2).permute(0, 2, 1)  # [B, S, hidden_dim], S = H * W * num_cameras
 
+            position_indices = torch.arange(src.shape[1], device=src.device).unsqueeze(0).expand(batch_size, -1)  # [batch_size, sequence_length]
             pos_encoding = PositionalEncoding(hidden_dim)
-            src = pos_encoding(src.transpose(0, 1)).transpose(0, 1)  # [B, S, hidden_dim]
+            pos_embedded = pos_encoding(position_indices)  # [batch_size, sequence_length, hidden_dim]
+            src = src + pos_embedded
 
             proprio_input = self.input_proj_robot_state(qpos).unsqueeze(1)  # [B, 1, hidden_dim]
             latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
@@ -218,6 +226,15 @@ class ACT(BC_VAE):
                 backbones.append(backbone)
         else:
             backbones = None
+
+
+        if backbones is not None:
+            # assume camera input shape is same for all TODO dynamic size
+            cam_name = policy_config["camera_names"][0]  
+            input_shape = self.obs_key_shapes[cam_name]  # (C, H, W)
+            num_channels = backbones[0].output_shape(input_shape)[0]
+        else:
+            num_channels = None
         
         transformer = Transformer(
             d=policy_config["hidden_dim"],
@@ -232,8 +249,8 @@ class ACT(BC_VAE):
             act_dim=policy_config["a_dim"],
             hidden_dim=policy_config["hidden_dim"],
             latent_dim=policy_config["latent_dim"],
-            nheads=policy_config["nheads"],
-            dim_feedforward=policy_config["dim_feedforward"],
+            h=policy_config["nheads"],
+            d_ff=policy_config["dim_feedforward"],
             num_layers=policy_config["enc_layers"],
             dropout=policy_config["dropout"],
         )
@@ -247,6 +264,7 @@ class ACT(BC_VAE):
             state_dim=policy_config["state_dim"],
             num_queries=policy_config["num_queries"],
             camera_names=policy_config["camera_names"],
+            num_channels=num_channels,
         )
 
         model.cuda()
@@ -296,7 +314,7 @@ class ACT(BC_VAE):
             "camera_names": self.camera_keys,
             "backbone_class_name": backbone_class_name,
             "backbone_kwargs": backbone_kwargs,
-            "dropout": self.algo_config["act"].get("dropout", 0.1)
+            "dropout": self.algo_config.act.get("dropout", 0.1)
         }
 
         self.kl_weight = self.algo_config.act.kl_weight
@@ -708,6 +726,89 @@ class ACTSP(ACT):
 
         return predictions
 
+class TestModel:
+    def __init__(self, config_path):
+        ext_cfg = self.load_config(config_path)
+        config = config_factory(ext_cfg["algo_name"])
 
-class TestModel():
+        with config.values_unlocked():
+            config.update(ext_cfg)
 
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        ac_dim = 7  # Action dimension
+        obs_key_shapes = {
+            'joint_positions': (7,),
+            'front_img_1': (3, 480, 640),
+            'right_wrist_img': (3, 480, 640),
+        }
+
+        self.act_algo = ACT(
+            algo_config=config.algo,  # Use the appropriate section from the config object
+            obs_config=config.observation,
+            global_config=config,
+            obs_key_shapes=obs_key_shapes,
+            ac_dim=ac_dim,
+            device=device,
+        )
+
+        self.act_algo.train_config = config.train
+
+        # Create networks
+        self.act_algo._create_networks()
+
+    def load_config(self, config_path):
+        """Load the config from a JSON file."""
+        with open(config_path, 'r') as f:
+            return json.load(f)
+
+    def run_test(self):
+        batch_size = 2
+        seq_length = self.act_algo.train_config.seq_length  # Access via the config object
+
+        # Create a dummy batch
+        dummy_batch = {
+            'obs': {
+                'joint_positions': torch.randn(batch_size, seq_length, *self.act_algo.obs_key_shapes['joint_positions']),
+                'front_img_1': torch.randint(0, 256, (batch_size, seq_length, *self.act_algo.obs_key_shapes['front_img_1']), dtype=torch.uint8),
+                'right_wrist_img': torch.randint(0, 256, (batch_size, seq_length, *self.act_algo.obs_key_shapes['right_wrist_img']), dtype=torch.uint8),
+                'pad_mask': torch.ones(batch_size, seq_length, 1),
+            },
+            'actions_joints_act': torch.randn(batch_size, seq_length, self.act_algo.ac_dim),
+        }
+
+        # Process the batch for training
+        batch = self.act_algo.process_batch_for_training(dummy_batch, 'actions_joints_act')
+
+        print("Processed Batch:", batch)
+
+        # Move batch to device
+        batch = self.to_device(batch, self.act_algo.device)
+
+        # Ensure the model is in training mode
+        self.act_algo.nets['policy'].train()
+
+        # Perform forward pass for training
+        predictions = self.act_algo._forward_training(batch)
+
+        # Compute losses
+        losses = self.act_algo._compute_losses(predictions, batch)
+
+        print("Predictions:")
+        for key, value in predictions.items():
+            print(f"{key}: {value}")
+
+        print("\nLosses:")
+        for key, value in losses.items():
+            print(f"{key}: {value.item() if isinstance(value, torch.Tensor) else value}")
+
+    def to_device(self, batch, device):
+        """Utility function to move data to the specified device."""
+        if isinstance(batch, dict):
+            return {k: self.to_device(v, device) for k, v in batch.items()}
+        elif isinstance(batch, list):
+            return [self.to_device(v, device) for v in batch]
+        elif isinstance(batch, torch.Tensor):
+            return batch.to(device)
+        else:
+            return batch

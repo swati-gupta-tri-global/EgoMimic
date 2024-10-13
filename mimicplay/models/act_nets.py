@@ -2,8 +2,9 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import math
-from typing import Optional
+from typing import Optional, Callable, Any 
 from robomimic.models.transformers import PositionalEncoding
+from torch.distributions import Normal
 
 
 class PositionalEncoding2D(nn.Module):
@@ -113,7 +114,6 @@ class Transformer(nn.Module):
         d_ff : int,
         num_layers : int,
         dropout : float = 0.1,
-        L : Optional[int] = None,
         src_vocab_size: Optional[int] = None,
         tgt_vocab_size: Optional[int] = None,
         pos_encoding_class: Optional[Callable[..., nn.Module]] = None,
@@ -136,7 +136,7 @@ class Transformer(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d, nhead=h, dim_feedforward=d_ff, dropout=dropout, batch_first=True
         )
-        
+
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=d, nhead=h, dim_feedforward=d_ff, dropout=dropout, batch_first=True
         )
@@ -149,13 +149,11 @@ class Transformer(nn.Module):
         self.dropout = nn.Dropout(dropout)
     
     def generate_mask(self, src, tgt):
-        # some implementation of mask generation for masked attn.
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)  # (bsz, 1, 1, src_len)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3) # (bsz, 1, tgt_len, 1)
+        src_mask = (src == 0)  # Shape: (batch_size, src_len)
+        tgt_mask = (tgt == 0)  # Shape: (batch_size, tgt_len)
 
         L = tgt.size(1)
-        mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(tgt.device)
-        tgt_mask = tgt_mask & ~mask.unsqueeze(0)
+        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(tgt.device)
         return src_mask, tgt_mask
 
     def forward(self, src, tgt, auto_masks=False):
@@ -169,8 +167,18 @@ class Transformer(nn.Module):
         if self.tgt_embed:
             tgt = self.tgt_embed(tgt)
 
-        src = self.src_pos_encoding(src)
-        tgt = self.tgt_pos_encoding(tgt)
+
+        src = src.transpose(0, 1)  # [sequence_length, batch_size, hidden_dim]
+        src_position_indices = torch.arange(src.size(0), device=src.device).unsqueeze(1).expand(-1, src.size(1))  # [sequence_length, batch_size]
+        src_pos = self.src_pos_encoding(src_position_indices)  # [sequence_length, batch_size, hidden_dim]
+        src = src + src_pos 
+        src = src.transpose(0, 1)
+
+        tgt = tgt.transpose(0, 1)  # [T, B, hidden_dim]
+        tgt_position_indices = torch.arange(tgt.size(0), device=tgt.device).unsqueeze(1).expand(-1, tgt.size(1))  # [sequence_length, batch_size]
+        tgt_pos = self.tgt_pos_encoding(tgt_position_indices)
+        tgt = tgt + tgt_pos 
+        tgt = tgt.transpose(0, 1)  # [B, T, hidden_dim]
 
         src = self.dropout(src)
         tgt = self.dropout(tgt)
@@ -212,7 +220,7 @@ class StyleEncoder(nn.Module):
         self.qpos_projection = nn.Linear(act_dim, hidden_dim)
         self.latent_projection = nn.Linear(hidden_dim, latent_dim * 2)
 
-        self.pos_encoding = PositionalEncoding(hidden_dim, act_len + 2)
+        self.pos_encoding = PositionalEncoding(hidden_dim)
     
     def forward(self, qpos, actions):
         bsz = qpos.shape[0]
@@ -225,7 +233,12 @@ class StyleEncoder(nn.Module):
         x = torch.cat([cls, qpos, actions], dim=1)  # [bsz, act_len + 2, hidden_dim]
         assert x.shape == (bsz, self.act_len + 2, self.hidden_dim)
 
-        x = self.pos_encoding(x.transpose(0, 1))  # [act_len + 2, bsz, hidden_dim]
+        pos_indices = torch.arange(x.size(1), device=x.device).unsqueeze(0).expand(bsz, -1)  # [bsz, act_len + 2]
+        pos_embedded = self.pos_encoding(pos_indices)  # [bsz, act_len + 2, hidden_dim]
+        
+        x = x + pos_embedded
+
+        x = x.transpose(0, 1)  # [act_len + 2, bsz, hidden_dim]
 
         x = self.encoder(x)  # [act_len + 2, bsz, hidden_dim]
 
