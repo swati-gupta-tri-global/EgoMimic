@@ -52,6 +52,145 @@ def algo_config_to_class(algo_config):
     algo_class, algo_kwargs = ACTSP, {}
     return algo_class, algo_kwargs
 
+class ACTModel(nn.Module):
+    '''
+    ACT Model closely following DETRVAE from ACT but using standard torch.nn components
+
+    backbones : visual backbone per cam input
+    transformer : encoder-decoder transformer
+    encoder : style encoder
+    latent_dim : style var dim
+    a_dim : action dim
+    state_dim : proprio dim
+    num_queries : predicted action dim
+    camera_names : list of camera inputs
+    '''
+    def __init__(
+            self,
+            backbones,
+            transformer,
+            encoder,
+            latent_dim,
+            a_dim,
+            state_dim,
+            num_queries,
+            camera_names,
+    ):
+        super(ACTModel, self).__init__()
+
+        self.action_dim = a_dim
+        self.latent_dim = latent_dim
+        self.state_dim = state_dim
+        self.num_queries = num_queries
+        self.camera_names = camera_names
+
+        self.transformer = transformer
+        self.encoder = encoder
+        hidden_dim = transformer.d
+
+        self.action_head = nn.Linear(hidden_dim, self.action_dim)
+        self.is_pad_head = nn.Linear(hidden_dim, 1)
+        self.query_embed = nn.Embedding(num_queries, hidden_dim)
+
+        if backbones is not None:
+            self.input_proj = nn.Conv2d(
+                backbones[0].num_channels, hidden_dim, kernel_size=1
+            )
+            self.backbones = nn.ModuleList(backbones)
+            self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
+        else:
+            self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
+            self.input_proj_env_state = nn.Linear(
+                10, hidden_dim
+            )  # TODO not used in robomimic
+            self.pos = torch.nn.Embedding(2, hidden_dim)
+            self.backbones = None
+
+        self.latent_out_proj = nn.Linear(
+            self.latent_dim, hidden_dim
+        )  # project latent sample to embedding
+        self.additional_pos_embed = nn.Embedding(
+            2, hidden_dim
+        )  # learned position embedding for proprio and latent
+
+    def forward(self, qpos, image, env_state=None, actions=None, is_pad=None):
+        '''
+        qpos: batch, qpos_dim
+        image: batch, num_cam, channel, height, width
+        env_state: None
+        actions: batch, seq, action_dim
+
+        '''
+        is_training = actions is not None
+        batch_size = qpose.size(0)
+
+        if is_training:
+            # Use StyleEncoder to get latent distribution and sample
+            dist = self.encoder(qpos, actions)
+            mu = dist.mean
+            logvar = dist.scale.pow(2).log()
+            latent_sample = dist.rsample()
+        else:
+            # Inference mode, use zeros for latent vector
+            mu = logvar = None
+            latent_sample = torch.zeros(batch_size, self.latent_dim, device=qpos.device)
+
+        latent_input = self.latent_out_proj(latent_sample)  # [batch_size, hidden_dim]
+
+        if self.backbones is not None:
+            all_cam_features = []
+            for cam_id in range(len(self.camera_names)):
+                features = self.backbones[cam_id](image[:, cam_id])
+                features = self.input_proj(features)
+                all_cam_features.append(features)
+
+            src = torch.cat(all_cam_features, dim=-1)  # [B, hidden_dim, H, W * num_cameras]
+
+            batch_size, hidden_dim, height, width = src.shape
+            src = src.flatten(2).permute(0, 2, 1)  # [B, S, hidden_dim], S = H * W * num_cameras
+
+            pos_encoding = PositionalEncoding(hidden_dim)
+            src = pos_encoding(src.transpose(0, 1)).transpose(0, 1)  # [B, S, hidden_dim]
+
+            proprio_input = self.input_proj_robot_state(qpos).unsqueeze(1)  # [B, 1, hidden_dim]
+            latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
+            query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
+            tgt = torch.cat([latent_input, proprio_input, query_embed], dim=1)  # [B, 2 + num_queries, hidden_dim]
+
+
+            # extend tgt
+            additional_pos_embed = self.additional_pos_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)
+            tgt[:, :2, :] += additional_pos_embed 
+
+            hs = self.transformer(src, tgt) # [B, tgt, hidden_dim]
+        else:
+            qpos_proj = self.input_proj_robot_state(qpos).unsqueeze(dim=1)  # [B, 1, hidden_dim]
+            env_state_proj = self.input_proj_env_state(env_state).unsqueeze(dim=1)  # [B, 1, hidden_dim]
+            src = torch.cat([qpos_proj, env_state_proj], dim=1)  # [B, 2, hidden_dim]
+
+            pos_embed = self.pos.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, 2, hidden_dim]
+
+            latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
+            query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
+            tgt = torch.cat([latent_input, query_embed], dim=1)  # [B, 1 + num_queries, hidden_dim]
+
+            hs = self.transformer(src, tgt, auto_masks=False)
+        
+        hs_queries = hs[:, 2:, :]
+        action_pred = self.action_head(hs_queries)  # [B, num_queries, action_dim]
+        is_pad_pred = self.is_pad_head(hs_queries)  # [B, num_queries, 1]
+
+        return action_pred, is_pad_pred, [mu, logvar]
+
+        
+
+
+
+
+
+
+
+
 
 class ACT(BC_VAE):
     """
