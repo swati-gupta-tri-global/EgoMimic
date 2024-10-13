@@ -13,14 +13,14 @@ import robomimic.utils.tensor_utils as TensorUtils
 from mimicplay.algo import register_algo_factory_func, PolicyAlgo
 from robomimic.algo.bc import BC_VAE
 from detr.main import (
-    build_ACT_model_and_optimizer,
     build_single_policy_model_and_optimizer,
 )
+
 from mimicplay.scripts.aloha_process.simarUtils import nds
 import matplotlib.pyplot as plt
 import robomimic.utils.obs_utils as ObsUtils
 
-from mimicplay.models.act_nets import Transformer
+from mimicplay.models.act_nets import Transformer, StyleEncoder
 
 from robomimic.models.transformers import PositionalEncoding
 
@@ -167,7 +167,6 @@ class ACTModel(nn.Module):
             query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
             tgt = torch.cat([latent_input, proprio_input, query_embed], dim=1)  # [B, 2 + num_queries, hidden_dim]
 
-
             # extend tgt
             additional_pos_embed = self.additional_pos_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)
             tgt[:, :2, :] += additional_pos_embed 
@@ -193,15 +192,6 @@ class ACTModel(nn.Module):
         return action_pred, is_pad_pred, [mu, logvar]
 
         
-
-
-
-
-
-
-
-
-
 class ACT(BC_VAE):
     """
     BC training with a VAE policy.
@@ -211,7 +201,58 @@ class ACT(BC_VAE):
         """
         Builds networks and optimizers for BC algo.
         """
-        return build_ACT_model_and_optimizer(policy_config)
+        # return build_ACT_model_and_optimizer(policy_config)
+
+        backbones = []
+        if len(policy_config["camera_names"]) > 0:
+            for cam_name in policy_config["camera_names"]:
+                backbone_class_name = policy_config["backbone_class_name"]
+                backbone_kwargs = policy_config["backbone_kwargs"]
+
+                try:
+                    backbone_class = getattr(BaseNets, backbone_class_name)
+                except AttributeError:
+                    raise ValueError(f"Unsupported backbone class: {backbone_class_name}")
+                
+                backbone = backbone_class(**backbone_kwargs)
+                backbones.append(backbone)
+        else:
+            backbones = None
+        
+        transformer = Transformer(
+            d=policy_config["hidden_dim"],
+            h=policy_config["nheads"],
+            d_ff=policy_config["dim_feedforward"],
+            num_layers=policy_config["dec_layers"],
+            dropout=policy_config["dropout"],
+        )
+
+        style_encoder = StyleEncoder(
+            act_len=policy_config["action_length"],
+            act_dim=policy_config["a_dim"],
+            hidden_dim=policy_config["hidden_dim"],
+            latent_dim=policy_config["latent_dim"],
+            nheads=policy_config["nheads"],
+            dim_feedforward=policy_config["dim_feedforward"],
+            num_layers=policy_config["enc_layers"],
+            dropout=policy_config["dropout"],
+        )
+
+        model = ACTModel(
+            backbones=backbones,
+            transformer=transformer,
+            encoder=style_encoder,
+            latent_dim=policy_config["latent_dim"],
+            a_dim=policy_config["a_dim"],
+            state_dim=policy_config["state_dim"],
+            num_queries=policy_config["num_queries"],
+            camera_names=policy_config["camera_names"],
+        )
+
+        model.cuda()
+
+        return model
+
 
     def _create_networks(self):
         """
@@ -232,6 +273,13 @@ class ACT(BC_VAE):
         for k in self.proprio_keys:
             self.proprio_dim += self.obs_key_shapes[k][0]
 
+        backbone_class_name = self.obs_config["encoder"]["rgb"]["core_kwargs"][
+            "backbone_class"
+        ]
+        backbone_kwargs = self.obs_config["encoder"]["rgb"]["core_kwargs"][
+            "backbone_kwargs"
+        ]
+
         policy_config = {
             "num_queries": self.global_config.train.seq_length,
             "hidden_dim": self.algo_config.act.hidden_dim,
@@ -241,13 +289,19 @@ class ACT(BC_VAE):
             "dec_layers": self.algo_config.act.dec_layers,
             "nheads": self.algo_config.act.nheads,
             "latent_dim": self.algo_config.act.latent_dim,
+            "action_length": self.chunk_size,
             "a_dim": self.ac_dim,
             "ac_key": self.ac_key,
             "state_dim": self.proprio_dim,
             "camera_names": self.camera_keys,
+            "backbone_class_name": backbone_class_name,
+            "backbone_kwargs": backbone_kwargs,
+            "dropout": self.algo_config["act"].get("dropout", 0.1)
         }
+
         self.kl_weight = self.algo_config.act.kl_weight
-        model, optimizer = self.build_model_opt(policy_config)
+        model = self.build_model_opt(policy_config)    
+
         self.nets["policy"] = model
         self.nets = self.nets.float().to(self.device)
 
@@ -259,7 +313,10 @@ class ACT(BC_VAE):
 
         rand_kwargs = self.global_config.observation.encoder.rgb.obs_randomizer_kwargs
         self.color_jitter = transforms.ColorJitter(
-            brightness=(rand_kwargs.brightness_min, rand_kwargs.brightness_max), contrast=(rand_kwargs.contrast_min, rand_kwargs.contrast_max), saturation=(rand_kwargs.saturation_min, rand_kwargs.saturation_max), hue=(rand_kwargs.hue_min, rand_kwargs.hue_max)
+            brightness=(rand_kwargs.brightness_min, rand_kwargs.brightness_max), 
+            contrast=(rand_kwargs.contrast_min, rand_kwargs.contrast_max), 
+            saturation=(rand_kwargs.saturation_min, rand_kwargs.saturation_max), 
+            hue=(rand_kwargs.hue_min, rand_kwargs.hue_max)
         )
 
     def process_batch_for_training(self, batch):
@@ -302,7 +359,7 @@ class ACT(BC_VAE):
         Update from superclass to set categorical temperature, for categorcal VAEs.
         """
 
-        return super(BC_VAE, self).train_on_batch(batch, epoch, validate=validate)
+        return super().train_on_batch(batch, epoch, validate=validate)
 
     def _modality_check(self, batch):
         """
@@ -319,22 +376,21 @@ class ACT(BC_VAE):
         return modality
 
     def _robomimic_to_act_data(self, batch, cam_keys, proprio_keys):
-        proprio = [batch["obs"][k] for k in proprio_keys]
-        proprio = torch.cat(proprio, axis=1)
-        qpos = proprio
+        qpos = [batch["obs"][k] for k in proprio_keys]
+        qpos = torch.cat(qpos, axis=1)
 
         images = []
-        for cam_name in cam_keys:
-            image = batch["obs"][cam_name]
-            # plt.imsave(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/actAugs/pre{time.time()}.png", image[0].permute(1, 2, 0).cpu().numpy())
-            if self.nets.training:
-                image = self.color_jitter(image)
-            
-            # plt.imsave(f"/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/debug/actAugs/post{time.time()}.png", image[0].permute(1, 2, 0).cpu().numpy())
-            # image = self.normalize(image)
-            image = image.unsqueeze(axis=1)
-            images.append(image)
-        images = torch.cat(images, axis=1)
+
+        if len(cam_keys) > 0:
+            for cam_name in cam_keys:
+                image = batch["obs"][cam_name]
+                if self.nets.training:
+                    image = self.color_jitter(image)
+                image = image.unsqueeze(axis=1)
+                images.append(image)
+            images = torch.cat(images, axis=1)
+        else:
+            images = None
 
         env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # this is not used
 
@@ -421,12 +477,15 @@ class ACT(BC_VAE):
         qpos = proprio
 
         images = []
-        for cam_name in self.camera_keys:
-            image = obs_dict[cam_name]
-            image = self.normalize(image)
-            image = image.unsqueeze(axis=1)
-            images.append(image)
-        images = torch.cat(images, axis=1)
+        if len(self.camera_keys) > 0:
+            for cam_name in self.camera_keys:
+                image = obs_dict[cam_name]
+                image = self.normalize(image)
+                image = image.unsqueeze(axis=1)
+                images.append(image)
+            images = torch.cat(images, axis=1)
+        else:
+            images = None
 
         env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # not used
 
@@ -648,3 +707,7 @@ class ACTSP(ACT):
             predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
 
         return predictions
+
+
+class TestModel():
+

@@ -134,8 +134,9 @@ class Transformer(nn.Module):
             self.tgt_pos_encoding = PositionalEncoding(d)
         
         encoder_layer = nn.TransformerEncoderLayer(
-                d_model=d, nhead=h, dim_feedforward=d_ff, dropout=dropout, batch_first=True
-            )
+            d_model=d, nhead=h, dim_feedforward=d_ff, dropout=dropout, batch_first=True
+        )
+        
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=d, nhead=h, dim_feedforward=d_ff, dropout=dropout, batch_first=True
         )
