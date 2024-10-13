@@ -14,7 +14,7 @@ class PositionalEncoding2D(nn.Module):
     Copied from DETR repo; can be heavily optimized
 
     Args:
-        num_pos_feats: hidden dimesion (I think)
+        num_pos_feats: hidden dimension (I think)
         temperature: ???
         normalize: whether to normalize embeddings
         scale: used for normalization

@@ -20,6 +20,16 @@ from mimicplay.scripts.aloha_process.simarUtils import nds
 import matplotlib.pyplot as plt
 import robomimic.utils.obs_utils as ObsUtils
 
+from mimicplay.models.act_nets import Transformer
+
+from robomimic.models.transformers import PositionalEncoding
+
+import robomimic.models.base_nets as BaseNets
+import mimicplay.models.policy_nets as PolicyNets
+import robomimic.utils.tensor_utils as TensorUtils
+import robomimic.utils.obs_utils as ObsUtils
+
+
 @register_algo_factory_func("act")
 def algo_config_to_class(algo_config):
     """
