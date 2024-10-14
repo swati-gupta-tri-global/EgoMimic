@@ -6,7 +6,6 @@ from typing import Optional, Callable, Any
 from robomimic.models.transformers import PositionalEncoding
 from torch.distributions import Normal
 
-
 class Transformer(nn.Module):
     '''
     Basic transformer implementation using torch.nn. Also added option for custom pos embeddings. 
