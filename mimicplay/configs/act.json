@@ -2,7 +2,7 @@
     "algo_name": "act",
     "experiment": {
         "name": "ACT_egomimic_test",
-        "description": "v1",
+        "description": "v2",
         "validate": true,
         "logging": {
             "terminal_output_to_txt": true,
