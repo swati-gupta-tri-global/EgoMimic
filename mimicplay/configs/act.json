@@ -1,7 +1,7 @@
 {
     "algo_name": "act",
     "experiment": {
-        "name": "test",
+        "name": "ACT_egomimic_test",
         "description": "v1",
         "validate": true,
         "logging": {

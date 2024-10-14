@@ -16,7 +16,7 @@ if __name__ == "__main__":
     # %j is replaced by the job id at runtime
     assert args.name is not None, "Must provide a name for the experiment"
     assert args.description is not None, "Must provide a description for the experiment"
-    base_dir = f"/coc/flash7/dpatel756/egoPlay_unified/EgoPlay/trained_models_highlevel/{args.name}/"
+    base_dir = f"/coc/flash7/rpunamiya6/EgoPlay/trained_models_highlevel/{args.name}/"
     if "DT" not in args.description:
         time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
