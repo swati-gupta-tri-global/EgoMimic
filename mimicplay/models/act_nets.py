@@ -60,7 +60,7 @@ class PositionalEncoding2D(nn.Module):
             (pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim=4
         ).flatten(3)
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
-        return x + pos
+        return pos
 
 
 class LearnablePosEncoding2D(nn.Module):
@@ -89,7 +89,7 @@ class LearnablePosEncoding2D(nn.Module):
             pos = pos.repeat(num_imgs, 1, 1)
             x = x.transpose(1, 2)
         x = x.flatten(2).permute(2, 0, 1)
-        return self.scale * x + pos
+        return pos
 
 class Transformer(nn.Module):
     '''
