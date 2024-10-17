@@ -51,21 +51,6 @@ def algo_config_to_class(algo_config):
     return algo_class, algo_kwargs
 
 
-@register_algo_factory_func("actSP")
-def algo_config_to_class(algo_config):
-    """
-    Maps algo config to the BC algo class to instantiate, along with additional algo kwargs.
-
-    Args:
-        algo_config (Config instance): algo config
-
-    Returns:
-        algo_class: subclass of Algo
-        algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
-    """
-    algo_class, algo_kwargs = ACTSP, {}
-    return algo_class, algo_kwargs
-
 class ACTModel(nn.Module):
     '''
     ACT Model closely following DETRVAE from ACT but using standard torch.nn components
@@ -127,7 +112,7 @@ class ACTModel(nn.Module):
         )
 
 
-    def forward(self, qpos, actions, image, encoder_action_proj, encoder_joint_proj, transformer_input_proj, action_head, env_state=None, is_pad=None, aux_action_head=None):
+    def forward(self, qpos, actions, image, encoder_action_proj=None, encoder_joint_proj=None, transformer_input_proj=None, action_head=None, camera_names=None, env_state=None, is_pad=None, aux_action_head=None):
         '''
         qpos: batch, qpos_dim
         image: batch, num_cam, channel, height, width
@@ -135,8 +120,25 @@ class ACTModel(nn.Module):
         actions: batch, seq, action_dim
 
         '''
+
         is_training = actions is not None
         batch_size = qpos.size(0)
+
+        if camera_names is None:
+            camera_names = self.camera_names
+
+        if encoder_action_proj is None:
+            encoder_action_proj = nn.Linear(
+                self.action_dim, hidden_dim
+            )  # project robot action to embedding
+        if encoder_joint_proj is None:
+            encoder_joint_proj = nn.Linear(
+                self.state_dim, hidden_dim
+            )  # project robot qpos to embedding
+        if transformer_input_proj is None:
+            transformer_input_proj = nn.Linear(self.state_dim, hidden_dim)
+        if action_head is None:
+            nn.Linear(hidden_dim, self.action_dim)
 
         actions = encoder_action_proj(actions)
         qpos = encoder_joint_proj(qpos)
@@ -155,7 +157,7 @@ class ACTModel(nn.Module):
         latent_input = self.latent_out_proj(latent_sample)  # [batch_size, hidden_dim]
         if self.backbones is not None:
             all_cam_features = []
-            for cam_id in range(len(self.camera_names)):
+            for cam_id in range(len(camera_names)):
                 features = self.backbones[cam_id](image[:, cam_id])
                 features = self.input_proj(features)
                 all_cam_features.append(features)
@@ -183,7 +185,7 @@ class ACTModel(nn.Module):
         else:
             qpos_proj = transformer_input_proj(qpos).unsqueeze(dim=1)  # [B, 1, hidden_dim]
             env_state_proj = self.input_proj_env_state(env_state).unsqueeze(dim=1)  # [B, 1, hidden_dim]
-            src = torch.cat([qpos_proj, env_state_proj], dim=1)  # [B, 2, hidden_dim]
+            src = torch.cat([qpos_proj, env_state_proj], dim=1)  # [B, seq_length=2, hidden_dim]
 
             position_indices = torch.arange(src.shape[1]).unsqueeze(0).repeat(batch_size, 1)
             pos_embed = pos_encoding(position_indices)
