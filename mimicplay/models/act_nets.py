@@ -112,7 +112,6 @@ class StyleEncoder(nn.Module):
     def __init__(
         self,
         act_len: int,
-        act_dim: int,
         hidden_dim: int,
         latent_dim: int,
         h: int,
@@ -131,8 +130,6 @@ class StyleEncoder(nn.Module):
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
     
         self.cls_embedding = nn.Parameter(torch.rand(1, hidden_dim))
-        self.action_projection = nn.Linear(act_dim, hidden_dim)
-        self.qpos_projection = nn.Linear(act_dim, hidden_dim)
         self.latent_projection = nn.Linear(hidden_dim, latent_dim * 2)
 
         self.pos_encoding = PositionalEncoding(hidden_dim)
@@ -141,9 +138,7 @@ class StyleEncoder(nn.Module):
     
     def forward(self, qpos, actions):
         bsz = qpos.shape[0]
-
-        qpos = self.qpos_projection(qpos).unsqueeze(1)  # [bsz, 1, hidden_dim]
-        actions = self.action_projection(actions)  # [bsz, act_len, hidden_dim]
+        qpos = qpos.unsqueeze(1)  # [bsz, 1, hidden_dim]
 
         cls = self.cls_embedding.unsqueeze(0).expand(bsz, -1, -1)  # [bsz, 1, hidden_dim]
 

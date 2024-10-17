@@ -96,13 +96,13 @@ class ACTModel(nn.Module):
         self.action_dim = a_dim
         self.latent_dim = latent_dim
         self.state_dim = state_dim
+
         self.num_queries = num_queries
         self.camera_names = camera_names
         self.transformer = transformer
         self.encoder = encoder
         hidden_dim = transformer.d
 
-        self.action_head = nn.Linear(hidden_dim, self.action_dim)
         self.is_pad_head = nn.Linear(hidden_dim, 1)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
 
@@ -113,23 +113,21 @@ class ACTModel(nn.Module):
                 self.num_channels, hidden_dim, kernel_size=1
             )
             self.backbones = nn.ModuleList(backbones)
-            self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
         else:
-            self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
-            self.input_proj_env_state = nn.Linear(
-                10, hidden_dim
-            )  # TODO not used in robomimic
-            self.pos = torch.nn.Embedding(2, hidden_dim)
             self.backbones = None
+
+        ## ACTSP
+        self.cls_embed = nn.Embedding(1, hidden_dim)
 
         self.latent_out_proj = nn.Linear(
             self.latent_dim, hidden_dim
         )  # project latent sample to embedding
         self.additional_pos_embed = nn.Embedding(
             2, hidden_dim
-        ) 
+        )
 
-    def forward(self, qpos, image, env_state=None, actions=None, is_pad=None):
+
+    def forward(self, qpos, actions, image, encoder_action_proj, encoder_joint_proj, transformer_input_proj, action_head, env_state=None, is_pad=None, aux_action_head=None):
         '''
         qpos: batch, qpos_dim
         image: batch, num_cam, channel, height, width
@@ -139,6 +137,9 @@ class ACTModel(nn.Module):
         '''
         is_training = actions is not None
         batch_size = qpos.size(0)
+
+        actions = encoder_action_proj(actions)
+        qpos = encoder_joint_proj(qpos)
 
         if is_training:
             # Use StyleEncoder to get latent distribution and sample
@@ -152,7 +153,6 @@ class ACTModel(nn.Module):
             latent_sample = torch.zeros(batch_size, self.latent_dim, device=qpos.device)
 
         latent_input = self.latent_out_proj(latent_sample)  # [batch_size, hidden_dim]
-
         if self.backbones is not None:
             all_cam_features = []
             for cam_id in range(len(self.camera_names)):
@@ -170,7 +170,7 @@ class ACTModel(nn.Module):
             pos_embedded = pos_encoding(position_indices)  # [batch_size, sequence_length, hidden_dim]
             src = src + pos_embedded
 
-            proprio_input = self.input_proj_robot_state(qpos).unsqueeze(1)  # [B, 1, hidden_dim]
+            proprio_input = transformer_input_proj(qpos).unsqueeze(1)  # [B, 1, hidden_dim]
             latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
             query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
             tgt = torch.cat([latent_input, proprio_input, query_embed], dim=1)  # [B, 2 + num_queries, hidden_dim]
@@ -181,11 +181,13 @@ class ACTModel(nn.Module):
 
             hs = self.transformer(src, tgt) # [B, tgt, hidden_dim]
         else:
-            qpos_proj = self.input_proj_robot_state(qpos).unsqueeze(dim=1)  # [B, 1, hidden_dim]
+            qpos_proj = transformer_input_proj(qpos).unsqueeze(dim=1)  # [B, 1, hidden_dim]
             env_state_proj = self.input_proj_env_state(env_state).unsqueeze(dim=1)  # [B, 1, hidden_dim]
             src = torch.cat([qpos_proj, env_state_proj], dim=1)  # [B, 2, hidden_dim]
 
-            pos_embed = self.pos.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, 2, hidden_dim]
+            position_indices = torch.arange(src.shape[1]).unsqueeze(0).repeat(batch_size, 1)
+            pos_embed = pos_encoding(position_indices)
+            src = src + pos_embed 
 
             latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
             query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
@@ -194,8 +196,13 @@ class ACTModel(nn.Module):
             hs = self.transformer(src, tgt, auto_masks=False)
         
         hs_queries = hs[:, 2:, :]
-        action_pred = self.action_head(hs_queries)  # [B, num_queries, action_dim]
+        action_pred = action_head(hs_queries)  # [B, num_queries, action_dim]
         is_pad_pred = self.is_pad_head(hs_queries)  # [B, num_queries, 1]
+
+        # aux action head for 2 head output
+        if aux_action_head:
+            action_pred_aux = aux_action_head(hs)
+            return (action_pred, action_pred_aux), is_pad_pred, [mu, logvar]
 
         return action_pred, is_pad_pred, [mu, logvar]
 
