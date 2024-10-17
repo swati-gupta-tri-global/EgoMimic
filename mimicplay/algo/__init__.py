@@ -16,3 +16,4 @@ from mimicplay.algo.mimicplay import (
     Baseline_GPT_from_scratch,
 )
 from mimicplay.algo.act import ACT
+from mimicplay.algo.egomimic import EgoMimic

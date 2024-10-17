@@ -107,7 +107,7 @@ class EgoMimicModel(ACTModel):
 
     def forward(self, qpos, image, env_state, modality, actions, is_pad=None):
         if modality == "robot":
-            return super.forward(
+            return self._forward(
                 qpos,
                 actions,
                 image,
@@ -115,12 +115,13 @@ class EgoMimicModel(ACTModel):
                 self.encoder_joint_proj,
                 self.robot_transformer_input_proj,
                 self.robot_action_head,
+                camera_names=self.camera_names,
                 is_pad=is_pad,
                 aux_action_head=self.hand_action_head,
             )
         elif modality == "hand":
             assert "front_img" in self.camera_names[0], "hand modality assumes first camera is front_img"
-            return super.forward(
+            return self._forward(
                 qpos,
                 actions,
                 image,
@@ -168,7 +169,6 @@ class EgoMimic(ACT):
 
         style_encoder = StyleEncoder(
             act_len=policy_config["action_length"],
-            act_dim=policy_config["a_dim"],
             hidden_dim=policy_config["hidden_dim"],
             latent_dim=policy_config["latent_dim"],
             h=policy_config["nheads"],

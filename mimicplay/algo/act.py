@@ -111,8 +111,32 @@ class ACTModel(nn.Module):
             2, hidden_dim
         )
 
+        self.encoder_action_proj = nn.Linear(
+                self.action_dim, hidden_dim
+            )  # project robot action to embedding
+        
+        self.encoder_joint_proj = nn.Linear(
+                self.state_dim, hidden_dim
+            )  # project robot qpos to embedding
 
-    def forward(self, qpos, actions, image, encoder_action_proj=None, encoder_joint_proj=None, transformer_input_proj=None, action_head=None, camera_names=None, env_state=None, is_pad=None, aux_action_head=None):
+        self.transformer_input_proj = nn.Linear(self.state_dim, hidden_dim)
+
+        self.action_head = nn.Linear(hidden_dim, self.action_dim)
+    
+    def forward(self, qpos, actions, image, is_pad=None, env_state=None):
+        return self._forward(
+                qpos=qpos,
+                actions=actions,
+                image=image,
+                encoder_action_proj=self.encoder_action_proj,
+                encoder_joint_proj=self.encoder_joint_proj,
+                transformer_input_proj=self.transformer_input_proj,
+                action_head=self.action_head,
+                camera_names=self.camera_names,
+                is_pad=is_pad,
+        )
+    
+    def _forward(self, qpos, actions, image, encoder_action_proj=None, encoder_joint_proj=None, transformer_input_proj=None, action_head=None, camera_names=None, env_state=None, is_pad=None, aux_action_head=None):
         '''
         qpos: batch, qpos_dim
         image: batch, num_cam, channel, height, width
@@ -124,30 +148,14 @@ class ACTModel(nn.Module):
         is_training = actions is not None
         batch_size = qpos.size(0)
 
-        if camera_names is None:
-            camera_names = self.camera_names
-
-        if encoder_action_proj is None:
-            encoder_action_proj = nn.Linear(
-                self.action_dim, hidden_dim
-            )  # project robot action to embedding
-        if encoder_joint_proj is None:
-            encoder_joint_proj = nn.Linear(
-                self.state_dim, hidden_dim
-            )  # project robot qpos to embedding
-        if transformer_input_proj is None:
-            transformer_input_proj = nn.Linear(self.state_dim, hidden_dim)
-        if action_head is None:
-            nn.Linear(hidden_dim, self.action_dim)
-
-        actions = encoder_action_proj(actions)
-        qpos = encoder_joint_proj(qpos)
+        actions_encod = encoder_action_proj(actions)
+        qpos_encod = encoder_joint_proj(qpos)
 
         if is_training:
             # Use StyleEncoder to get latent distribution and sample
-            dist = self.encoder(qpos, actions)
+            dist = self.encoder(qpos_encod, actions_encod)
             mu = dist.mean
-            logvar = dist.scale.pow(2).log()
+            logvar = dist.scale.log() * 2
             latent_sample = dist.rsample()
         else:
             # Inference mode, use zeros for latent vector
@@ -203,7 +211,7 @@ class ACTModel(nn.Module):
 
         # aux action head for 2 head output
         if aux_action_head:
-            action_pred_aux = aux_action_head(hs)
+            action_pred_aux = aux_action_head(hs_queries)
             return (action_pred, action_pred_aux), is_pad_pred, [mu, logvar]
 
         return action_pred, is_pad_pred, [mu, logvar]
@@ -255,7 +263,6 @@ class ACT(BC_VAE):
 
         style_encoder = StyleEncoder(
             act_len=policy_config["action_length"],
-            act_dim=policy_config["a_dim"],
             hidden_dim=policy_config["hidden_dim"],
             latent_dim=policy_config["latent_dim"],
             h=policy_config["nheads"],
@@ -445,7 +452,7 @@ class ACT(BC_VAE):
         )
 
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](
-            qpos, images, env_state, actions=actions, is_pad=is_pad
+            qpos=qpos, image=images, env_state=env_state, actions=actions, is_pad=is_pad
         )
         total_kld, dim_wise_kld, mean_kld = self.kl_divergence(mu, logvar)
         loss_dict = dict()
@@ -586,154 +593,6 @@ class ACT(BC_VAE):
 
         return total_kld, dimension_wise_kld, mean_kld
 
-
-class ACTSP(ACT):
-    def _create_networks(self):
-        super(ACTSP, self)._create_networks()
-        self.proprio_keys_hand = (
-            self.global_config.observation_hand.modalities.obs.low_dim.copy()
-        )
-
-        self.ac_key_hand = self.global_config.train.ac_key_hand
-        self.ac_key_robot = self.global_config.train.ac_key
-
-        # self.proprio_dim = 0
-        # for k in self.proprio_keys_hand:
-        #     self.proprio_dim_hand += self.obs_key_shapes[k][0]
-
-    def build_model_opt(self, policy_config):
-        return build_single_policy_model_and_optimizer(policy_config)
-    
-    def process_batch_for_training(self, batch, ac_key):
-        """
-        Processes input batch from a data loader to filter out
-        relevant information and prepare the batch for training.
-        Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader
-        Returns:
-            input_batch (dict): processed and filtered batch that
-                will be used for training
-        """
-
-        input_batch = dict()
-        input_batch["obs"] = {
-            k: batch["obs"][k][:, 0, :]
-            for k in batch["obs"]
-            if k != "pad_mask" and k != "type"
-        }
-        input_batch["obs"]["pad_mask"] = batch["obs"]["pad_mask"]
-        input_batch["goal_obs"] = batch.get(
-            "goal_obs", None
-        )  # goals may not be present
-
-        if self.ac_key_hand in batch:
-            input_batch[self.ac_key_hand] = batch[self.ac_key_hand]
-        if self.ac_key_robot in batch:
-            input_batch[self.ac_key_robot] = batch[self.ac_key_robot]
-
-        if "type" in batch:
-            input_batch["type"] = batch["type"]
-
-        # we move to device first before float conversion because image observation modalities will be uint8 -
-        # this minimizes the amount of data transferred to GPU
-        return TensorUtils.to_float(TensorUtils.to_device(input_batch, self.device))
-
-    def _robomimic_to_act_data(self, batch, cam_keys, proprio_keys):
-        qpos, images, env_state, actions, is_pad = super()._robomimic_to_act_data(batch, cam_keys, proprio_keys)
-        actions_hand = batch.get(self.ac_key_hand, None)
-        actions_robot = batch[self.ac_key_robot] if self.ac_key_robot in batch else None
-
-        return qpos, images, env_state, actions_hand, actions_robot, is_pad
-
-    def _forward_training(self, batch):
-        """
-        Internal helper function for BC algo class. Compute forward pass
-        and return network outputs in @predictions dict.
-        Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader and filtered by @process_batch_for_training
-        Returns:
-            predictions (dict): dictionary containing network outputs
-        """
-
-        modality = self._modality_check(batch)
-        cam_keys = (
-            self.camera_keys if modality == "robot" else self.camera_keys[:1]
-        )  # TODO Simar rm hardcoding
-        proprio_keys = (
-            self.proprio_keys_hand if modality == "hand" else self.proprio_keys
-        )
-        qpos, images, env_state, actions_hand, actions_robot, is_pad = self._robomimic_to_act_data(
-            batch, cam_keys, proprio_keys
-        )
-    
-        actions = actions_hand if modality == "hand" else actions_robot
-
-        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](
-            qpos, images, env_state, modality, actions=actions, is_pad=is_pad
-        )
-        total_kld, dim_wise_kld, mean_kld = self.kl_divergence(mu, logvar)
-        loss_dict = dict()
-
-        if modality == "hand":
-            all_l1 = F.l1_loss(actions_hand, a_hat, reduction="none")
-            l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean() * self.global_config.algo.sp.hand_lambda
-            total_kld = total_kld * self.global_config.algo.sp.hand_lambda
-        elif modality == "robot":
-            all_l1_robot = F.l1_loss(actions_robot, a_hat[0], reduction="none")
-            all_l1_hand = F.l1_loss(actions_hand, a_hat[1], reduction="none")
-            l1 = (all_l1_robot * ~is_pad.unsqueeze(-1)).mean() + (all_l1_hand * ~is_pad.unsqueeze(-1)).mean()
-
-        loss_dict["l1"] = l1
-        loss_dict["kl"] = total_kld[0]
-
-        predictions = OrderedDict(
-            actions=actions,
-            kl_loss=loss_dict["kl"],
-            reconstruction_loss=loss_dict["l1"],
-        )
-
-        return predictions
-
-    def forward_eval(self, batch, unnorm_stats):
-        """
-        Internal helper function for BC algo class. Compute forward pass
-        and return network outputs in @predictions dict.
-        Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader and filtered by @process_batch_for_training
-        Returns:
-            predictions (dict): dictionary containing network outputs
-        """
-
-        modality = self._modality_check(batch)
-
-        cam_keys = (
-            self.camera_keys if modality == "robot" else self.camera_keys[:1]
-        )  # TODO Simar rm hardcoding
-        proprio_keys = (
-            self.proprio_keys_hand if modality == "hand" else self.proprio_keys
-        )
-        qpos, images, env_state, _, _, is_pad = self._robomimic_to_act_data(
-            batch, cam_keys, proprio_keys
-        )
-        a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](
-            qpos, images, env_state, modality, actions=None, is_pad=is_pad
-        )
-
-        # a_hat = a_hat[0] if modality == "robot" else a_hat
-        if modality == "robot":
-            predictions = OrderedDict()
-            predictions[self.ac_key_robot] = a_hat[0]
-            predictions[self.ac_key_hand] = a_hat[1]
-            predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
-        else:
-            predictions = OrderedDict()
-            predictions[self.ac_key_hand] = a_hat
-            predictions = ObsUtils.unnormalize_batch(predictions, unnorm_stats)
-
-        return predictions
 
 class TestModel:
     def __init__(self, config_path):

@@ -15,7 +15,8 @@ import torchvision
 import numpy as np
 import torch
 import os
-from mimicplay.algo.act import ACT, ACTSP
+from mimicplay.algo.act import ACT
+from mimicplay.algo.egomimic import EgoMimic
 import scipy
 
 EXTRINSICS_RIGHT = EXTRINSICS["ariaJul29R"]
@@ -140,7 +141,7 @@ def evaluate_high_level_policy(
                 input_batch["obs"][front_cam_name][b].permute((1, 2, 0)).cpu().numpy()
                 * 255
             ).astype(np.uint8)
-            if isinstance(model, ACTSP) or isinstance(model, ACT):
+            if isinstance(model, EgoMimic) or isinstance(model, ACT):
                 if type == "robot":
                     actions = input_batch["actions_joints_act"][b].cpu().numpy()
                     pred_values = info["actions_joints_act"][b].cpu().numpy()
@@ -171,7 +172,7 @@ def evaluate_high_level_policy(
             im = draw_both_actions_on_frame(im, ac_type, "Greens", actions, arm=arm)
             im = draw_both_actions_on_frame(im, ac_type, "Purples", pred_values, arm=arm)
 
-            if isinstance(model, ACTSP) and type == "robot":
+            if isinstance(model, EgoMimic) and type == "robot":
                 # im = draw_actions_on_frame(im, "xyz", "Reds", info["actions_xyz_act"][b].cpu().numpy())
                 actions_xyz = info["actions_xyz_act"][b].cpu().numpy()
                 actions_xyz = actions_xyz.reshape(-1, 3)

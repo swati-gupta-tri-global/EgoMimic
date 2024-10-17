@@ -74,14 +74,14 @@ class ACTConfig(BaseConfig):
         self.algo.playdata.do_not_lock_keys()
 
 
-class ACTSPConfig(ACTConfig):
-    ALGO_NAME = "actSP"
+class EgoMimicConfig(ACTConfig):
+    ALGO_NAME = "egomimic"
 
     def train_config(self):
         """
         BC algorithms don't need "next_obs" from hdf5 - so save on storage and compute by disabling it.
         """
-        super(ACTSPConfig, self).train_config()
+        super(EgoMimicConfig, self).train_config()
         self.train.ac_key_hand = "actions_xyz"
         self.train.dataset_keys_hand = ["actions_xyz"]
         self.train.seq_length_hand = 1
@@ -89,10 +89,10 @@ class ACTSPConfig(ACTConfig):
         self.train.hdf5_2_filter_key = "train"
 
     def observation_config(self):
-        super(ACTSPConfig, self).observation_config()
+        super(EgoMimicConfig, self).observation_config()
         self.observation_hand.modalities.obs.low_dim = ["joint_positions"]
         self.observation_hand.modalities.obs.rgb = ["front_img_1"]
     
     def algo_config(self):
-        super(ACTSPConfig, self).algo_config()
+        super(EgoMimicConfig, self).algo_config()
         self.algo.sp.hand_lambda = 1.0

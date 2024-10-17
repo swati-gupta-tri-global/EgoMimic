@@ -137,6 +137,10 @@ class StyleEncoder(nn.Module):
         self.encoder_norm = nn.LayerNorm(hidden_dim)
     
     def forward(self, qpos, actions):
+        '''
+        qpos: linear projection of qpos
+        actions: linear projection of actions
+        '''
         bsz = qpos.shape[0]
         qpos = qpos.unsqueeze(1)  # [bsz, 1, hidden_dim]
 
@@ -159,8 +163,9 @@ class StyleEncoder(nn.Module):
         x = x[0]  # [bsz, hidden_dim]
 
         x = self.latent_projection(x)  # [bsz, latent_dim * 2]
-        mu, logstd = x.chunk(2, dim=-1)  # [bsz, latent_dim] each
-        dist = Normal(mu, logstd.exp())  # Create Normal distribution
+        mu = x[:, self.latent_dim : ]
+        logvar = x[:, : self.latent_dim]
+        dist = Normal(mu, (logvar / 2).exp())  # Create Normal distribution
 
         return dist
 
