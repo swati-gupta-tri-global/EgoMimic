@@ -12,9 +12,6 @@ import torchvision.transforms as transforms
 import robomimic.utils.tensor_utils as TensorUtils
 from mimicplay.algo import register_algo_factory_func, PolicyAlgo
 from robomimic.algo.bc import BC_VAE
-from detr.main import (
-    build_single_policy_model_and_optimizer,
-)
 
 from mimicplay.scripts.aloha_process.simarUtils import nds
 import matplotlib.pyplot as plt
