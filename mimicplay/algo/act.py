@@ -483,7 +483,7 @@ class ACT(BC_VAE):
             batch, self.camera_keys, self.proprio_keys
         )
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](
-            qpos, images, env_state, actions=None, is_pad=is_pad
+            qpos=qpos, image=images, env_state=env_state, actions=None, is_pad=is_pad
         )
 
         predictions = OrderedDict()
