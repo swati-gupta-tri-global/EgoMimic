@@ -148,10 +148,9 @@ class ACTModel(nn.Module):
         is_training = actions is not None
         batch_size = qpos.size(0)
 
-        actions_encod = encoder_action_proj(actions)
-        qpos_encod = encoder_joint_proj(qpos)
-
         if is_training:
+            actions_encod = encoder_action_proj(actions)
+            qpos_encod = encoder_joint_proj(qpos)
             # Use StyleEncoder to get latent distribution and sample
             dist = self.encoder(qpos_encod, actions_encod)
             mu = dist.mean
