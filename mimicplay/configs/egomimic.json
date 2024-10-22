@@ -157,7 +157,7 @@
                     "feature_dimension": 64,
                     "backbone_class": "ResNet18Conv",
                     "backbone_kwargs": {
-                        "pretrained": false,
+                        "pretrained": true,
                         "input_coord_conv": false
                     },
                     "pool_class": "SpatialSoftmax",

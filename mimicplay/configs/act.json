@@ -12,7 +12,7 @@
         "save": {
             "enabled": true,
             "every_n_seconds": null,
-            "every_n_epochs": 50,
+            "every_n_epochs": 200,
             "top_n": 5,
             "epochs": [],
             "on_best_validation": true,
@@ -135,7 +135,7 @@
                     "feature_dimension": 64,
                     "backbone_class": "ResNet18Conv",
                     "backbone_kwargs": {
-                        "pretrained": false,
+                        "pretrained": true,
                         "input_coord_conv": false
                     },
                     "pool_class": "SpatialSoftmax",

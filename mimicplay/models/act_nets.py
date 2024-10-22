@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-import math
 from typing import Optional, Callable, Any 
 from robomimic.models.transformers import PositionalEncoding
 from torch.distributions import Normal
@@ -62,20 +61,10 @@ class Transformer(nn.Module):
         
         self.fc = nn.Linear(d, tgt_vocab_size) if tgt_vocab_size else None
         self.dropout = nn.Dropout(dropout)
-    
-    def generate_mask(self, src, tgt):
-        src_mask = (src == 0)  # Shape: (batch_size, src_len)
-        tgt_mask = (tgt == 0)  # Shape: (batch_size, tgt_len)
-
-        L = tgt.size(1)
-        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(tgt.device)
-        return src_mask, tgt_mask
 
     def forward(self, src, tgt, auto_masks=False):
-        if auto_masks:
-            src_mask, tgt_mask = self.generate_mask(src, tgt)
-        else:
-            src_mask = tgt_mask = None
+        assert auto_masks == False, "Auto mask not supported"
+        src_mask = tgt_mask = None
 
         if self.src_embed:
             src = self.src_embed(src)

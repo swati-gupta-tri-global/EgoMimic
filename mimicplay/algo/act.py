@@ -21,7 +21,6 @@ from mimicplay.configs import config_factory
 
 from mimicplay.models.act_nets import Transformer, StyleEncoder
 
-from robomimic.models.transformers import PositionalEncoding
 
 import robomimic.models.base_nets as BaseNets
 import mimicplay.models.policy_nets as PolicyNets
@@ -159,48 +158,29 @@ class ACTModel(nn.Module):
             latent_sample = torch.zeros(batch_size, self.latent_dim, device=qpos.device)
 
         latent_input = self.latent_out_proj(latent_sample)  # [batch_size, hidden_dim]
-        if self.backbones is not None:
-            all_cam_features = []
-            for cam_id in range(len(camera_names)):
-                features = self.backbones[cam_id](image[:, cam_id])
-                features = self.input_proj(features)
-                all_cam_features.append(features)
 
-            src = torch.cat(all_cam_features, dim=-1)  # [B, hidden_dim, H, W * num_cameras]
+        all_cam_features = []
+        for cam_id in range(len(camera_names)):
+            features = self.backbones[cam_id](image[:, cam_id])
+            features = self.input_proj(features)
+            all_cam_features.append(features)
 
-            batch_size, hidden_dim, height, width = src.shape
-            src = src.flatten(2).permute(0, 2, 1)  # [B, S, hidden_dim], S = H * W * num_cameras
+        src = torch.cat(all_cam_features, dim=-1)  # [B, hidden_dim, H, W * num_cameras]
 
-            position_indices = torch.arange(src.shape[1], device=src.device).unsqueeze(0).expand(batch_size, -1)  # [batch_size, sequence_length]
-            pos_encoding = PositionalEncoding(hidden_dim)
-            pos_embedded = pos_encoding(position_indices)  # [batch_size, sequence_length, hidden_dim]
-            src = src + pos_embedded
+        batch_size, hidden_dim, height, width = src.shape
+        src = src.flatten(2).permute(0, 2, 1)  # [B, S, hidden_dim], S = H * W * num_cameras
 
-            proprio_input = transformer_input_proj(qpos).unsqueeze(1)  # [B, 1, hidden_dim]
-            latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
-            query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
-            tgt = torch.cat([latent_input, proprio_input, query_embed], dim=1)  # [B, 2 + num_queries, hidden_dim]
+        proprio_input = transformer_input_proj(qpos).unsqueeze(1)  # [B, 1, hidden_dim]
+        latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
+        query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
+        tgt = torch.cat([latent_input, proprio_input, query_embed], dim=1)  # [B, 2 + num_queries, hidden_dim]
 
-            # extend tgt
-            additional_pos_embed = self.additional_pos_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)
-            tgt[:, :2, :] += additional_pos_embed 
+        # extend tgt
+        additional_pos_embed = self.additional_pos_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)
+        tgt[:, :2, :] += additional_pos_embed 
 
-            hs = self.transformer(src, tgt) # [B, tgt, hidden_dim]
-        else:
-            qpos_proj = transformer_input_proj(qpos).unsqueeze(dim=1)  # [B, 1, hidden_dim]
-            env_state_proj = self.input_proj_env_state(env_state).unsqueeze(dim=1)  # [B, 1, hidden_dim]
-            src = torch.cat([qpos_proj, env_state_proj], dim=1)  # [B, seq_length=2, hidden_dim]
+        hs = self.transformer(src, tgt) # [B, tgt, hidden_dim]
 
-            position_indices = torch.arange(src.shape[1]).unsqueeze(0).repeat(batch_size, 1)
-            pos_embed = pos_encoding(position_indices)
-            src = src + pos_embed 
-
-            latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
-            query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
-            tgt = torch.cat([latent_input, query_embed], dim=1)  # [B, 1 + num_queries, hidden_dim]
-
-            hs = self.transformer(src, tgt, auto_masks=False)
-        
         hs_queries = hs[:, 2:, :]
         action_pred = action_head(hs_queries)  # [B, num_queries, action_dim]
         is_pad_pred = self.is_pad_head(hs_queries)  # [B, num_queries, 1]
@@ -240,14 +220,14 @@ class ACT(BC_VAE):
         else:
             backbones = None
 
-
-        if backbones is not None:
             # assume camera input shape is same for all TODO dynamic size
-            cam_name = policy_config["camera_names"][0]  
-            input_shape = self.obs_key_shapes[cam_name]  # (C, H, W)
-            num_channels = backbones[0].output_shape(input_shape)[0]
-        else:
-            num_channels = None
+        
+        assert len(backbones) > 0 and backbones is not None , "There must be atleast one vision backbone"
+
+        cam_name = policy_config["camera_names"][0]  
+        input_shape = self.obs_key_shapes[cam_name]  # (C, H, W)
+        num_channels = backbones[0].output_shape(input_shape)[0]
+
         
         transformer = Transformer(
             d=policy_config["hidden_dim"],
