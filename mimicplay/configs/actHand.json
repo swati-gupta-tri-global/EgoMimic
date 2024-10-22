@@ -52,7 +52,6 @@
         "hdf5_normalize_obs": false,
         "hdf5_normalize_actions": false,
         "seq_length": 100,
-        "seq_length_to_load": 1,
         "prestacked_actions": true,
         "ac_key": "actions_xyz_act",
         "pad_seq_length": true,

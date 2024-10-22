@@ -53,8 +53,7 @@
         "hdf5_load_next_obs": false,
         "hdf5_filter_key": "train",
         "hdf5_validation_filter_key": "valid",
-        "seq_length": 10,
-        "seq_length_to_load": 1,
+        "seq_length": 100,
         "prestacked_actions": true,
         "dataset_keys": [
             "actions_xyz"
