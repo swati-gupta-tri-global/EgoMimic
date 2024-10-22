@@ -85,7 +85,6 @@ class ACTSPConfig(ACTConfig):
         self.train.ac_key_hand = "actions_xyz"
         self.train.dataset_keys_hand = ["actions_xyz"]
         self.train.seq_length_hand = 1
-        self.train.seq_length_to_load_hand = 1
         self.train.hdf5_2_filter_key = "train"
 
     def observation_config(self):

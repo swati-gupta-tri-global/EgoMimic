@@ -8,6 +8,7 @@ import pytorch_kinematics as pk
 import mimicplay
 import os
 import torchvision.transforms.v2.functional as TVTF
+import scipy
 
 REALSENSE_INTRINSICS = np.array(
     [[616.0, 0.0, 313.4, 0.0], [0.0, 615.7, 236.7, 0.0], [0.0, 0.0, 1.0, 0.0]]
@@ -366,3 +367,47 @@ def add_extra_train_splits(data, split_percentages):
     for i in range(4):
         print(i)
         assert set(splits[i]).issubset(set(splits[i+1]))
+
+def interpolate_arr(v, seq_length):
+    """
+    v: (B, T, D)
+    seq_length: int
+    """
+    assert len(v.shape) == 3
+    if v.shape[1] == seq_length:
+        return
+    
+    interpolated = []
+    for i in range(v.shape[0]):
+        index = v[i]
+
+        interp = scipy.interpolate.interp1d(
+            np.linspace(0, 1, index.shape[0]), index, axis=0
+        )
+        interpolated.append(interp(np.linspace(0, 1, seq_length)))
+
+    return np.array(interpolated)
+
+def interpolate_keys(obs, keys, seq_length):
+    """
+    obs: dict with values of shape (T, D)
+    keys: list of keys to interpolate
+    seq_length: int changes shape (T, D) to (seq_length, D)
+    """
+    for k in keys:
+        v = obs[k]
+        L = v.shape[0]
+        if L == seq_length:
+            continue
+
+        if k == "pad_mask":
+            # interpolate it by simply copying each index (seq_length / seq_length_to_load) times
+            obs[k] = np.repeat(v, (seq_length // L), axis=0)
+        elif k != "pad_mask":
+            interp = scipy.interpolate.interp1d(
+                np.linspace(0, 1, L), v, axis=0
+            )
+            try:
+                obs[k] = interp(np.linspace(0, 1, seq_length))
+            except:
+                raise ValueError(f"Interpolation failed for key: {k} with shape{k.shape}")
