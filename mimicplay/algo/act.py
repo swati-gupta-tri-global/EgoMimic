@@ -168,20 +168,28 @@ class ACTModel(nn.Module):
         src = torch.cat(all_cam_features, dim=-1)  # [B, hidden_dim, H, W * num_cameras]
 
         batch_size, hidden_dim, height, width = src.shape
-        src = src.flatten(2).permute(0, 2, 1)  # [B, S, hidden_dim], S = H * W * num_cameras
+        src = src.flatten(2).permute(0, 2, 1)  # [B, S, hidden_dim], S = H * W * num_cameras]
 
         proprio_input = transformer_input_proj(qpos).unsqueeze(1)  # [B, 1, hidden_dim]
         latent_input = latent_input.unsqueeze(1)  # [B, 1, hidden_dim]
+
         query_embed = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)  # [B, num_queries, hidden_dim]
-        tgt = torch.cat([latent_input, proprio_input, query_embed], dim=1)  # [B, 2 + num_queries, hidden_dim]
 
-        # extend tgt
-        additional_pos_embed = self.additional_pos_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)
-        tgt[:, :2, :] += additional_pos_embed 
+        tgt = query_embed # tgt = torch.zeros_like(query_embed) + query_embed. ACT passes zeros to decoder
+        
+        src = torch.cat(
+            [latent_input,
+            proprio_input,
+            src],
+            axis=1
+        ) # [B, S + 2, hidden_dim]
+        
+        # Learnable additional pos embed for latent input, proprio input
+        additional_pos_embed = self.additional_pos_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1) #[B, 2, hidden_dim]
+        src[:, :2, :] += additional_pos_embed 
 
-        hs = self.transformer(src, tgt) # [B, tgt, hidden_dim]
+        hs_queries = self.transformer(src, tgt) # [B, tgt, hidden_dim]
 
-        hs_queries = hs[:, 2:, :]
         action_pred = action_head(hs_queries)  # [B, num_queries, action_dim]
         is_pad_pred = self.is_pad_head(hs_queries)  # [B, num_queries, 1]
 

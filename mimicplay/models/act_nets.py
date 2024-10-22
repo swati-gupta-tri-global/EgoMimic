@@ -147,7 +147,7 @@ class StyleEncoder(nn.Module):
 
         x = self.encoder(x)  # [act_len + 2, bsz, hidden_dim]
 
-        x = self.encoder_norm(x) # cuz act has weird pre and post norms
+        # x = self.encoder_norm(x) # cuz act has weird pre and post norms
 
         x = x[0]  # [bsz, hidden_dim]
 
