@@ -84,8 +84,6 @@ def apply_masking(hdf5_file, arm, extrinsics):
 
     sam = SAM()
 
-    chain = pk.build_serial_chain_from_urdf(open("/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf").read(), "vx300s/ee_gripper_link")
-
     with h5py.File(hdf5_file, 'r+') as aloha_hdf5, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
         keys_list = list(aloha_hdf5['data'].keys())
         keys_list = [k.split('_')[1] for k in keys_list]
@@ -107,20 +105,177 @@ def apply_masking(hdf5_file, arm, extrinsics):
             aloha_hdf5[f'data/demo_{j}/obs'].create_dataset('front_img_1_masked', data=mask_images, chunks=(1, 480, 640, 3))
 
 
+def add_image_obs(demo_hdf5, demo_obs_group, cam_name):
+    """
+    demo_hdf5: the demo hdf5 file
+    demo_obs_group: the demo obs object
+    cam_name: the name of the camera to add
+    Add an image to the demo hdf5 file.
+    """
+    if cam_name == "cam_high":
+        demo_obs_group.create_dataset(
+            "front_img_1",
+            data=demo_hdf5["observations"]["images"]["cam_high"],
+            dtype="uint8",
+            chunks=(1, 480, 640, 3),
+        )
+    elif cam_name == "cam_left_wrist":
+        demo_obs_group.create_dataset(
+            "left_wrist_img",
+            data=demo_hdf5["observations"]["images"]["cam_left_wrist"],
+            dtype="uint8",
+            chunks=(1, 480, 640, 3),
+        )
+    elif cam_name == "cam_right_wrist":
+        demo_obs_group.create_dataset(
+            "right_wrist_img",
+            data=demo_hdf5["observations"]["images"]["cam_right_wrist"],
+            dtype="uint8",
+            chunks=(1, 480, 640, 3),
+        )    
 
-def process_demo(demo_path, data_group, arm, extrinsics, data_type="robot", prestack=False):
+def add_joint_actions(demo_hdf5, demo_i_group, joint_start, joint_end, prestack=False, POINT_GAP=2, FUTURE_POINTS_COUNT=100):
+    """
+    demo_hdf5: the demo hdf5 file
+    demo_i_group: the demo group to write the data to
+    joint_start: the start index of the joint actions
+    joint_end: the end index of the joint actions
+    prestack: whether to prestack the future points
+    POINT_GAP: how many timesteps to skip
+    FUTURE_POINTS_COUNT: how many future points to collect
+
+    Add joint actions to the demo hdf5 file.
+    """
+    joint_actions = demo_hdf5["action"][:,  joint_start:joint_end]
+    if prestack:
+        joint_actions = get_future_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        joint_actions_sampled =  sample_interval_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+    demo_i_group.create_dataset(
+        "actions_joints", data=joint_actions_sampled
+    )
+    demo_i_group.create_dataset(
+        "actions_joints_act", data=joint_actions
+    )
+    
+
+def add_xyz_actions(demo_hdf5, demo_i_group, arm, left_extrinsics=None, right_extrinsics=None, prestack=False, POINT_GAP=2, FUTURE_POINTS_COUNT=100):
+    """
+    demo_hdf5: the demo hdf5 file
+    demo_i_group: the demo group to write the data to
+    arm: the arm to process
+    left_extrinsics: the left camera extrinsics
+    right_extrinsics: the right camera extrinsics
+    prestack: whether to prestack the future points
+    POINT_GAP: how many timesteps to skip
+    FUTURE_POINTS_COUNT: how many future points to collect
+
+    Add xyz actions to the demo hdf5 file.
+    """
+    aloha_fk = AlohaFK()
+
+    if arm == "both":
+        joint_start = 0
+        joint_end = 14
+
+        #Needed for forward kinematics
+        joint_left_start = 0
+        joint_left_end = 7
+        joint_right_start = 7
+        joint_right_end = 14
+        
+        fk_left_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_left_start:joint_left_end - 1])
+        fk_right_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_right_start:joint_right_end - 1])
+    else:
+        if arm == "left":
+            joint_start = 0
+            joint_end = 7
+        elif arm == "right":
+            joint_start = 7
+            joint_end = 14
+        fk_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_start:joint_end - 1])
+    
+    if arm == "both":
+        fk_left_positions = ee_pose_to_cam_frame(
+            fk_left_positions, left_extrinsics
+        )[:, :3]
+        fk_right_positions = ee_pose_to_cam_frame(
+            fk_right_positions, right_extrinsics
+        )[:, :3]
+        fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
+    else:
+        extrinsics = left_extrinsics if arm == "left" else right_extrinsics         
+        fk_positions = ee_pose_to_cam_frame(
+            fk_positions, extrinsics
+        )[:, :3]
+
+    if prestack:
+        print("prestacking", fk_positions.shape)
+        fk_positions = get_future_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        print("AFTER prestacking", fk_positions.shape)
+        fk_positions_sampled = sample_interval_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+
+    demo_i_group.create_dataset("actions_xyz_act", data=fk_positions)
+    demo_i_group.create_dataset("actions_xyz", data=fk_positions_sampled)
+
+def add_ee_pose_obs(demo_hdf5, demo_i_obs_group, arm, left_extrinsics=None, right_extrinsics=None): 
+    """
+    demo_hdf5: the demo hdf5 file
+    demo_i_obs_group: the demo obs group to write the data to
+    arm: the arm to process
+    left_extrinsics: the left camera extrinsics
+    right_extrinsics: the right camera extrinsics
+
+    Add ee pose obs to the demo hdf5 file.
+    """
+    aloha_fk = AlohaFK()
+
+    if arm == "both":
+        joint_start = 0
+        joint_end = 14
+        #Needed for forward kinematics
+        joint_left_start = 0
+        joint_left_end = 7
+        joint_right_start = 7
+        joint_right_end = 14
+        fk_left_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_left_start:joint_left_end - 1])
+        fk_right_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_right_start:joint_right_end - 1])
+    else:
+        if arm == "left":
+            joint_start = 0
+            joint_end = 7
+        elif arm == "right":
+            joint_start = 7
+            joint_end = 14    
+        fk_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_start:joint_end - 1])
+    
+    if arm == "both":
+        fk_left_positions = ee_pose_to_cam_frame(
+            fk_left_positions, left_extrinsics
+        )[:, :3]
+        fk_right_positions = ee_pose_to_cam_frame(
+            fk_right_positions, right_extrinsics
+        )[:, :3]
+        fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
+    else:
+        extrinsics = left_extrinsics if arm == "left" else right_extrinsics   
+        fk_positions = ee_pose_to_cam_frame(
+            fk_positions, extrinsics
+        )[:, :3]
+
+    demo_i_obs_group.create_dataset("ee_pose", data=fk_positions)
+
+def process_demo(demo_path, data_group, arm, extrinsics, prestack=False):
     """
     demo_path: path to the demo hdf5 file
     data_group: the group in the output hdf5 file to write the data to
     arm: arm to process - left, right, or both
     extrinsics: camera extrinsics. It is a tuple of (left_extrinsics, right_extrinsics) if arm is both
-    data_type: type of data to process - hand or robot
     prestack: whether to prestack the future points
     Process a single demo hdf5 file and write the data to the output hdf5 file.
     """
 
-    aloha_fk = AlohaFK()
-
+    left_extrinsics = None
+    right_extrinsics = None
     if arm == "both":
         if not isinstance(extrinsics, dict):
             print("Error: Both arms selected. Expected extrinsics for both arms.")
@@ -128,8 +283,10 @@ def process_demo(demo_path, data_group, arm, extrinsics, data_type="robot", pres
         right_extrinsics = extrinsics["right"]
     elif args.arm == "left":
         extrinsics = extrinsics["left"]
+        left_extrinsics = extrinsics
     elif args.arm == "right":
         extrinsics = extrinsics["right"]
+        right_extrinsics = extrinsics
     with h5py.File(demo_path, "r") as demo_hdf5:
         demo_number = demo_path.split("_")[-1].split(".")[0]
         demo_i_group = data_group.create_group(f"demo_{demo_number}")
@@ -153,116 +310,118 @@ def process_demo(demo_path, data_group, arm, extrinsics, data_type="robot", pres
             joint_right_start = 7
             joint_right_end = 14
 
-        # Extract the data from the aloha hdf5 file
-        if arm == "right":
-            pass
-
         # obs
-        demo_i_obs_group.create_dataset(
-            "front_img_1",
-            data=demo_hdf5["observations"]["images"]["cam_high"],
-            dtype="uint8",
-            chunks=(1, 480, 640, 3),
-        )
-
+        ## adding images
+        add_image_obs(demo_hdf5, demo_i_obs_group, "cam_high")
         if arm in ["left", "both"]:
-            demo_i_obs_group.create_dataset(
-                "left_wrist_img",
-                data=demo_hdf5["observations"]["images"]["cam_left_wrist"],
-                dtype="uint8",
-                chunks=(1, 480, 640, 3),
-            )
-        
+            add_image_obs(demo_hdf5, demo_i_obs_group, "cam_left_wrist")
         if arm in ["right", "both"]:
-            demo_i_obs_group.create_dataset(
-                "right_wrist_img",
-                data=demo_hdf5["observations"]["images"]["cam_right_wrist"],
-                dtype="uint8",
-                chunks=(1, 480, 640, 3),
-            )
+            add_image_obs(demo_hdf5, demo_i_obs_group, "cam_right_wrist")
+        # demo_i_obs_group.create_dataset(
+        #     "front_img_1",
+        #     data=demo_hdf5["observations"]["images"]["cam_high"],
+        #     dtype="uint8",
+        #     chunks=(1, 480, 640, 3),
+        # )
+
+        # if arm in ["left", "both"]:
+        #     demo_i_obs_group.create_dataset(
+        #         "left_wrist_img",
+        #         data=demo_hdf5["observations"]["images"]["cam_left_wrist"],
+        #         dtype="uint8",
+        #         chunks=(1, 480, 640, 3),
+        #     )
         
+        # if arm in ["right", "both"]:
+        #     demo_i_obs_group.create_dataset(
+        #         "right_wrist_img",
+        #         data=demo_hdf5["observations"]["images"]["cam_right_wrist"],
+        #         dtype="uint8",
+        #         chunks=(1, 480, 640, 3),
+        #     )
+        
+        ## add joint obs
         demo_i_obs_group.create_dataset(
             "joint_positions", data=demo_hdf5["observations"]["qpos"][:, joint_start:joint_end]
         )
 
-        if arm == "both":
-            fk_left_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_left_start:joint_left_end - 1])
-            fk_right_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_right_start:joint_right_end - 1])
-        else:    
-            fk_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_start:joint_end - 1])
+        # add ee_pose
+        add_ee_pose_obs(demo_hdf5, demo_i_obs_group, arm, left_extrinsics=left_extrinsics, right_extrinsics=right_extrinsics)
+
+
+        # if arm == "both":
+        #     fk_left_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_left_start:joint_left_end - 1])
+        #     fk_right_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_right_start:joint_right_end - 1])
+        # else:    
+        #     fk_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_start:joint_end - 1])
         
-        if arm == "both":
-            fk_left_positions = ee_pose_to_cam_frame(
-                fk_left_positions, left_extrinsics
-            )[:, :3]
-            fk_right_positions = ee_pose_to_cam_frame(
-                fk_right_positions, right_extrinsics
-            )[:, :3]
-            fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
-        else:
-            fk_positions = ee_pose_to_cam_frame(
-                fk_positions, extrinsics
-            )[:, :3]
+        # if arm == "both":
+        #     fk_left_positions = ee_pose_to_cam_frame(
+        #         fk_left_positions, left_extrinsics
+        #     )[:, :3]
+        #     fk_right_positions = ee_pose_to_cam_frame(
+        #         fk_right_positions, right_extrinsics
+        #     )[:, :3]
+        #     fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
+        # else:
+        #     fk_positions = ee_pose_to_cam_frame(
+        #         fk_positions, extrinsics
+        #     )[:, :3]
 
-        demo_i_obs_group.create_dataset("ee_pose", data=fk_positions)
+        # demo_i_obs_group.create_dataset("ee_pose", data=fk_positions)
 
-        if data_type == "hand":
-            POINT_GAP = 4
-            FUTURE_POINTS_COUNT = 10
-        elif data_type == "robot":
-            POINT_GAP = 2
-            FUTURE_POINTS_COUNT = 100
 
-        # actions_joints
-        joint_actions = demo_hdf5["action"][:,  joint_start:joint_end]
-        if prestack:
-            joint_actions = get_future_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-            joint_actions_sampled =  sample_interval_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-        demo_i_group.create_dataset(
-            "actions_joints", data=joint_actions_sampled
-        )
-        demo_i_group.create_dataset(
-            "actions_joints_act", data=joint_actions
-        )
+        POINT_GAP = 2
+        FUTURE_POINTS_COUNT = 100
+
+        # add joint actions
+        add_joint_actions(demo_hdf5, demo_i_group, joint_start, joint_end, prestack=prestack, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        
+        # joint_actions = demo_hdf5["action"][:,  joint_start:joint_end]
+        # if prestack:
+        #     joint_actions = get_future_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        #     joint_actions_sampled =  sample_interval_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        # demo_i_group.create_dataset(
+        #     "actions_joints", data=joint_actions_sampled
+        # )
+        # demo_i_group.create_dataset(
+        #     "actions_joints_act", data=joint_actions
+        # )
+
+        # add xyz actions
 
         # actions_xyz
-        if arm == "both":
-            fk_left_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_left_start:joint_left_end - 1])
-            fk_right_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_right_start:joint_right_end - 1])
-        else:
-            fk_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_start:joint_end - 1])
+        add_xyz_actions(demo_hdf5, demo_i_group, arm, left_extrinsics, right_extrinsics, prestack=prestack, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        # if arm == "both":
+        #     fk_left_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_left_start:joint_left_end - 1])
+        #     fk_right_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_right_start:joint_right_end - 1])
+        # else:
+        #     fk_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_start:joint_end - 1])
         
-        if arm == "both":
-            fk_left_positions = ee_pose_to_cam_frame(
-                fk_left_positions, left_extrinsics
-            )[:, :3]
-            fk_right_positions = ee_pose_to_cam_frame(
-                fk_right_positions, right_extrinsics
-            )[:, :3]
-            fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
-        else:         
-            fk_positions = ee_pose_to_cam_frame(
-                fk_positions, extrinsics
-            )[:, :3]
+        # if arm == "both":
+        #     fk_left_positions = ee_pose_to_cam_frame(
+        #         fk_left_positions, left_extrinsics
+        #     )[:, :3]
+        #     fk_right_positions = ee_pose_to_cam_frame(
+        #         fk_right_positions, right_extrinsics
+        #     )[:, :3]
+        #     fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
+        # else:         
+        #     fk_positions = ee_pose_to_cam_frame(
+        #         fk_positions, extrinsics
+        #     )[:, :3]
 
 
-        if prestack:
-            print("prestacking", fk_positions.shape)
-            fk_positions = get_future_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-            print("AFTER prestacking", fk_positions.shape)
-            fk_positions_sampled = sample_interval_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        # if prestack:
+        #     print("prestacking", fk_positions.shape)
+        #     fk_positions = get_future_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
+        #     print("AFTER prestacking", fk_positions.shape)
+        #     fk_positions_sampled = sample_interval_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
 
-        demo_i_group.create_dataset("actions_xyz_act", data=fk_positions)
-        demo_i_group.create_dataset("actions_xyz", data=fk_positions_sampled)
+        # demo_i_group.create_dataset("actions_xyz_act", data=fk_positions)
+        # demo_i_group.create_dataset("actions_xyz", data=fk_positions_sampled)
    
 def  main(args):
-    chain = pk.build_serial_chain_from_urdf(
-        open(
-            "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf"
-        ).read(),
-        "vx300s/ee_gripper_link",
-    )
-
     # before converting everything, check it all at least opens
     for file in tqdm(os.listdir(args.dataset)):
         #  if os.path.isfile(os.path.join(args.dataset, file)):
@@ -285,12 +444,14 @@ def  main(args):
 
             aloha_demo_path = os.path.join(args.dataset, aloha_demo)
 
-            process_demo(aloha_demo_path, data_group, args.arm, EXTRINSICS[args.extrinsics], args.data_type, args.prestack)
+            process_demo(aloha_demo_path, data_group, args.arm, EXTRINSICS[args.extrinsics], args.prestack)
 
     split_train_val_from_hdf5(hdf5_path=args.out, val_ratio=0.2, filter_key=None)
 
     ## Masking
-    apply_masking(args.out, args.arm, EXTRINSICS[args.extrinsics])
+    if args.mask:
+        print("Starting Masking")
+        apply_masking(args.out, args.arm, EXTRINSICS[args.extrinsics])
     print("Successful Conversion!")
 
 if __name__ == "__main__":
@@ -302,18 +463,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--arm", type=str, help="which arm to convert data for")
     parser.add_argument("--extrinsics", type=str, help="which arm to convert data for")
+    parser.add_argument("--mask", action="store_true")
     parser.add_argument(
         "--out",
         type=str,
         help="path to output dataset: /coc/flash7/datasets/oboov2/<ds_name>.hdf5",
     )
-    parser.add_argument(
-        "--data-type",
-        type=str,
-        required=True,
-        choices=["hand", "robot"],  # Restrict to only 'hand' or 'robot'
-        help="Choose which data-type - hand or robot",
-    )
+
     parser.add_argument(
         "--prestack",
         action="store_true"
