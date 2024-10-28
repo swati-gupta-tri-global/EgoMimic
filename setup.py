@@ -3,11 +3,11 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="mimicplay",
+    name="egomimic",
     version="1.0",
-    description="Mimic Play Package",
-    author="Chen Wang",
-    author_email="chenwj@stanford.edu",
-    url="https://mimic-play.github.io",
+    description="Egomimic Scripts Package",
+    author="Simar Kareer",
+    author_email="skareer@gatech.edu",
+    url="https://egomimic.github.io",
     packages=find_packages(),  # Automatically discovers all packages
 )
