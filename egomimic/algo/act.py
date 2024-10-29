@@ -480,42 +480,7 @@ class ACT(BC_VAE):
         return predictions
 
     def get_action(self, obs_dict, goal_dict=None):
-        """
-        Get policy action outputs.
-        Args:
-            obs_dict (dict): current observation
-            goal_dict (dict): (optional) goal
-        Returns:
-            action (torch.Tensor): action tensor
-        """
-        assert not self.nets.training
-
-        proprio = [obs_dict[k] for k in self.proprio_keys]
-        proprio = torch.cat(proprio, axis=1)
-        qpos = proprio
-
-        images = []
-        if len(self.camera_keys) > 0:
-            for cam_name in self.camera_keys:
-                image = obs_dict[cam_name]
-                image = self.normalize(image)
-                image = image.unsqueeze(axis=1)
-                images.append(image)
-            images = torch.cat(images, axis=1)
-        else:
-            images = None
-
-        env_state = torch.zeros([qpos.shape[0], 10]).cuda()  # not used
-
-        if self._step_counter % self.query_frequency == 0:
-            a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](
-                qpos, images, env_state
-            )
-            self.a_hat_store = a_hat
-
-        action = self.a_hat_store[:, self._step_counter % self.query_frequency, :]
-        self._step_counter += 1
-        return action
+        raise NotImplementedError("Not in use, but reference forward_eval if you want to use this.")
 
     def reset(self):
         """
