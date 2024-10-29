@@ -1,4 +1,4 @@
-name: eplay
+name: emimic
 channels:
   - pytorch
   - nvidia
@@ -35,5 +35,4 @@ dependencies:
     - arm_pytorch_utilities
     - pytorch-kinematics
     - pytorch-lightning
-    - projectaria-tools'[all]'
     - positional-encodings[pytorch]
