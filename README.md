@@ -22,11 +22,11 @@ On robot run
 - `record_episodes.py`
 - Move the whole folder of all epsiodes onto skynet
 - cd into `mimicplay/scripts/aloha_process`
-- run `python aloha_to_robomimicv2.py`.  This will convert the aloha joint positions to 3d EE pose relative to robot base
+- run `python aloha_to_robomimic.py`.  This will convert the aloha joint positions to 3d EE pose relative to robot base
 
 ex) 
 ```bash
-python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16_prestacked.hdf5  --extrinsics <newest extrinsics in SimarUtils.py> --data-type robot --prestack
+python aloha_to_robomimic.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16_prestacked.hdf5  --extrinsics <newest extrinsics in SimarUtils.py> --data-type robot --prestack
 ```
 
 
