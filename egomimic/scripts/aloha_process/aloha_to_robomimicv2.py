@@ -317,28 +317,6 @@ def process_demo(demo_path, data_group, arm, extrinsics, prestack=False):
             add_image_obs(demo_hdf5, demo_i_obs_group, "cam_left_wrist")
         if arm in ["right", "both"]:
             add_image_obs(demo_hdf5, demo_i_obs_group, "cam_right_wrist")
-        # demo_i_obs_group.create_dataset(
-        #     "front_img_1",
-        #     data=demo_hdf5["observations"]["images"]["cam_high"],
-        #     dtype="uint8",
-        #     chunks=(1, 480, 640, 3),
-        # )
-
-        # if arm in ["left", "both"]:
-        #     demo_i_obs_group.create_dataset(
-        #         "left_wrist_img",
-        #         data=demo_hdf5["observations"]["images"]["cam_left_wrist"],
-        #         dtype="uint8",
-        #         chunks=(1, 480, 640, 3),
-        #     )
-        
-        # if arm in ["right", "both"]:
-        #     demo_i_obs_group.create_dataset(
-        #         "right_wrist_img",
-        #         data=demo_hdf5["observations"]["images"]["cam_right_wrist"],
-        #         dtype="uint8",
-        #         chunks=(1, 480, 640, 3),
-        #     )
         
         ## add joint obs
         demo_i_obs_group.create_dataset(
@@ -348,78 +326,14 @@ def process_demo(demo_path, data_group, arm, extrinsics, prestack=False):
         # add ee_pose
         add_ee_pose_obs(demo_hdf5, demo_i_obs_group, arm, left_extrinsics=left_extrinsics, right_extrinsics=right_extrinsics)
 
-
-        # if arm == "both":
-        #     fk_left_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_left_start:joint_left_end - 1])
-        #     fk_right_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_right_start:joint_right_end - 1])
-        # else:    
-        #     fk_positions = aloha_fk.fk(demo_hdf5["observations"]["qpos"][:, joint_start:joint_end - 1])
-        
-        # if arm == "both":
-        #     fk_left_positions = ee_pose_to_cam_frame(
-        #         fk_left_positions, left_extrinsics
-        #     )[:, :3]
-        #     fk_right_positions = ee_pose_to_cam_frame(
-        #         fk_right_positions, right_extrinsics
-        #     )[:, :3]
-        #     fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
-        # else:
-        #     fk_positions = ee_pose_to_cam_frame(
-        #         fk_positions, extrinsics
-        #     )[:, :3]
-
-        # demo_i_obs_group.create_dataset("ee_pose", data=fk_positions)
-
-
         POINT_GAP = 2
         FUTURE_POINTS_COUNT = 100
 
         # add joint actions
         add_joint_actions(demo_hdf5, demo_i_group, joint_start, joint_end, prestack=prestack, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-        
-        # joint_actions = demo_hdf5["action"][:,  joint_start:joint_end]
-        # if prestack:
-        #     joint_actions = get_future_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-        #     joint_actions_sampled =  sample_interval_points(joint_actions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-        # demo_i_group.create_dataset(
-        #     "actions_joints", data=joint_actions_sampled
-        # )
-        # demo_i_group.create_dataset(
-        #     "actions_joints_act", data=joint_actions
-        # )
-
-        # add xyz actions
 
         # actions_xyz
         add_xyz_actions(demo_hdf5, demo_i_group, arm, left_extrinsics, right_extrinsics, prestack=prestack, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-        # if arm == "both":
-        #     fk_left_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_left_start:joint_left_end - 1])
-        #     fk_right_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_right_start:joint_right_end - 1])
-        # else:
-        #     fk_positions = aloha_fk.fk(demo_hdf5["action"][:, joint_start:joint_end - 1])
-        
-        # if arm == "both":
-        #     fk_left_positions = ee_pose_to_cam_frame(
-        #         fk_left_positions, left_extrinsics
-        #     )[:, :3]
-        #     fk_right_positions = ee_pose_to_cam_frame(
-        #         fk_right_positions, right_extrinsics
-        #     )[:, :3]
-        #     fk_positions = np.concatenate([fk_left_positions, fk_right_positions], axis=1)
-        # else:         
-        #     fk_positions = ee_pose_to_cam_frame(
-        #         fk_positions, extrinsics
-        #     )[:, :3]
-
-
-        # if prestack:
-        #     print("prestacking", fk_positions.shape)
-        #     fk_positions = get_future_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-        #     print("AFTER prestacking", fk_positions.shape)
-        #     fk_positions_sampled = sample_interval_points(fk_positions, POINT_GAP=POINT_GAP, FUTURE_POINTS_COUNT=FUTURE_POINTS_COUNT)
-
-        # demo_i_group.create_dataset("actions_xyz_act", data=fk_positions)
-        # demo_i_group.create_dataset("actions_xyz", data=fk_positions_sampled)
    
 def  main(args):
     # before converting everything, check it all at least opens
