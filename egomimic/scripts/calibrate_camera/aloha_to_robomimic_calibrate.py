@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
     chain = pk.build_serial_chain_from_urdf(
         open(
-            "/home/rl2-bonjour/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf"
+            "/home/rl2-bonjour/EgoPlay/EgoPlay/egomimic/resources/model.urdf"
         ).read(),
         "vx300s/ee_gripper_link",
     )

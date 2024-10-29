@@ -78,7 +78,7 @@ def main(args):
     sam = SAM()
 
     arm = args.arm
-    chain = pk.build_serial_chain_from_urdf(open("/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf").read(), "vx300s/ee_gripper_link")
+    chain = pk.build_serial_chain_from_urdf(open("/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/egomimic/resources/model.urdf").read(), "vx300s/ee_gripper_link")
 
     with h5py.File(args.dataset, 'r+') as aloha_hdf5, torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
         keys_list = list(aloha_hdf5['data'].keys())

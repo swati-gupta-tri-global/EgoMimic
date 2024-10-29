@@ -6,8 +6,6 @@ git clone --recursive git@github.com:SimarKareer/EgoPlay.git
 cd EgoPlay
 conda env create -f environment.yaml
 pip install -e external/robomimic
-pip install -e external/act
-pip install -e external/act/detr
 pip install -e .
 python external/robomimic/robomimic/scripts/setup_macros.py
 ```
@@ -38,7 +36,7 @@ python aloha_to_robomimicv2.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBO
 - This will output the transform matrices
 
 ### Overlays
-Install SAM to `eplay` via [instructions](https://github.com/facebookresearch/segment-anything-2).  It should be possible to have both in same env, encountered issues on skynet but worked on local PC
+Install SAM to `emimic` via [instructions](https://github.com/facebookresearch/segment-anything-2).  It should be possible to have both in same env
 
 Hand overlay
 ```
@@ -52,26 +50,40 @@ python robot_overlay.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOTWA/obo
 
 
 ## Training Policies via Pytorch Lightning
-ACT Style
-`python scripts/pl_train.py --config configs/act.json --debug`
+EgoMimic Training (Toy in Bowl Task)
+```
+python scripts/pl_train.py --config configs/egomimic_oboo.json --debug
+```
 
-GMM Styles
-`python scripts/pl_train.py --config configs/GMMResnet.json` or `python scripts/pl_train.py --config configs/GMMViT.json`
+ACT Baseline Training
+```
+python scripts/pl_train.py --config configs/act.json --debug
+```
+
+For a detailed list of commands to run each experiment see [experiment_launch.md](./experiment_launch.md)
 
 Use `--debug` to check that the pipeline works
 
-Launching with pl
+Launching with pl on slurm cluster
 `python scripts/pl_submit.py --config <config> --name <name> --description <description> --gpus-per-node <gpus-per-node>`
-
-
-
 
 Offline Eval:
 `python scripts/pl_train.py --dataset <dataset> --ckpt_path <ckpt> --eval`
 
-Eval real:
-`python scripts/evaluation/eval_real.py --config <config> --eval-path <ckpt>`
-
+## Rollout policies in the real world
+Follow these instructions on the desktop connected to the real hardware.
+1. Follow instructions in [EgoMimic hardware repo](https://github.com/SimarKareer/EgoMimic-Hardware)
+2. Install the hardware package into the `emimic` conda env via
+```
+conda activate emimic
+cd ~/interbotix_ws/src/EgoMimic-Hardware
+pip install -e .
+```
+3. Rollout policy
+```
+cd EgoMimic/egomimic
+python scripts/evaluation/eval_real --eval-path <path to>EgoPlay/trained_models_highlevel/<your model folder>/models/<your ckpt>.ckpt
+```
 
 ### Single Policy Multi Dataset (Hand + Robot Data)
 - `python scripts/pl_train.py --config configs/actSP.json --debug`

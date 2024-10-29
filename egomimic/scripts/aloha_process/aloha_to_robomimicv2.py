@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
     chain = pk.build_serial_chain_from_urdf(
         open(
-            "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/mimicplay/scripts/aloha_process/model.urdf"
+            "/coc/flash9/skareer6/Projects/EgoPlay/EgoPlay/egomimic/resources/model.urdf"
         ).read(),
         "vx300s/ee_gripper_link",
     )

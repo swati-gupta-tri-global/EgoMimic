@@ -295,7 +295,7 @@ def transformation_matrix_to_pose(T):
 class AlohaFK:
     def __init__(self):
         urdf_path = os.path.join(
-            os.path.dirname(egomimic.__file__), "scripts/aloha_process/model.urdf"
+            os.path.dirname(egomimic.__file__), "resources/model.urdf"
         )
         self.chain = pk.build_serial_chain_from_urdf(
             open(urdf_path).read(), "vx300s/ee_gripper_link"
