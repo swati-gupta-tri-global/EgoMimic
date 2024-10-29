@@ -32,7 +32,6 @@ class PlaydataSequenceDataset(SequenceDataset):
         hdf5_normalize_obs=False,
         filter_by_attribute=None,
         load_next_obs=True,
-        seq_length_to_load=1,
         prestacked_actions=False,
         hdf5_normalize_actions=False
     ):
@@ -107,9 +106,6 @@ class PlaydataSequenceDataset(SequenceDataset):
 
         self.type = type
 
-        self.seq_length_to_load = seq_length_to_load
-        assert self.seq_length_to_load >= 1
-
         self.goal_mode = goal_mode
         if self.goal_mode is not None:
             assert self.goal_mode in ["nstep"]
@@ -147,7 +143,6 @@ class PlaydataSequenceDataset(SequenceDataset):
             num_frames_to_stack=self.n_frame_stack
             - 1,  # note: need to decrement self.n_frame_stack by one
             seq_length=self.seq_length,
-            seq_length_to_load=self.seq_length_to_load,
         )
 
         # determine goal index
@@ -170,7 +165,6 @@ class PlaydataSequenceDataset(SequenceDataset):
             seq_length=self.seq_length,
             prefix="obs",
             dont_load_fut=self.rgb_keys,
-            seq_length_to_load=self.seq_length_to_load,
         )
 
         if self.load_next_obs:
@@ -182,7 +176,6 @@ class PlaydataSequenceDataset(SequenceDataset):
                 seq_length=self.seq_length,
                 prefix="next_obs",
                 dont_load_fut=self.rgb_keys,
-                seq_length_to_load=self.seq_length_to_load,
             )
 
         if goal_index is not None:
@@ -194,7 +187,6 @@ class PlaydataSequenceDataset(SequenceDataset):
                 seq_length=self.seq_length,
                 prefix="obs",
                 dont_load_fut=self.rgb_keys,
-                seq_length_to_load=self.seq_length_to_load,
             )
         
         if self.type == "robot":

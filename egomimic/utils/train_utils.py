@@ -196,7 +196,6 @@ def dataset_factory(config, obs_keys, type, filter_by_attribute=None, dataset_pa
         hdf5_use_swmr=config.train.hdf5_use_swmr,
         hdf5_normalize_obs=config.train.hdf5_normalize_obs,
         filter_by_attribute=filter_by_attribute,
-        seq_length_to_load=config.train.seq_length_to_load,
         type=type,
         ac_key=config.train.ac_key,
         prestacked_actions=config.train.prestacked_actions,

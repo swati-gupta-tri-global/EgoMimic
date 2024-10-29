@@ -32,9 +32,9 @@ import json
 from egomimic.scripts.aloha_process.simarUtils import (
     cam_frame_to_cam_pixels,
     WIDE_LENS_HAND_LEFT_K,
+    interpolate_keys,
+    interpolate_arr
 )
-
-from robomimic.utils.dataset import interpolate_keys, interpolate_arr
 
 HORIZON = 10
 STEP = 3.0

@@ -51,10 +51,6 @@ def main(args):
     elif args.ckpt_path is not None:
         ckpt = torch.load(args.ckpt_path, map_location="cpu")
         config = json_to_config(ckpt["hyper_parameters"]["config_json"])
-        # breakpoint()
-        # config.train.seq_length_to_load = 100
-        # if config.train.seq_length_to_load == 1:
-        #     assert False, "This is probably a compatibility issue, but if not feel free to remove this"
     else:
         assert False, "Must provide a config file or a ckpt path"
 

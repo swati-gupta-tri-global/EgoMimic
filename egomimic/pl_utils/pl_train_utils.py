@@ -202,7 +202,6 @@ def train(config, ckpt_path=None):
         config_2.train.dataset_keys = config_2.train.dataset_keys_hand
         config_2.train.ac_key = config_2.train.ac_key_hand
         config_2.train.seq_length = config_2.train.seq_length_hand
-        config_2.train.seq_length_to_load = config_2.train.seq_length_to_load_hand
         config_2.train.hdf5_filter_key = config_2.train.hdf5_2_filter_key
         trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2, type=config.train.data_2_type)
         if config.train.hdf5_normalize_obs:
