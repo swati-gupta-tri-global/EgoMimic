@@ -4,7 +4,7 @@ import argparse
 import os
 from tqdm import tqdm
 import cv2
-from egomimic.utils.simarUtils import nds, ee_pose_to_cam_frame, EXTRINSICS, ARIA_INTRINSICS, cam_frame_to_cam_pixels
+from egomimic.utils.egomimicUtils import nds, ee_pose_to_cam_frame, EXTRINSICS, ARIA_INTRINSICS, cam_frame_to_cam_pixels
 # Example call: in aloha_process folder: python aloha_to_robomimic.py --dataset /coc/flash7/skareer6/calibrate_samples/ --arm left --out /coc/flash7/skareer6/calibrate_samples/ --task-name robomimic
 import pytorch_kinematics as pk
 import torch

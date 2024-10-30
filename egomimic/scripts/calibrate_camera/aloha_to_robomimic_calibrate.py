@@ -3,7 +3,7 @@ import numpy as np
 import argparse
 import os
 from tqdm import tqdm
-from egomimic.utils.simarUtils import (
+from egomimic.utils.egomimicUtils import (
     nds,
     ee_pose_to_cam_frame,
     EXTRINSICS,

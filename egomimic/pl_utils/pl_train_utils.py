@@ -15,7 +15,7 @@ from egomimic.configs import config_factory
 from egomimic.algo import algo_factory
 from egomimic.utils.train_utils import get_exp_dir, load_data_for_training
 import copy
-from egomimic.utils.simarUtils import nds
+from egomimic.utils.egomimicUtils import nds
 from egomimic.pl_utils.pl_model import ModelWrapper
 from egomimic.pl_utils.pl_data_utils import (
     DataModuleWrapper,

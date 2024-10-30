@@ -30,7 +30,7 @@ import argparse
 
 import json
 
-from egomimic.utils.simarUtils import (
+from egomimic.utils.egomimicUtils import (
     cam_frame_to_cam_pixels,
     WIDE_LENS_HAND_LEFT_K,
     interpolate_keys,

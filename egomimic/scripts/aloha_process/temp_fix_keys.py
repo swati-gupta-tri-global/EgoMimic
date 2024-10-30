@@ -1,12 +1,12 @@
 import h5py
 from mimicplay_data_process import replace_key_names
-import egomimic.utils.simarUtils as simarUtils
+import egomimic.utils.egomimicUtils as egomimicUtils
 
 h5py_file = h5py.File(
     "/coc/flash7/datasets/egoplay/handStackingPublic/handStackingMimicplay.hdf5", "r+"
 )
 
-simarUtils.nds(h5py_file)
+egomimicUtils.nds(h5py_file)
 
 key_dict = {
     "obs/front_image_1": "obs/front_img_1",
@@ -15,4 +15,4 @@ key_dict = {
 
 replace_key_names(h5py_file, key_dict)
 
-simarUtils.nds(h5py_file)
+egomimicUtils.nds(h5py_file)

@@ -1,4 +1,4 @@
-from egomimic.utils.simarUtils import (
+from egomimic.utils.egomimicUtils import (
     cam_frame_to_cam_pixels,
     draw_dot_on_frame,
     general_unnorm,

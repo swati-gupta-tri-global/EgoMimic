@@ -24,7 +24,7 @@ import traceback
 from egomimic.configs import config_factory
 import datetime
 import time
-from egomimic.utils.simarUtils import nds
+from egomimic.utils.egomimicUtils import nds
 import matplotlib.pyplot as plt
 from egomimic.pl_utils.pl_train_utils import train, eval
 from egomimic.pl_utils.pl_data_utils import json_to_config

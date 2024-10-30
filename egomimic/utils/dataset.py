@@ -9,7 +9,7 @@ import time
 
 from cProfile import Profile
 from pstats import SortKey, Stats
-from egomimic.utils.simarUtils import nds
+from egomimic.utils.egomimicUtils import nds
 
 
 class PlaydataSequenceDataset(SequenceDataset):

@@ -37,7 +37,7 @@ from interbotix_common_modules.common_robot.robot import (
 from aloha.constants import DT, FOLLOWER_GRIPPER_JOINT_OPEN, START_ARM_POSE
 
 
-from egomimic.utils.simarUtils import (
+from egomimic.utils.egomimicUtils import (
     cam_frame_to_cam_pixels,
     draw_dot_on_frame,
     general_unnorm,

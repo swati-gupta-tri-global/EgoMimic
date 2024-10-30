@@ -9,7 +9,7 @@ import json
 import h5py
 from tqdm import tqdm
 
-from egomimic.utils.simarUtils import (
+from egomimic.utils.egomimicUtils import (
     # WIDE_LENS_ROBOT_LEFT_K,
     # WIDE_LENS_ROBOT_LEFT_D,
     ARIA_INTRINSICS
