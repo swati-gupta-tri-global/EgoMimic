@@ -5,6 +5,7 @@
 git clone --recursive git@github.com:SimarKareer/EgoPlay.git
 cd EgoPlay
 conda env create -f environment.yaml
+pip install projectaria-tools'[all]'
 pip install -e external/robomimic
 pip install -e .
 python external/robomimic/robomimic/scripts/setup_macros.py
