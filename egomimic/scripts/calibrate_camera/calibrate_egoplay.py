@@ -9,7 +9,7 @@ import json
 import h5py
 from tqdm import tqdm
 
-from egomimic.scripts.aloha_process.simarUtils import (
+from egomimic.utils.simarUtils import (
     # WIDE_LENS_ROBOT_LEFT_K,
     # WIDE_LENS_ROBOT_LEFT_D,
     ARIA_INTRINSICS

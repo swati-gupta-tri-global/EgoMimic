@@ -13,7 +13,7 @@ import robomimic.utils.tensor_utils as TensorUtils
 from egomimic.algo import register_algo_factory_func, PolicyAlgo
 from robomimic.algo.bc import BC_VAE
 
-from egomimic.scripts.aloha_process.simarUtils import nds
+from egomimic.utils.simarUtils import nds
 import matplotlib.pyplot as plt
 import robomimic.utils.obs_utils as ObsUtils
 

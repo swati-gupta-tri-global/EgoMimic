@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningDataModule
-from egomimic.scripts.aloha_process.simarUtils import nds
+from egomimic.utils.simarUtils import nds
 import json
 from egomimic.configs import config_factory
 import os

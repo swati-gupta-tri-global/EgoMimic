@@ -1,6 +1,6 @@
 from sam2.build_sam import build_sam2_video_predictor, build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-from egomimic.scripts.aloha_process.simarUtils import nds, cam_frame_to_cam_pixels, ARIA_INTRINSICS, draw_dot_on_frame
+from egomimic.utils.simarUtils import nds, cam_frame_to_cam_pixels, ARIA_INTRINSICS, draw_dot_on_frame
 import argparse
 import torch
 import numpy as np

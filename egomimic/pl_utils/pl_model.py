@@ -10,7 +10,7 @@ from pytorch_lightning import LightningModule
 import robomimic.utils.obs_utils as ObsUtils
 from robomimic.algo.algo import PolicyAlgo
 import egomimic.utils.val_utils as ValUtils
-from egomimic.scripts.aloha_process.simarUtils import nds
+from egomimic.utils.simarUtils import nds
 from egomimic.pl_utils.pl_data_utils import DualDataModuleWrapper, json_to_config
 from egomimic.algo import algo_factory
 import robomimic.utils.file_utils as FileUtils

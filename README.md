@@ -1,9 +1,9 @@
-# Egoplay
+# EgoMimic
 ## Installation
 
 ```
-git clone --recursive git@github.com:SimarKareer/EgoPlay.git
-cd EgoPlay
+git clone --recursive git@github.com:SimarKareer/EgoMimic.git
+cd EgoMimic
 conda env create -f environment.yaml
 pip install projectaria-tools'[all]'
 pip install -e external/robomimic

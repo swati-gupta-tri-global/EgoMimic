@@ -1,7 +1,7 @@
 import types
 import numpy as np
 import torch
-from egomimic.scripts.aloha_process.simarUtils import (
+from egomimic.utils.simarUtils import (
     ee_pose_to_cam_pixels,
     draw_dot_on_frame,
 )

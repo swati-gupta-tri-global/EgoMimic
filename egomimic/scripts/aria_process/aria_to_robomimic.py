@@ -30,7 +30,7 @@ import argparse
 
 import json
 
-from egomimic.scripts.aloha_process.simarUtils import (
+from egomimic.utils.simarUtils import (
     cam_frame_to_cam_pixels,
     WIDE_LENS_HAND_LEFT_K,
     interpolate_keys,

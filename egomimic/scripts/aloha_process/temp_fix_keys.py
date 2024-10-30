@@ -1,6 +1,6 @@
 import h5py
 from mimicplay_data_process import replace_key_names
-import simarUtils
+import egomimic.utils.simarUtils as simarUtils
 
 h5py_file = h5py.File(
     "/coc/flash7/datasets/egoplay/handStackingPublic/handStackingMimicplay.hdf5", "r+"
