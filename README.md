@@ -144,7 +144,7 @@ Follow these instructions on the desktop connected to the real hardware.
 2. Install the hardware package into the `emimic` conda env via
 ```
 conda activate emimic
-cd ~/interbotix_ws/src/EgoMimic-Hardware
+cd ~/interbotix_ws/src/eve
 pip install -e .
 ```
 3. Rollout policy
