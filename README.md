@@ -1,4 +1,8 @@
-# EgoMimic
+# EgoMimic: Scaling Imitation Learning through Egocentric Video
+Codebase for EgoMimic.  This repo contains the training code for EgoMimic.  To rollout policies in the real world, you'll additionally need our hardware repo [Eve](https://github.com/SimarKareer/Eve).
+
+[Project Website](https://egomimic.github.io/)
+
 ## Installation
 
 ```
@@ -24,23 +28,26 @@ Then go to  `external/robomimic/robomimic/macros_private.py` and manually add yo
 -------
 
 
-## Training Policies via Pytorch Lightning
+## EgoMimic Quick Start (Train on Sample Data)
+
 EgoMimic Training (Toy in Bowl Task)
 ```
-python scripts/pl_train.py --config configs/egomimic_oboo.json --debug
+python scripts/pl_train.py --config configs/egomimic_oboo.json --dataset /path/to/robot_oboo.hdf5 --dataset_2 /path/to/hand_oboo.hdf5 --debug
 ```
 
 ACT Baseline Training
 ```
-python scripts/pl_train.py --config configs/act.json --debug
+python scripts/pl_train.py --config configs/act.json --dataset /path/to/robot_oboo.hdf5 --debug
 ```
 
 For a detailed list of commands to run each experiment see [experiment_launch.md](./experiment_launch.md)
 
 Use `--debug` to check that the pipeline works
 
-Launching with pl on slurm cluster
-`python scripts/pl_submit.py --config <config> --name <name> --description <description> --gpus-per-node <gpus-per-node>`
+Launching runs via submitit / slurm
+```
+python scripts/pl_submit.py --config <config> --name <name> --description <description> --gpus-per-node <gpus-per-node>`
+```
 
 Training creates a folder for each experiment
 ```
@@ -133,7 +140,7 @@ python scripts/aria_process/aria_to_robomimic.py --dataset /path/to/TASK_NAME_AR
 
 ### Rollout policies in the real world
 Follow these instructions on the desktop connected to the real hardware.
-1. Follow instructions in [EgoMimic hardware repo](https://github.com/SimarKareer/EgoMimic-Hardware)
+1. Follow instructions in [Eve](https://github.com/SimarKareer/Eve)
 2. Install the hardware package into the `emimic` conda env via
 ```
 conda activate emimic
