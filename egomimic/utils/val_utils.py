@@ -19,8 +19,8 @@ from egomimic.algo.act import ACT
 from egomimic.algo.egomimic import EgoMimic
 import scipy
 
-EXTRINSICS_RIGHT = EXTRINSICS["ariaJul29R"]
-EXTRINSICS_LEFT = EXTRINSICS["ariaJul29L"]
+EXTRINSICS_RIGHT = EXTRINSICS["ariaJul29"]["right"]
+EXTRINSICS_LEFT = EXTRINSICS["ariaJul29"]["left"]
 
 INTRINSICS = ARIA_INTRINSICS
 EENORM = False

@@ -15,39 +15,13 @@ Set `git config --global submodule.recurse true` if you want `git pull` to autom
 
 Then go to  `external/robomimic/robomimic/macros_private.py` and manually add your wandb username. Make sure you have ran `wandb login` too.
 
+
+**Download Sample Data @Dhruv**
+```
+
+```
+
 -------
-## Data processing
-### Aloha to Robomimic Data
-On robot run
-- Start ros (launch)
-- `record_episodes.py`
-- Move the whole folder of all epsiodes onto skynet
-- cd into `mimicplay/scripts/aloha_process`
-- run `python aloha_to_robomimic.py`.  This will convert the aloha joint positions to 3d EE pose relative to robot base
-
-ex) 
-```bash
-python aloha_to_robomimic.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/rawAloha --arm right --out /coc/flash7/datasets/egoplay/_OBOO_ROBOT/oboov2_robot_apr16/oboov2_robot_apr16_prestacked.hdf5  --extrinsics <newest extrinsics in SimarUtils.py> --data-type robot --prestack
-```
-
-
-### Calibration
-- cd into `mimicplay/scripts/calibrate_camera`
-- Run `python calibrate_egoplay.py --h5py-path <path to hdf5 from previous section.hdf5>`
-- This will output the transform matrices
-
-### Overlays
-Install SAM to `emimic` via [instructions](https://github.com/facebookresearch/segment-anything-2).  It should be possible to have both in same env
-
-Hand overlay
-```
-python hand_overlay.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_yellow_jun12/converted/oboo_yellow_jun12_ACTGMMCompat_masked.hdf5 --sam --debug
-```
-
-Robot Overlay
-```
-python robot_overlay.py --dataset /coc/flash7/datasets/egoplay/_OBOO_ROBOTWA/oboo_jul29/converted/oboo_jul29_ACTGMMCompat_masked.hdf5 --arm right --extrinsics ariaJul29R
-```
 
 
 ## Training Policies via Pytorch Lightning
@@ -68,10 +42,96 @@ Use `--debug` to check that the pipeline works
 Launching with pl on slurm cluster
 `python scripts/pl_submit.py --config <config> --name <name> --description <description> --gpus-per-node <gpus-per-node>`
 
+Training creates a folder for each experiment
+```
+./trained_models_highlevel/description/name
+├── videos (generated offline validation videos)
+├── logs (wandb logs)
+├── slurm (slurm logs if launched via slurm)
+├── config.json (copy of config used to launch this run)
+├── models (model ckpts)
+├── ds1_norm_stats.pkl (robot dataset normalization stats)
+└── ds2_norm_stats.pkl (hand data norm stats if training egomimic)
+```
+
 Offline Eval:
 `python scripts/pl_train.py --dataset <dataset> --ckpt_path <ckpt> --eval`
 
-## Rollout policies in the real world
+## Using your own data
+### SAM Installation
+Processing hand and robot data relies on SAM to generate masks for the hand and robot.  Full SAM [instructions](https://github.com/facebookresearch/segment-anything-2).  
+
+TLDR:
+```
+cd outsideOfEgomimic
+git clone https://github.com/facebookresearch/sam2.git && cd sam2
+pip install -e .
+cd checkpoints && \
+./download_ckpts.sh && \
+mv sam2_hiera_tiny.pt /path/to/egomimic/resources/sam2_hiera_tiny.pt
+```
+
+### Processing Robot Data for Training
+To use your own robot, first follow setup instructions in our hardware repo [Eve](https://github.com/SimarKareer/eve).
+
+**Calibrate Cameras**
+
+To train EgoMimic on your own data you must provide the hand-eye-calibration extrinsics matrix inside [``egomimic/utils/egomimicUtils``](./egomimic/utils/egomimicUtils.py)
+- Print a large april tag and tape it to the wrist camera mount
+- Collect calibration data for each arm one at a time.  Move the arm in many directions for best results.  This will generate an hdf5 under the `data` directory
+```
+cd eve
+python scripts/record_episides.py --task_name CALIBRATE --arm <left or right>
+
+cd egomimic/scripts/calibrate_camera
+python calibrate_egoplay.py --h5py-path <path to hdf5 from previous section.hdf5>
+```
+Paste this matrix into [``egomimic/utils/egomimicUtils``](./egomimic/utils/egomimicUtils.py) for the appropriate arm
+
+**Recording Demos**
+
+```
+cd eve
+setup_eve
+ros_eve
+sh scripts/auto_record.sh <task defined in constants.py> <num_demos> <arm: left, right, bimanual> <starting_index>
+```
+This creates a folder with many demos in it
+```
+├── TASK_NAME
+│   ├── episode_1.hdf5
+...
+│   ├── episode_n.hdf5
+```
+
+**Process Robot Demos**
+
+To process the demos we've recorded we run.  Here's an example command
+```
+cd egomimic/scripts/aloha_process
+python aloha_to_robomimic.py --dataset /path/to/TASK_NAME --arm <left, right, bimanual> --out /desired/output/path.hdf5 --extrinsics <keyName in egoMimicUtils.py>
+```
+
+### Process Aria Data for Training
+Collect Aria demonstrations via the Aria App, then transfer them to your computer, make the following structure
+```
+TASK_NAME_ARIA/
+├── rawAria
+│   ├── demo1.vrs
+│   ├── demo1.vrs.json
+...
+│   ├── demon.vrs
+│   ├── demon.vrs.json
+└── converted (empty folder)
+```
+
+This will process your aria data into hdf5 format, and optionally with the `--mask` argument, it will also use SAM to mask out the hand data.
+```
+cd egomimic
+python scripts/aria_process/aria_to_robomimic.py --dataset /path/to/TASK_NAME_ARIA --out /path/to/converted/TASK_NAME.hdf5 --hand <left, right, or bimanual> --mask
+```
+
+### Rollout policies in the real world
 Follow these instructions on the desktop connected to the real hardware.
 1. Follow instructions in [EgoMimic hardware repo](https://github.com/SimarKareer/EgoMimic-Hardware)
 2. Install the hardware package into the `emimic` conda env via
@@ -84,34 +144,4 @@ pip install -e .
 ```
 cd EgoMimic/egomimic
 python scripts/evaluation/eval_real --eval-path <path to>EgoPlay/trained_models_highlevel/<your model folder>/models/<your ckpt>.ckpt
-```
-
-### Single Policy Multi Dataset (Hand + Robot Data)
-- `python scripts/pl_train.py --config configs/actSP.json --debug`
-
-
-## Patch Notes
-Dirty laundry
-- Color jitter is manually implemented for ACT in _robomimic_to_act_data rather than using the ObsUtils color jitter
-- hardcoded extrinsics in val_utils.py
-- Added ac_key under base Algo in robomimic, I suppose this could just access the model.global_config
-- I haven't tested whether aloha_to_robomimic_v2 works with highlevelGMMPretrain
-
-- Remember: type == 0 is robot, type==1 is hand
-- Now that our hdf5's have either hand or robot data, we can just specify this from the config.  So simply set config.train.data_type and config.train.data2_type to hand or robot.
-- Make sure to set train.prestacked_actions = True when dataset actions are prestacked.  Hand data is prestacked and of shape (N, T, 3) bc coordinate frame changes each step.  Set seq_length to load should be 1 for this case
-
-
-Dataloader should output batch with following format.  Not currently using dones or rewards
-```
-dict with keys:  dict_keys(['actions', 'rewards', 'dones', 'pad_mask', 'obs', 'type'])
-actions: (1, 30)
-rewards: (1, 1)
-dones: (1, 1)
-pad_mask: (1, 1)
-obs: dict with keys:  dict_keys(['ee_pose', 'front_img_1', 'pad_mask'])
-        ee_pose: (1, 3)
-        front_img_1: (1, 480, 640, 3)
-        pad_mask: (1, 1)
-type: int
 ```
