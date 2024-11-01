@@ -38,17 +38,17 @@ mkdir datasets
 cd datasets
 
 #### Groceries
-wget https://huggingface.co/datasets/Dhruv2012/EgoMimic/resolve/main/groceries_aria_huggingface.hdf5
-wget https://huggingface.co/datasets/Dhruv2012/EgoMimic/resolve/main/groceries_robotwa_huggingface.hdf5
+wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/groceries_human.hdf5
+wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/groceries_robot.hdf5
 
 ## Laundry
-wget https://huggingface.co/datasets/Dhruv2012/EgoMimic/resolve/main/smallclothfold_aria_huggingface.hdf5
-wget https://huggingface.co/datasets/Dhruv2012/EgoMimic/resolve/main/smallclothfold_robotwa_full_huggingface.hdf5
+wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/smallclothfold_human.hdf5
+wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/smallclothfold_robot.hdf5
 
 
 ## Bowlplace
-wget https://huggingface.co/datasets/Dhruv2012/EgoMimic/resolve/main/oboo_yellow_jun12_ACTGMMCompat_masked_huggingface.hdf5
-wget https://huggingface.co/datasets/Dhruv2012/EgoMimic/resolve/main/oboo_robotwa_aug7_huggingface.hdf5
+wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/bowlplace_human.hdf5
+wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/bowlplace_robot.hdf5
 ```
 
 

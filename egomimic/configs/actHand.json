@@ -39,7 +39,7 @@
         }
     },
     "train": {
-        "data": "/coc/flash7/datasets/egoplay/_OBOO_ARIA/oboo_yellow_jun12/converted/oboo_yellow_jun12_ACTGMMCompat_masked.hdf5",
+        "data": "./datasets/bowlplace_human.hdf5",
         "data_type": "hand",
         "data_2": null,
         "output_dir":"../trained_models_highlevel",

@@ -39,7 +39,7 @@
         }
     },
     "train": {
-        "data": "/coc/flash7/datasets/egoplay/_OBOO_ROBOTWA/oboo_aug7/converted/oboo_robotwa_aug7.hdf5",
+        "data": "./datasets/bowlplace_robot.hdf5",
         "data_type": "robot",
         "data_2": null,
         "output_dir":"../trained_models_highlevel",
