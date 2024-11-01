@@ -95,7 +95,7 @@ Offline Eval:
 `python scripts/pl_train.py --dataset <dataset> --ckpt_path <ckpt> --eval`
 
 ### Processing your own data for training
-![Data Streams](./assets/train_data.jpg)
+![Data Streams](./assets/train_data.png)
 See [``data_processing.md``](./data_processing.md)
 
 ### Rollout policies in the real world
