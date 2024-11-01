@@ -37,7 +37,7 @@ Then go to  `external/robomimic/robomimic/macros_private.py` and manually add yo
 mkdir datasets
 cd datasets
 
-#### Groceries
+## Groceries
 wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/groceries_human.hdf5
 wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/groceries_robot.hdf5
 
@@ -60,12 +60,12 @@ wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/bowlplace_robo
 
 EgoMimic Training (Toy in Bowl Task)
 ```
-python scripts/pl_train.py --config configs/egomimic_oboo.json --dataset /path/to/robot_oboo.hdf5 --dataset_2 /path/to/hand_oboo.hdf5 --debug
+python scripts/pl_train.py --config configs/egomimic_oboo.json --dataset /path/to/bowlplace_robot.hdf5 --dataset_2 /path/to/bowlplace_human.hdf5 --debug
 ```
 
 ACT Baseline Training
 ```
-python scripts/pl_train.py --config configs/act.json --dataset /path/to/robot_oboo.hdf5 --debug
+python scripts/pl_train.py --config configs/act.json --dataset /path/to/bowlplace_robot.hdf5 --debug
 ```
 
 For a detailed list of commands to run each experiment see [experiment_launch.md](./experiment_launch.md)
