@@ -37,7 +37,7 @@ Then go to  `external/robomimic/robomimic/macros_private.py` and manually add yo
 mkdir datasets
 cd datasets
 
-#### Groceries
+## Groceries
 wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/groceries_human.hdf5
 wget https://huggingface.co/datasets/gatech/EgoMimic/resolve/main/groceries_robot.hdf5
 
