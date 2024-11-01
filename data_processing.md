@@ -2,7 +2,7 @@
 ## SAM Installation
 Processing hand and robot data relies on SAM to generate masks for the hand and robot.
 
-![SAM](./assets/SAM.png)
+![SAM](./assets/SAM_masking.png)
 
 Full SAM [instructions](https://github.com/facebookresearch/segment-anything-2).  
 
