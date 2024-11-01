@@ -1,5 +1,7 @@
 # EgoMimic: Scaling Imitation Learning through Egocentric Video
-This repository contains the data processing and training code for EgoMimic.  To rollout policies in the real world, you'll additionally need our hardware repo [Eve](https://github.com/SimarKareer/Eve).
+![Teaser](./assets/teaser.jpg)
+
+This repository contains the data processing and training code for EgoMimic - Both for Human Aria and Robot teleoperated Data. To rollout policies in the real world, you'll additionally need our hardware repo [Eve](https://github.com/SimarKareer/Eve).
 
 **Useful Links**
 - [Project Website](https://egomimic.github.io/)
@@ -9,7 +11,7 @@ This repository contains the data processing and training code for EgoMimic.  To
 
 ## Structure
 - [``egomimic/scripts/aloha_process``](./egomimic/scripts/aloha_process/): Process raw aloha style data into a robomimic style hdf5, compatible for training here.
-- [``egomimic/scripts/aria_process``](./egomimic/scripts/aria_process/): Process raw data from Aria Glasses into a robomimic style hdf5.
+- [``egomimic/scripts/aria_process``](./egomimic/scripts/aria_process/): Process human embodiment data from Aria Glasses into a robomimic style hdf5.
 - [``egomimic/algo``](./egomimic/algo): Algorithm code for Egomimic, as well as ACT and mimicplay baselines
 - [``egomimic/configs``](./egomimic/configs): Train configs for each algorithm
 - [``egomimic/scripts/pl_train.py``](./egomimic/scripts/pl_train.py): Main training script, powered by Pytorch Lightning (DDP enabled)
@@ -93,6 +95,7 @@ Offline Eval:
 `python scripts/pl_train.py --dataset <dataset> --ckpt_path <ckpt> --eval`
 
 ### Processing your own data for training
+![Data Streams](./assets/train_data.jpg)
 See [``data_processing.md``](./data_processing.md)
 
 ### Rollout policies in the real world

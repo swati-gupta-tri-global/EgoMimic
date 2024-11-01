@@ -1,6 +1,10 @@
 # Using your own data
 ## SAM Installation
-Processing hand and robot data relies on SAM to generate masks for the hand and robot.  Full SAM [instructions](https://github.com/facebookresearch/segment-anything-2).  
+Processing hand and robot data relies on SAM to generate masks for the hand and robot.
+
+![SAM](./assets/SAM.jpg)
+
+Full SAM [instructions](https://github.com/facebookresearch/segment-anything-2).  
 
 TLDR:
 ```
@@ -53,7 +57,7 @@ cd egomimic/scripts/aloha_process
 python aloha_to_robomimic.py --dataset /path/to/TASK_NAME --arm <left, right, bimanual> --out /desired/output/path.hdf5 --extrinsics <keyName in egoMimicUtils.py>
 ```
 
-## Process Aria Data for Training
+## Process Human Data for Training
 Collect Aria demonstrations via the Aria App, then transfer them to your computer, make the following structure
 ```
 TASK_NAME_ARIA/
