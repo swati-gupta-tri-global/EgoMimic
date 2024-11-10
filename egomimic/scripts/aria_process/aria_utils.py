@@ -3,10 +3,6 @@ from projectaria_tools.core.stream_id import StreamId
 
 import os
 
-mps_sample_path = "/coc/flash7/datasets/egoplay/_BB_ARIA/bimanual_bag_aria_may6"
-vrsfile = os.path.join(mps_sample_path, "Bimanual_bag_debug.vrs")
-base_provider = data_provider.create_vrs_data_provider(vrsfile)
-
 import h5py
 import numpy as np
 
@@ -42,7 +38,7 @@ def undistort_to_linear(provider, stream_ids, raw_image, camera_label="rgb"):
     return warped_rot
 
 
-def reproject_point(pose, provider=base_provider):
+def reproject_point(pose, provider):
     ## cam_matrix := extrinsics
     rgb_stream_id = StreamId("214-1")
     rgb_stream_label = provider.get_label_from_stream_id(rgb_stream_id)
@@ -79,7 +75,11 @@ def split_train_val_from_hdf5(hdf5_path, val_ratio):
         file.create_dataset("mask/valid", data=np.array(val_mask, dtype="S"))
 
 
-def slam_to_rgb(provider=base_provider):
+def slam_to_rgb(provider):
+    """
+        Get slam camera to rgb camera transform
+        provider: vrs data provider
+    """
     device_calibration = provider.get_device_calibration()
 
     slam_id = StreamId("1201-1")

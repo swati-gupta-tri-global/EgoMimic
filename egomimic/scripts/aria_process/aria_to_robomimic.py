@@ -36,6 +36,7 @@ from egomimic.utils.egomimicUtils import (
     interpolate_keys,
     interpolate_arr
 )
+from egomimic.scripts.masking.utils import *
 
 HORIZON = 10
 STEP = 3.0
@@ -49,13 +50,12 @@ python aria_to_robomimic.py --dataset /coc/flash7/datasets/egoplay/oboo_aria_apr
 # Load the VRS file
 
 
-def single_file_conversion(dataset, mps_sample_path, filename, hand, single_action):
+def single_file_conversion(dataset, mps_sample_path, filename, hand):
     """
     dataste: path to the dataset
     mps_sample_path: path to the mps sample
     filename: name of the vrs file
     hand: left, right, bimanual
-    single_action: if true, stores current action
 
     Returns: actions, front_img_1, ee_pose
     """
@@ -113,7 +113,7 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
     ## get camera matrices
     vrs_data_provider = data_provider.create_vrs_data_provider(vrsfile)
 
-    transform = slam_to_rgb()
+    transform = slam_to_rgb(vrs_data_provider)
 
     for t in range(frame_length + 1):
         # if t >= 2000:
@@ -286,47 +286,42 @@ def single_file_conversion(dataset, mps_sample_path, filename, hand, single_acti
         np.array(front_img_1),
         np.array(ee_pose),
     )
-    if single_action:
-        px = cam_frame_to_cam_pixels(transform_ee_pose(ee_pose), WIDE_LENS_HAND_LEFT_K)
+
+    ac_dim = actions_t.shape[-1]
+    actions_flat = actions.copy().reshape((-1, 3))
+    px = cam_frame_to_cam_pixels(
+        transform_actions(actions_flat), WIDE_LENS_HAND_LEFT_K
+    )
+    px = px.reshape((-1, HORIZON, ac_dim))
+    if ac_dim == 3:
         bad_data_mask = (
-            (px[:, 0] < 0) | (px[:, 0] > 640) | (px[:, 1] < 0) | (px[:, 1] > 480)
+            (px[:, :, 0] < 0)
+            | (px[:, :, 0] > 640)
+            | (px[:, :, 1] < 0)
+            | (px[:, :, 1] > 480)
         )
-    else:
-        ac_dim = actions_t.shape[-1]
-        actions_flat = actions.copy().reshape((-1, 3))
-        px = cam_frame_to_cam_pixels(
-            transform_actions(actions_flat), WIDE_LENS_HAND_LEFT_K
+    elif ac_dim == 6:
+        BUFFER = 0
+        bad_data_mask = (
+            (px[:, :, 0] < 0 - BUFFER)
+            | (px[:, :, 0] > 640 + BUFFER)
+            | (px[:, :, 1] < 0)
+            # | (px[:, :, 1] > 480 + BUFFER)
+            | (px[:, :, 3] < 0 - BUFFER)
+            | (px[:, :, 3] > 640 + BUFFER)
+            | (px[:, :, 4] < 0)
+            # | (px[:, :, 4] > 480 + BUFFER)
         )
-        px = px.reshape((-1, HORIZON, ac_dim))
-        if ac_dim == 3:
-            bad_data_mask = (
-                (px[:, :, 0] < 0)
-                | (px[:, :, 0] > 640)
-                | (px[:, :, 1] < 0)
-                | (px[:, :, 1] > 480)
-            )
-        elif ac_dim == 6:
-            BUFFER = 0
-            bad_data_mask = (
-                (px[:, :, 0] < 0 - BUFFER)
-                | (px[:, :, 0] > 640 + BUFFER)
-                | (px[:, :, 1] < 0)
-                # | (px[:, :, 1] > 480 + BUFFER)
-                | (px[:, :, 3] < 0 - BUFFER)
-                | (px[:, :, 3] > 640 + BUFFER)
-                | (px[:, :, 4] < 0)
-                # | (px[:, :, 4] > 480 + BUFFER)
-            )
 
-            px_diff = np.diff(px, axis=1)
-            px_diff = np.concatenate((
-                px_diff, 
-                np.zeros((px_diff.shape[0], 1, px_diff.shape[-1]))
-            ), axis=1)
-            px_diff = np.abs(px_diff)
-            bad_data_mask = bad_data_mask | np.any(px_diff > 100, axis=2)
+        px_diff = np.diff(px, axis=1)
+        px_diff = np.concatenate((
+            px_diff, 
+            np.zeros((px_diff.shape[0], 1, px_diff.shape[-1]))
+        ), axis=1)
+        px_diff = np.abs(px_diff)
+        bad_data_mask = bad_data_mask | np.any(px_diff > 100, axis=2)
 
-        bad_data_mask = np.any(bad_data_mask, axis=1)
+    bad_data_mask = np.any(bad_data_mask, axis=1)
 
     actions = actions[~bad_data_mask]
     front_img_1 = front_img_1[~bad_data_mask]
@@ -494,7 +489,7 @@ def main(args):
         for j, filename in enumerate(filenames):
             print(f"Adding {filename} to hdf5 file")
             actions, front_img_1, ee_pose = single_file_conversion(
-                args.dataset, mps_paths[j], filename, args.hand, args.single_action
+                args.dataset, mps_paths[j], filename, args.hand
             )
             actions, ee_pose = transform_actions(actions), transform_ee_pose(ee_pose)
             N = actions.shape[0]
@@ -554,9 +549,6 @@ if __name__ == "__main__":
         "--debug",
         action="store_true",
         help="if true, debug runs for two files only. Defaults to False",
-    )
-    parser.add_argument(
-        "--single-action", action="store_true", help="if true, stores current action"
     )
     parser.add_argument(
         "--mask", action="store_true"

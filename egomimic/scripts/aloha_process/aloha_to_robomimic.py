@@ -17,7 +17,7 @@ from robomimic.scripts.split_train_val import split_train_val_from_hdf5
 import json
 
 from external.robomimic.robomimic.utils.dataset import interpolate_arr
-from mimicplay.scripts.masking.utils import *
+from egomimic.scripts.masking.utils import *
 
 """
 aloha_hdf5 has the following format
