@@ -113,8 +113,14 @@ def ee_pose_to_cam_frame(ee_pose_base, T_cam_base):
     N, _ = ee_pose_base.shape
     ee_pose_base = np.concatenate([ee_pose_base, np.ones((N, 1))], axis=1)
 
-    ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
-    return ee_pose_grip_cam.T[:, :3]
+    if T_cam_base.ndim == 2:  # Single transform (4, 4)
+        ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
+        return ee_pose_grip_cam.T[:, :3]
+    else:
+        T_cam_inv = np.linalg.inv(T_cam_base)  # (N, 4, 4)
+        # Batch matrix multiplication: (N, 4, 4) @ (N, 4, 1)
+        ee_pose_grip_cam = np.einsum('nij,nj->ni', T_cam_inv, ee_pose_base)
+        return ee_pose_grip_cam[:, :3]
 
 
 def pose_transform(a_pose, T_a_b):
@@ -343,7 +349,7 @@ def interpolate_arr(v, seq_length):
     """
     assert len(v.shape) == 3
     if v.shape[1] == seq_length:
-        return
+        return v
     
     interpolated = []
     for i in range(v.shape[0]):
@@ -354,6 +360,7 @@ def interpolate_arr(v, seq_length):
         )
         interpolated.append(interp(np.linspace(0, 1, seq_length)))
 
+    # size (B, seq_length, D)
     return np.array(interpolated)
 
 def interpolate_keys(obs, keys, seq_length):

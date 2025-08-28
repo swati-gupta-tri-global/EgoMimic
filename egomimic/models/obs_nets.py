@@ -33,7 +33,7 @@ from robomimic.models.base_nets import (
 )
 from robomimic.models.obs_core import VisualCore, Randomizer
 from robomimic.models.transformers import PositionalEncoding, GPT_Backbone
-from robomimic.models.base_nets import Vit
+# from robomimic.models.base_nets import Vit
 
 
 def obs_encoder_factory(

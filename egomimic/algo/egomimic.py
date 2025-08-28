@@ -82,6 +82,9 @@ class EgoMimicModel(ACTModel):
             hand_state_dim = 6
             hand_action_dim = 6
         
+        print ("a_dim: ", a_dim)
+        # hidden dim: 512
+        # import ipdb; ipdb.set_trace()
         
         self.robot_transformer_input_proj = nn.Linear(state_dim, hidden_dim)
         self.robot_action_head = nn.Linear(hidden_dim, a_dim)
@@ -103,6 +106,7 @@ class EgoMimicModel(ACTModel):
         self.hand_action_head = nn.Linear(hidden_dim, hand_action_dim)
 
     def forward(self, qpos, image, env_state, modality, actions, is_pad=None):
+        print ("egomimic: ", actions.shape, qpos.shape)
         if modality == "robot":
             return self._forward(
                 qpos,
@@ -266,7 +270,9 @@ class EgoMimic(ACT):
         qpos, images, env_state, actions_hand, actions_robot, is_pad = self._robomimic_to_act_data(
             batch, cam_keys, proprio_keys
         )
+        # import ipdb; ipdb.set_trace()
     
+        print (actions_hand.shape, actions_robot.shape)
         actions = actions_hand if modality == "hand" else actions_robot
 
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](

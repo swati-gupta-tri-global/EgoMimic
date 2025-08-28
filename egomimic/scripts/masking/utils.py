@@ -143,11 +143,157 @@ class SAM:
         mask_images, line_images =  self.get_robot_mask_line_batched(images, px_dict, arm=arm)
         return mask_images, line_images
     
-    def get_hand_mask_line_batched(self, imgs, ee_poses, intrinsics, debug=False):
+    def cluster_similar_depth_points(self, pixel_point, depth_map, 
+                            depth_threshold=0.05, 
+                            spatial_threshold=50):
+        """
+        Cluster points with similar depth to given pixel point.
+        
+        Args:
+            pixel_point: (x, y) pixel coordinates
+            depth_map: (H, W) depth values 
+            depth_threshold: max depth difference for clustering
+            spatial_threshold: max pixel distance for clustering
+        
+        Returns:
+            clustered_points: (N, 2) array of similar depth pixels
+        """
+        x, y = int(pixel_point[0]), int(pixel_point[1])
+        H, W = depth_map.shape
+        
+        # Get reference depth at pixel point
+        if 0 <= x < W and 0 <= y < H:
+            ref_depth = depth_map[y, x]
+        else:
+            return np.array([])
+        
+        # Create coordinate grids
+        yy, xx = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
+        
+        # Find points within spatial threshold
+        spatial_dist = np.sqrt((xx - x)**2 + (yy - y)**2)
+        spatial_mask = spatial_dist <= spatial_threshold
+        
+        # Find points within depth threshold
+        depth_diff = np.abs(depth_map - ref_depth)
+        depth_mask = depth_diff <= depth_threshold
+        
+        # Combine masks
+        combined_mask = spatial_mask & depth_mask
+        
+        # Get clustered points
+        clustered_y, clustered_x = np.where(combined_mask)
+        clustered_points = np.column_stack([clustered_x, clustered_y])
+        
+        return clustered_points
+
+    def ransac_plane_from_depth(self, depth_map, intrinsics, max_iterations=1000,
+                           distance_threshold=0.01, min_samples=3):
+        """
+        Use RANSAC to find dominant plane in depth map.
+        
+        Args:
+            depth_map: (H, W) depth values
+            intrinsics: (3, 3) camera intrinsic matrix
+            max_iterations: RANSAC iterations
+            distance_threshold: max distance to plane
+            min_samples: min points to fit plane
+        
+        Returns:
+            plane_model: [a, b, c, d] coefficients for ax+by+cz+d=0
+            inliers: (N, 3) 3D points on plane
+        """
+        from sklearn.linear_model import RANSACRegressor
+        
+        # Convert depth map to 3D points
+        H, W = depth_map.shape
+        fx, fy = intrinsics[0, 0], intrinsics[1, 1]
+        cx, cy = intrinsics[0, 2], intrinsics[1, 2]
+        
+        # Create pixel coordinates
+        yy, xx = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
+        
+        # # Filter valid depth points
+        valid_mask = (depth_map > 300) & (depth_map < 5000)
+        valid_x = xx[valid_mask]
+        valid_y = yy[valid_mask]
+        valid_z = depth_map[valid_mask]
+        
+        # Convert to 3D world coordinates
+        world_x = (valid_x - cx) * valid_z / fx
+        world_y = (valid_y - cy) * valid_z / fy
+        world_z = valid_z
+        
+        # Prepare data for RANSAC
+        X = np.column_stack([world_x, world_y])  # Input features
+        y = world_z.reshape(-1, 1)               # Target values
+        
+        # Fit plane using RANSAC: z = ax + by + c
+        from sklearn.linear_model import LinearRegression
+        ransac = RANSACRegressor(
+            estimator=LinearRegression(),
+            min_samples=min_samples,
+            residual_threshold=distance_threshold,
+            max_trials=max_iterations,
+            random_state=42
+        )
+        
+        ransac.fit(X, y.ravel())
+        
+        # Get plane parameters
+        a, b = ransac.estimator_.coef_
+        c = ransac.estimator_.intercept_
+        
+        # Convert to general form: ax + by - z + c = 0
+        plane_model = np.array([a, b, -1, c])
+        
+        # Get inlier points
+        inlier_mask = ransac.inlier_mask_
+        inliers = np.column_stack([
+            world_x[inlier_mask],
+            world_y[inlier_mask], 
+            world_z[inlier_mask]
+        ])
+
+        # convert inliers back to depth map coordinates
+        inlier_depths = inliers[:, 2]
+        inlier_pixels = np.column_stack([
+            (inliers[:, 0] * fx) / inlier_depths + cx,
+            (inliers[:, 1] * fy) / inlier_depths + cy
+        ]).astype(int)
+
+        # quick visualization of inlier pixels
+        # import ipdb; ipdb.set_trace()
+        vis_img = np.zeros((H, W, 3), dtype=np.uint8)
+        for pt in inlier_pixels:
+            x, y = pt
+            if 0 <= x < W and 0 <= y < H:
+                vis_img[y, x] = [0, 255, 0]
+        cv2.imwrite("plane_inliers.png", vis_img)
+
+        return plane_model, inlier_depths, inlier_pixels
+        
+    def get_hand_mask_line_batched(self, imgs, ee_poses, intrinsics, depth_map, debug=True):
         ## both hands
         if ee_poses.shape[-1] == 6:
             prompts_l = cam_frame_to_cam_pixels(ee_poses[:, :3], intrinsics)[:, :2]
             prompts_r = cam_frame_to_cam_pixels(ee_poses[:, 3:], intrinsics)[:, :2]
+
+            import ipdb; ipdb.set_trace()
+            clustered_points_l = self.cluster_similar_depth_points(prompts_l[0], depth_map[0])
+            clustered_points_r = self.cluster_similar_depth_points(prompts_r[0], depth_map[0])
+
+            # visualize clustered points
+            if debug:
+                breakpoint()
+                for j in range(imgs.shape[0]):
+                    img = imgs[j].copy()
+                    for pt in clustered_points_l:
+                        img = draw_dot_on_frame(img, pt[None, :], palette="Set1")
+                    for pt in clustered_points_r:
+                        img = draw_dot_on_frame(img, pt[None, :], palette="Set2")
+                    cv2.imwrite(f"./overlays/clustered_points_new_{j}.png", cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                    break
 
             masked_img_l, raw_masks_l = self.get_hand_mask_batched(imgs, prompts_l, neg_prompts=prompts_r)
             mask = np.arange(640)[None, :] < prompts_l[:, [0]] + 100
@@ -187,6 +333,7 @@ class SAM:
                 overlayed_imgs[j] = cv2.cvtColor(overlayed_imgs[j], cv2.COLOR_BGR2RGB)
                 overlayed_imgs[j] = draw_dot_on_frame(overlayed_imgs[j], prompts_l[[j]], palette="Set1")
                 overlayed_imgs[j] = draw_dot_on_frame(overlayed_imgs[j], prompts_r[[j]], palette="Set2")
+                # cv2.imwrite(f"./overlays/img_{j}.png", imgs[j])
                 cv2.imwrite(f"./overlays/overlayed_img_{j}.png", overlayed_imgs[j])
                 cv2.imwrite(f"./overlays/masked_img_{j}.png", cv2.cvtColor(masked_imgs[j], cv2.COLOR_BGR2RGB))
                 cv2.imwrite(f"./overlays/mask_{j}.png", raw_masks[j].astype(np.uint8) * 255)
@@ -234,9 +381,9 @@ class SAM:
             masked_img = img
             return None
         input_label = np.array([1])
-        if neg_prompt is not None:
-            input_point = np.concatenate([input_point, neg_prompt], axis=0)
-            input_label = np.array([1, 0])
+        # if neg_prompt is not None:
+        #     input_point = np.concatenate([input_point, neg_prompt], axis=0)
+        #     input_label = np.array([1, 0])
 
         masked_img, masks, scores, logits = self.get_mask(img.copy(), input_point, input_label)
 
@@ -270,8 +417,6 @@ class SAM:
         masked_img[masks[0] == 1] = 0
 
         return masked_img, masks, scores, logits
-    
-
 
 
     def project_single_joint_position_to_image(self, qpos, extrinsics, intrinsics, arm="right"):

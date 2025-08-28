@@ -142,7 +142,7 @@ def train(config, ckpt_path=None):
     os.environ['NCCL_BLOCKING_WAIT'] = '1'
     os.environ['TORCH_NCCL_BLOCKING_WAIT'] = '1'
 
-    RANK = int(os.environ["SLURM_PROCID"])
+    RANK = int(os.environ.get("SLURM_PROCID", 0))
     torch.set_float32_matmul_precision("medium")
     seed_everything(config.train.seed, workers=True)
 

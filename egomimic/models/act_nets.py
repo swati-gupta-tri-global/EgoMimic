@@ -136,6 +136,10 @@ class StyleEncoder(nn.Module):
         cls = self.cls_embedding.unsqueeze(0).expand(bsz, -1, -1)  # [bsz, 1, hidden_dim]
 
         x = torch.cat([cls, qpos, actions], dim=1)  # [bsz, act_len + 2, hidden_dim]
+        print ("x.shape: ", x.shape)
+        print ("self.act_len: ", self.act_len)
+        print ("self.hidden_dim: ", self.hidden_dim)
+        print ("bsz: ", bsz)
         assert x.shape == (bsz, self.act_len + 2, self.hidden_dim)
 
         pos_indices = torch.arange(x.size(1), device=x.device).unsqueeze(0).expand(bsz, -1)  # [bsz, act_len + 2]

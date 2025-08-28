@@ -145,6 +145,8 @@ class ACTModel(nn.Module):
         batch_size = qpos.size(0)
 
         if is_training:
+            print ("Action: ", actions.shape)
+            # import ipdb; ipdb.set_trace()
             actions_encod = encoder_action_proj(actions)
             qpos_encod = encoder_joint_proj(qpos)
             # Use StyleEncoder to get latent distribution and sample

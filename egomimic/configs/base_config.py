@@ -243,6 +243,7 @@ class BaseConfig(Config):
         self.train.batch_size = 100  # batch size
         self.train.num_epochs = 2000  # number of training epochs
         self.train.seed = 1  # seed for training (for reproducibility)
+        self.train.imagenet_normalize_images = False
 
     def algo_config(self):
         """

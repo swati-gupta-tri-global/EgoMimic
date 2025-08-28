@@ -64,7 +64,8 @@
         "cuda": true,
         "batch_size": 32,
         "num_epochs": 10000,
-        "seed": 1
+        "seed": 1,
+        "imagenet_normalize_images": true
     },
     "algo": {
         "optim_params": {
@@ -96,7 +97,9 @@
             "dec_layers": 7,
             "nheads": 8,
             "latent_dim": 32,
-            "kl_weight": 20
+            "kl_weight": 20,
+            "a_dim": 14,
+            "state_dim": 6
         },
         "playdata": {
             "enabled": null,
