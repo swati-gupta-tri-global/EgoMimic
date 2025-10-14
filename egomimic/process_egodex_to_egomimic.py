@@ -243,7 +243,7 @@ def process_single_episode(inpt):
                     front_img_1=np.array(images), 
                     actions_xyz=actions_xyz,
                     actions_xyz_act=actions_xyz_act,
-                    ee_pose=np.array(ee_poses))
+                    ee_pose=np.squeeze(np.array(ee_poses)))
 
 
     return episode_data_list
