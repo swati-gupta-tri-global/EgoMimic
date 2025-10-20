@@ -178,18 +178,34 @@ def process_single_episode(inpt):
         actions_xyz = []
         actions_xyz_act = []  # interpolated actions
 
-        # TODO: may need padding instead of skipping last few frames
-        for i in trange(0, decoder.metadata.num_frames-step_size, desc=f"[Processing episode {ep_no}]"):
+        
+        for i in trange(0, decoder.metadata.num_frames, desc=f"[Processing episode {ep_no}]"):
             initial_image = np.moveaxis(decoder[i].cpu().detach().numpy(), 0, -1)
             initial_image = cv2.resize(initial_image, im_dims)
             
+            # initialize segments
+            left_idxfinger_knuckle_3D_poses_segment = np.zeros((step_size, 4, 4))
+            right_idxfinger_knuckle_3D_poses_segment = np.zeros((step_size, 4, 4))
+            left_idxfinger_knuckle_confidences_segment = np.zeros((step_size, ))
+            right_idxfinger_knuckle_confidences_segment = np.zeros((step_size, ))
 
-
-            left_idxfinger_knuckle_3D_poses_segment = left_idxfinger_knuckle_3D_poses[i:i+step_size] # (30, 4, 4)
-            right_idxfinger_knuckle_3D_poses_segment = right_idxfinger_knuckle_3D_poses[i:i+step_size]
-            if "confidences" in f:
-                left_idxfinger_knuckle_confidences_segment = left_idxfinger_knuckle_confidences[i:i+step_size] #(30, )
-                right_idxfinger_knuckle_confidences_segment = right_idxfinger_knuckle_confidences[i:i+step_size]
+            if i + step_size > N:
+                # Copy-Padding for the last few frames
+                left_idxfinger_knuckle_3D_poses_segment[:N-i] = left_idxfinger_knuckle_3D_poses[i:N]
+                left_idxfinger_knuckle_3D_poses_segment[N-i:] = np.tile(left_idxfinger_knuckle_3D_poses[N-1], (i+step_size-N, 1, 1))
+                right_idxfinger_knuckle_3D_poses_segment[:N-i] = right_idxfinger_knuckle_3D_poses[i:N]
+                right_idxfinger_knuckle_3D_poses_segment[N-i:] = np.tile(right_idxfinger_knuckle_3D_poses[N-1], (i+step_size-N, 1, 1))
+                if "confidences" in f:
+                    left_idxfinger_knuckle_confidences_segment[:N-i] = left_idxfinger_knuckle_confidences[i:N]
+                    left_idxfinger_knuckle_confidences_segment[N-i:] = np.tile(left_idxfinger_knuckle_confidences[N-1], (i+step_size-N, 1))
+                    right_idxfinger_knuckle_confidences_segment[:N-i] = right_idxfinger_knuckle_confidences[i:N]
+                    right_idxfinger_knuckle_confidences_segment[N-i:] = np.tile(right_idxfinger_knuckle_confidences[N-1], (i+step_size-N, 1))
+            else:
+                left_idxfinger_knuckle_3D_poses_segment = left_idxfinger_knuckle_3D_poses[i:i+step_size] # (30, 4, 4)
+                right_idxfinger_knuckle_3D_poses_segment = right_idxfinger_knuckle_3D_poses[i:i+step_size]
+                if "confidences" in f:
+                    left_idxfinger_knuckle_confidences_segment = left_idxfinger_knuckle_confidences[i:i+step_size] #(30, )
+                    right_idxfinger_knuckle_confidences_segment = right_idxfinger_knuckle_confidences[i:i+step_size]
 
             path_segments = {"left":{"3D_poses":left_idxfinger_knuckle_3D_poses_segment},
                                 "right":{"3D_poses":right_idxfinger_knuckle_3D_poses_segment}}
@@ -302,7 +318,6 @@ def process_data_into_egodex_format(local_download_dir,
         task_datadict[episode_data_dict["ep_no"]] = episode_data_dict
 
     return task_datadict
-
 
 if __name__ == "__main__":
     
