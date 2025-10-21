@@ -3,19 +3,19 @@ import numpy as np
 from tqdm import tqdm
 import yaml
 import ipdb
+import pandas as pd
+import argparse
 from egomimic.utils.egomimicUtils import (
-    cam_frame_to_cam_pixels,
+    # cam_frame_to_cam_pixels,
     ee_pose_to_cam_frame,
-    interpolate_arr,
-    REALSENSE_INTRINSICS
+    interpolate_arr
 )
-import ipdb
+import subprocess
 
 import h5py
 import json
 from egomimic.scripts.masking.utils import *
 from panda_conversions import update_project_single_joint_position_to_image
-# from robomimic.utils.s3_utils import download_s3_folder
 
 OOD_TASKS = ["PutCupOnSaucer", "TurnCupUpsideDown", "TurnMugRightsideUp",
              "PutKiwiInCenterOfTable", "BimanualPutMugsOnPlatesFromTable", "BimanualPlaceAvocadoFromBowlOnCuttingBoard", "BimanualPlaceAppleFromBowlIntoBin", "BimanualLayCerealBoxOnCuttingBoardFromTopShelf"]
@@ -27,6 +27,100 @@ def load_yaml(file_path):
         data = yaml.safe_load(file)  # Use safe_load to prevent code execution
     return data
 
+def download_s3_folder(s3_path, local_folder):
+    command = ["aws", "s3", "sync", s3_path, local_folder]
+    # command = ["aws", "s3", "sync", s3_path, local_folder, "--exclude", "*", "--include", "observations.npz"]
+
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = process.communicate()
+
+        if process.returncode == 0:
+            # print("Download successful!")
+            return True
+        else:
+            print(f"Error downloading folder:\n{stderr}")
+            return False
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        return False
+
+def download_s3_folder_s5cmd(s3_path, local_folder):
+    command = ["s5cmd", "cp", s3_path, local_folder]
+    print (command)
+    # s5cmd cp  s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/LBM_sim_egocentric/raw/data/tasks/BimanualPlacePearFromBowlOnCuttingBoard/riverway/sim/bc/teleop/*/diffusion_spartan/episode_*/processed/ datasets/LBM_sim_egocentric/data/tasks/BimanualPlacePearFromBowlOnCuttingBoard/riverway/sim/bc/teleop
+    # command = ["aws", "s3", "sync", s3_path, local_folder, "--exclude", "*", "--include", "observations.npz"]
+
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = process.communicate()
+
+        if process.returncode == 0:
+            # print("Download successful!")
+            return True
+        else:
+            print(f"Error downloading folder:\n{stderr}")
+            return False
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        return False
+    
+
+def download_task_data_from_s3(task_name, environment, sim_or_real, base_s3_path, local_base_path):
+    """
+    Download task data from S3 for a specific task and environment
+    Returns list of local episode paths
+    """
+    local_task_path = os.path.join(local_base_path, task_name, environment, sim_or_real, "bc", "teleop")
+    os.makedirs(local_task_path, exist_ok=True)
+    
+    # Try to find episodes by looking for common timestamp patterns
+    # This is a simplified approach - in practice, you might need to list S3 contents
+    base_s3_episode_path_ = "s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/LBM_sim_egocentric/raw/data/tasks/{}/{}/{}/bc/teleop/{}/diffusion_spartan/episode_{}/processed/{}"
+    # s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/LBM_sim_egocentric/raw/data/tasks/BimanualPlacePearFromBowlOnCuttingBoard/riverway/sim/bc/teleop/2025-01-06T13-51-34-08-00/diffusion_spartan/episode_0
+    # s5cmd cp "s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/LBM_sim_egocentric/raw/data/tasks/BimanualPlacePearFromBowlOnCuttingBoard/riverway/sim/bc/teleop/*/diffusion_spartan/*/processed/*" datasets/LBM_sim_egocentric/data/tasks/BimanualPlacePearFromBowlOnCuttingBoard/riverway/sim/bc/teleop/
+    success = download_s3_folder_s5cmd(base_s3_episode_path_.format(task_name, environment, sim_or_real, "*", "*", "*"), local_task_path)
+
+    if success:
+        print(f"Successfully downloaded data for {task_name} in {environment} ({sim_or_real})")
+    else:
+        print(f"Failed to download data for {task_name} in {environment} ({sim_or_real})")
+
+def load_tasks_from_csv(csv_path):
+    """
+    Load tasks from the filtered_output.csv file
+    Returns a list of task names that have data available
+    """
+    df = pd.read_csv(csv_path)
+    # Filter tasks that have at least some data (total > 0)
+    tasks_with_data = df[df['total'] > 0]['Task'].tolist()
+    return tasks_with_data
+
+def get_task_environments(csv_path, task_name, real_flag=True):
+    """
+    Get available environments for a specific task from the CSV
+    Returns a list of (environment, count) tuples
+    """
+    df = pd.read_csv(csv_path)
+    task_row = df[df['Task'] == task_name].iloc[0]
+    
+    environments = []
+    # Check simulation environments
+    sim_envs = ['sim_cabot', 'sim_riverway']
+    for env in sim_envs:
+        if task_row[env] > 0:
+            environments.append((env.replace('sim_', ''), 'sim', task_row[env]))
+    
+    # Check real environments
+    if real_flag:
+        real_envs = ['real_wood_island', 'real_hersey', 'real_maverick', 'real_riverway', 
+                    'real_ruggles', 'real_salem', 'real_davis', 'real_milton', 'real_wollaston']
+        for env in real_envs:
+            if task_row[env] > 0:
+                environments.append((env.replace('real_', ''), 'real', task_row[env]))
+    
+    return environments
+
 def inspect_npz_keys(data):
     for key in sorted(data.keys()):
         print (f"Key: {key}")
@@ -37,65 +131,6 @@ def inspect_npz_keys(data):
         except Exception as e:
             print(f"  {key}: Error retrieving shape/dtype - {e}")
     return list(data.keys())
-
-def sam_processing(dataset, debug=False):
-    """
-    Applying masking to all images in the dataset
-
-    dataset: path to the hdf5 file
-    """
-    if torch.cuda.get_device_properties(0).major >= 8:
-        # turn on tfloat32 for Ampere GPUs (https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices)
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-
-    sam = SAM()
-
-    with h5py.File(dataset, "r+") as data:
-        with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-            for i in tqdm(range(len(data["data"].keys()))):
-                demo = data[f"data/demo_{i}"]
-                imgs = demo["obs/front_img_1"]
-                ee_poses = demo["obs/ee_pose"]
-                # extrinsics = demo["obs/extrinsics"]
-                # intrinsics = demo["obs/intrinsics"]
-                # depth = demo["obs/front_img_1_depth"]
-
-                # import ipdb; ipdb.set_trace()
-                # joint_positions = demo["obs/joint_positions"] # (n x 7)
-                # gripper_pos_left, wrist_pos_left, elbow_pos_left = update_project_single_joint_position_to_image(
-                #     joint_positions[:, :7],  # left arm
-                #     extrinsics,
-                #     intrinsics,
-                #     arm="left",
-                # )
-                # gripper_pos_right, wrist_pos_right, elbow_pos_right = update_project_single_joint_position_to_image(
-                #     joint_positions[:, 7:],  # right arm
-                #     extrinsics,
-                #     intrinsics,
-                #     arm="right",
-                # )
-                print (ee_poses.shape)
-                # ee_poses = np.concatenate([wrist_pos_left, wrist_pos_right], axis=1)  # gripper positions of left and right arms
-
-                # Just average intrinsics across all frames
-                # intrinsics = np.average(intrinsics, axis=0)
-
-                overlayed_imgs, masked_imgs, raw_masks = sam.get_hand_mask_line_batched(imgs, ee_poses, intrinsics, depth, debug=debug)
-                
-                if "front_img_1_masked" in demo["obs"]:
-                    print("Deleting existing masked images")
-                    del demo["obs/front_img_1_masked"]
-                if "front_img_1_line" in demo["obs"]:
-                    print("Deleting existing line images")
-                    del demo["obs/front_img_1_line"]
-                if "front_img_1_mask" in demo["obs"]:
-                    print("Deleting existing masks")
-                    del demo["obs/front_img_1_mask"]
-
-                demo["obs"].create_dataset("front_img_1_masked", data=masked_imgs, chunks=(1, 480, 640, 3))
-                demo["obs"].create_dataset("front_img_1_mask", data=raw_masks, chunks=(1, 480, 640), dtype=bool)
-                demo["obs"].create_dataset("front_img_1_line", data=overlayed_imgs, chunks=(1, 480, 640, 3))
 
 def split_train_val_from_hdf5(hdf5_path, val_ratio):
     with h5py.File(hdf5_path, "a") as file:
@@ -115,92 +150,129 @@ def split_train_val_from_hdf5(hdf5_path, val_ratio):
         file.create_dataset("mask/train", data=np.array(train_mask, dtype="S"))
         file.create_dataset("mask/valid", data=np.array(val_mask, dtype="S"))
 
-def process_raw_data(inpt):
-    episodes_list = [
-        # "datasets/LBM_sim_egocentric/PutOrangeOnSaucer/cabot/sim/bc/teleop/2024-11-14T15-32-17-08-00/diffusion_spartan/episode_0/processed/",
-        # "datasets/LBM_sim_egocentric/PutOrangeOnSaucer/cabot/sim/bc/teleop/2024-11-14T15-32-17-08-00/diffusion_spartan/episode_1/processed/",
-        # "datasets/LBM_sim_egocentric/PutOrangeOnSaucer/cabot/sim/bc/teleop/2024-11-14T15-32-17-08-00/diffusion_spartan/episode_2/processed/"
-        "datasets/LBM_sim_egocentric/data/tasks/BimanualHangMugsOnMugHolderFromDryingRack/riverway/sim/bc/teleop/2024-12-16T11-49-42-05-00/diffusion_spartan/episode_0/processed/",
-        "datasets/LBM_sim_egocentric/data/tasks/BimanualHangMugsOnMugHolderFromDryingRack/riverway/sim/bc/teleop/2024-12-16T11-49-42-05-00/diffusion_spartan/episode_1/processed/",
-        "datasets/LBM_sim_egocentric/data/tasks/BimanualHangMugsOnMugHolderFromDryingRack/riverway/sim/bc/teleop/2024-12-16T11-49-42-05-00/diffusion_spartan/episode_2/processed/"
-    ]
-    # download_folder = "datasets/LBM_sim_egocentric/PutOrangeOnSaucer/cabot/sim/bc/teleop/2024-11-14T15-32-17-08-00/diffusion_spartan/episode_2/processed/"
-    # hdf5_path = "datasets/LBM_sim_egocentric/converted/PutOrangeOnSaucer.hdf5"
-    hdf5_path = "datasets/LBM_sim_egocentric/converted/BimanualHangMugsOnMugHolderFromDryingRack.hdf5"
-    print ("hdf5_path: ", hdf5_path)
-    with h5py.File(hdf5_path, "w") as f:
+def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, download_from_s3=True, cleanup_local_data=True):
+    """
+    Process raw data for all tasks specified in the CSV file
+    
+    Args:
+        csv_path: Path to the filtered_output.csv file
+        base_s3_path: Base S3 path template for downloading data
+        local_base_path: Local base path for storing downloaded data
+        output_base_path: Base path for output HDF5 files
+        download_from_s3: Whether to download data from S3 or use existing local data
+        cleanup_local_data: Whether to delete local data after processing
+    """
+    # Load tasks from CSV
+    tasks = load_tasks_from_csv(csv_path)
+    print(f"Found {len(tasks)} tasks with data: {tasks}")
+    
+    for task_name in tasks:
+        print(f"\nProcessing task: {task_name}")
+        
+        # Get available environments for this task
+        environments = get_task_environments(csv_path, task_name, real_flag=False)
+        print(f"Available environments: {environments}")
+        
+        # Create output directory
+        output_dir = os.path.join(output_base_path, "converted")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        output_hdf5_path = os.path.join(output_dir, f"{task_name}.hdf5")
+        f = h5py.File(output_hdf5_path, "w")
         data = f.create_group("data")
-        for ep_idx, episode in tqdm(enumerate(episodes_list), total=len(episodes_list), desc=f"process"):
-            # station, task, episode_prefix = episode.split("/")
+        total_episode_count = 0
+        # Process each environment
+        for environment, sim_or_real, count in environments:
+            print(f"\nProcessing {environment} ({sim_or_real}) with {count} episodes")
+            
+            if download_from_s3:
+                # Download episodes from S3 to local_base_path
+                if not os.path.exists(os.path.join(local_base_path, task_name, environment, sim_or_real)):
+                    print (f"Downloading data for {task_name} in {environment} ({sim_or_real}) from S3...")
+                    download_task_data_from_s3(
+                        task_name, environment, sim_or_real, 
+                        base_s3_path, local_base_path
+                    )
+            print ("Downloaded data, now processing...")
+            
+            type = 'bc/teleop/'
+            local_task_path = os.path.join(local_base_path, task_name, environment, sim_or_real, type)
+            if not os.path.exists(local_task_path):
+                print(f"Local task path {local_task_path} does not exist, skipping environment")
+                continue
+            dates = os.listdir(local_task_path)
+            date_paths = [os.path.join(local_task_path, date) for date in dates]
+            
+            print ("Local task path", local_task_path)
+            episodes = []
+            for date_path in date_paths:
+                episode_names = os.listdir(date_path + "/diffusion_spartan/")
+                processed = "processed"
+                episodes.extend([os.path.join(date_path, episode_name, processed) for episode_name in episode_names if episode_name.startswith("episode_") and os.path.exists(os.path.join(date_path, episode_name, processed))])
 
-            # date, episode_number = episode_prefix.split("-episode-")
+            total_episode_count +=  len(episodes)
 
-            # raw_episode_path = base_s3_episode_path.format(task, station, real_or_sim, date, int(episode_number))
+            if len(episodes) == 0:
+                print(f"No episodes found in {local_task_path}, skipping environment")
+                continue
+            
+            for ep_idx, episode_path in tqdm(enumerate(episodes), total=len(episodes), desc=f"Processing {task_name} in {environment} ({sim_or_real})"):
+                print(f"Processing episode {ep_idx}: {episode_path}")
 
-            # assert f"{station}/{task}" == station_and_task_name, f"task: {task}, station_and_task_name: {station_and_task_name}, raw_episode_path: {raw_episode_path}"
-
-            # download_folder = os.path.join(tmp_folder_base, f"process_{process_no}")
-            # os.makedirs(download_folder, exist_ok=True)
-            # download_s3_folder(raw_episode_path, download_folder)
-            download_folder = episode
-            print ("Download folder:", download_folder)
-            task = "PutOrangeOnSaucer"
-
-            language_instructions = load_yaml("~/Egomimic/egomimic/language_annotations.yaml")["language_dict"]
-            possible_task_descriptions = language_instructions[task]["original"] + language_instructions[task]["randomized"]
-
-            meta_data_file = os.path.join(download_folder, "metadata.yaml")
-            if not os.path.isfile(meta_data_file):
-                print(f"{meta_data_file} does not exist") 
-            else:
+                meta_data_file = os.path.join(episode_path, "metadata.yaml")
+                if not os.path.isfile(meta_data_file):
+                    print(f"{meta_data_file} does not exist, skipping episode")
+                    continue
+                    
                 meta_data = load_yaml(meta_data_file)
-                observations_file = os.path.join(download_folder, "observations.npz")
+                observations_file = os.path.join(episode_path, "observations.npz")
                 observations = np.load(observations_file)
 
-                # inspect_npz_keys(observations)
+                # Get camera data
                 camera_names = {val:key for key, val in meta_data["camera_id_to_semantic_name"].items()}
 
                 for camera_name in ["scene_right_0"]:
                     camera_id = camera_names[camera_name]
                     front_img_1 = observations[camera_id]
-                    front_img_1_depth = observations[f"{camera_id}_depth"]
-                    intrinsics = np.load(os.path.join(download_folder, "intrinsics.npz"))[camera_id]
-                    print (intrinsics)
-                    extrinsics = np.load(os.path.join(download_folder, "extrinsics.npz"))[camera_id][0]
-                    print (f"images shape: {front_img_1.shape}, intrinsics shape: {intrinsics.shape}, extrinsics shape: {extrinsics.shape}")
+                    # front_img_1_depth = observations[f"{camera_id}_depth"]
+                    intrinsics = np.load(os.path.join(episode_path, "intrinsics.npz"))[camera_id]
+                    extrinsics = np.load(os.path.join(episode_path, "extrinsics.npz"))[camera_id][0]
+                    print(f"Images shape: {front_img_1.shape}, intrinsics shape: {intrinsics.shape}, extrinsics shape: {extrinsics.shape}")
 
-                actions_file = os.path.join(download_folder, "actions.npz")
-                actions = np.load(actions_file, allow_pickle=True)["actions"] # shape=(124, 20) --> ac_dim=20 (bimanual)
+                # Load actions
+                actions_file = os.path.join(episode_path, "actions.npz")
+                actions = np.load(actions_file, allow_pickle=True)["actions"] # shape=(N, 20) --> ac_dim=20 (bimanual)
 
-
-                pose_xyz_left = observations["robot__actual__poses__right::panda__xyz"] # shape=(124, 3) --> obs/ee_pose (left hand_pose)
-                pose_xyz_right = observations["robot__actual__poses__left::panda__xyz"] # shape=(124, 3) --> obs/ee_pose (right hand_pose)
-                # import ipdb; ipdb.set_trace()
+                # Process poses
+                pose_xyz_left = observations["robot__actual__poses__right::panda__xyz"] # shape=(N, 3) --> obs/ee_pose (left hand_pose)
+                pose_xyz_right = observations["robot__actual__poses__left::panda__xyz"] # shape=(N, 3) --> obs/ee_pose (right hand_pose)
                 pose_xyz_left = ee_pose_to_cam_frame(pose_xyz_left, extrinsics)[:, :3]
                 pose_xyz_right = ee_pose_to_cam_frame(pose_xyz_right, extrinsics)[:, :3]
 
-                print (f"pose_xyz_left.shape: {pose_xyz_left.shape}, pose_xyz_right.shape: {pose_xyz_right.shape}")
-                # gripper_state_left = observations["robot__actual__grippers__right::panda_hand"] # wether the gripper is open or closed
-                # gripper_state_right = observations["robot__actual__grippers__left::panda_hand"]
-                robot_joint_positions_left = observations["robot__actual__joint_position__left::panda"] # shape=(124, 7) --> obs/joint_positions
-                robot_joint_positions_right = observations["robot__actual__joint_position__right::panda"] # shape=(124, 7) --> obs/joint_positions
+                print(f"Pose shapes - left: {pose_xyz_left.shape}, right: {pose_xyz_right.shape}")
+                
+                # Get joint positions
+                robot_joint_positions_left = observations["robot__actual__joint_position__left::panda"] # shape=(N, 7) --> obs/joint_positions
+                robot_joint_positions_right = observations["robot__actual__joint_position__right::panda"] # shape=(N, 7) --> obs/joint_positions
 
-                # import ipdb; ipdb.set_trace()
                 ee_pose = np.hstack([pose_xyz_left, pose_xyz_right])
                 joint_positions = np.hstack([robot_joint_positions_left, robot_joint_positions_right])
-                print (f"ee_pose.shape: {ee_pose.shape}, joint_positions.shape: {joint_positions.shape}")
+                print(f"EE pose shape: {ee_pose.shape}, joint positions shape: {joint_positions.shape}")
+                
                 ac_dim = actions.shape[1]
-
-            
                 data.attrs["env_args"] = json.dumps({})
-                lbm_fps = 10
+                
+                # Process actions with chunking
+                # lbm_fps = 10
                 horizon_seconds = 4.0
                 N = actions.shape[0]
-                print(f"{N} frames in file")
+                print(f"{N} frames in episode")
                 chunk_size = int(N / horizon_seconds)  # Define chunk size
-                print("chunk_size: ", chunk_size)
+                print(f"Chunk size: {chunk_size}")
+                
                 group = data.create_group(f"demo_{ep_idx}")
                 ac_reshape_interp = []
+                
                 for i in range(0, N):
                     if i + chunk_size > N:
                         print(f"Not enough data to create another chunk of size {chunk_size} at index {i}")
@@ -214,13 +286,13 @@ def process_raw_data(inpt):
                         ac_reshape = actions[i : i + chunk_size].reshape(1, chunk_size, ac_dim)
                     
                     ac_reshape_interp.append(interpolate_arr(ac_reshape, 100))
-                # import ipdb; ipdb.set_trace()
+                
                 ac_reshape_interp = np.concatenate(ac_reshape_interp, axis=0)
                 # Ensure proper data type and finite values
                 ac_reshape_interp = ac_reshape_interp.astype(np.float32)
                 ac_reshape_interp = np.nan_to_num(ac_reshape_interp, nan=0.0, posinf=0.0, neginf=0.0)
 
-                print (f"ac_reshape_interp.shape: {ac_reshape_interp.shape}")
+                print(f"Action interpolation shape: {ac_reshape_interp.shape}")
                 left_joint_act = ac_reshape_interp[:, :, :7]
                 left_xyz_act = ac_reshape_interp[:, :, 7:10]
                 right_joint_act = ac_reshape_interp[:, :, 10:17]   
@@ -228,43 +300,90 @@ def process_raw_data(inpt):
 
                 combined_joint_act = np.concatenate([left_joint_act, right_joint_act], axis=2)
                 combined_xyz_act = np.concatenate([left_xyz_act, right_xyz_act], axis=2)
-                # import ipdb; ipdb.set_trace()
 
-                print (f"combined_joint_act.shape: {combined_joint_act.shape}, combined_xyz_act.shape: {combined_xyz_act.shape}")
-
-                # import ipdb; ipdb.set_trace()
-
-                # print ("ac_reshape_interp.shape: ", ac_reshape_interp.shape)
-                # print ("combined_joint_act.shape: ", combined_joint_act.shape)
-                # print ("combined_xyz_act.shape: ", combined_xyz_act.shape)
+                print(f"Combined actions - joints: {combined_joint_act.shape}, xyz: {combined_xyz_act.shape}")
                 
+                # Store data in HDF5
                 group.create_dataset("actions_joints_act", data=combined_joint_act)
                 group.create_dataset("actions_xyz_act", data=combined_xyz_act)
                 group.attrs["num_samples"] = int(ac_reshape_interp.shape[0])
-                group.create_dataset(
-                    "obs/front_img_1", data=front_img_1
-                )
-                group.create_dataset(
-                    "obs/front_img_1_depth", data=front_img_1_depth
-                )
+                group.create_dataset("obs/front_img_1", data=front_img_1)
+                # group.create_dataset("obs/front_img_1_depth", data=front_img_1_depth)
                 group.create_dataset("obs/ee_pose", data=ee_pose)
                 group.create_dataset("obs/joint_positions", data=joint_positions)
-                # intrinsics_3x4 = np.hstack([intrinsics[:, :3], 
-                #            np.array([[0], [0], [0]])])
-                # group.create_dataset(
-                #     "obs/intrinsics", data=np.tile(intrinsics_3x4[None, :], (N, 1, 1))
-                # )
-                # group.create_dataset(
-                #     "obs/extrinsics", data=np.tile(extrinsics[None, :], (N, 1, 1))
-                # )
 
-    split_train_val_from_hdf5(hdf5_path=hdf5_path, val_ratio=VAL_RATIO)
+        # Split train/validation
+        f.close()
 
-    # import ipdb; ipdb.set_trace()
-    # sam_processing(hdf5_path, debug=True)
-    # import ipdb; ipdb.set_trace()
+        if task_name not in OOD_TASKS:
+            split_train_val_from_hdf5(hdf5_path=output_hdf5_path, val_ratio=VAL_RATIO)
+        else:
+            # this task only goes into val split
+            split_train_val_from_hdf5(hdf5_path=output_hdf5_path, val_ratio=0)
+        print(f"Completed processing {task_name} with {total_episode_count} episodes")
 
-process_raw_data("input_placeholder")  # Replace with actual input if needed
+    # delete local data to save space
+    if cleanup_local_data:
+        local_task_dir = os.path.join(local_base_path, task_name)
+        if os.path.exists(local_task_dir):
+            subprocess.run(["rm", "-rf", local_task_dir])
+            print(f"Deleted local data at {local_task_dir} to save space")
+
+def main():
+    parser = argparse.ArgumentParser(description='Process LBM simulation egocentric data to EgoMimic format')
+    parser.add_argument('--csv_path', type=str, default='/home/swatigupta/Downloads/filtered_output.csv',
+                        help='Path to the filtered_output.csv file')
+    parser.add_argument('--base_s3_path', type=str, 
+                        default='s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/LBM_sim_egocentric/raw/data/tasks/{}/{}/{}/bc/teleop/{}/diffusion_spartan/episode_{}/processed/',
+                        help='Base S3 path template for downloading data')
+    parser.add_argument('--local_base_path', type=str, default='datasets/LBM_sim_egocentric/data/tasks',
+                        help='Local base path for storing downloaded data')
+    parser.add_argument('--output_base_path', type=str, default='datasets/LBM_sim_egocentric',
+                        help='Base path for output HDF5 files')
+    parser.add_argument('--download_from_s3', action='store_true', default=False,
+                        help='Whether to download data from S3')
+    parser.add_argument('--task_filter', type=str, nargs='*', default=None,
+                        help='Specific tasks to process (if not provided, processes all tasks from CSV)')
+    parser.add_argument('--cleanup_local_data', action='store_true', default=True,
+                        help='Whether to delete local data after processing')
+    
+    args = parser.parse_args()
+    
+    print(f"Processing tasks from CSV: {args.csv_path}")
+    print(f"Base S3 path: {args.base_s3_path}")
+    print(f"Local base path: {args.local_base_path}")
+    print(f"Output base path: {args.output_base_path}")
+    print(f"Download from S3: {args.download_from_s3}")
+    print(f"Cleanup local data: {args.cleanup_local_data}")
+
+    if args.task_filter:
+        print(f"Task filter: {args.task_filter}")
+        # Override the CSV loading to only process specified tasks
+        original_load_tasks = load_tasks_from_csv
+        def filtered_load_tasks(csv_path):
+            all_tasks = original_load_tasks(csv_path)
+            return [task for task in all_tasks if task in args.task_filter]
+        
+        # Temporarily replace the function
+        import sys
+        current_module = sys.modules[__name__]
+        current_module.load_tasks_from_csv = filtered_load_tasks
+    
+
+    process_raw_data(
+        csv_path=args.csv_path,
+        base_s3_path=args.base_s3_path,
+        local_base_path=args.local_base_path,
+        output_base_path=args.output_base_path,
+        download_from_s3=args.download_from_s3,
+        cleanup_local_data=args.cleanup_local_data
+    )
+
+if __name__ == "__main__":
+    main()
 
 # Train command: swatigupta@Puget-248656:~/EgoMimic/egomimic$
 # python scripts/pl_train.py --config configs/egomimic_oboo.json --dataset ../datasets/LBM_sim_egocentric/converted/BimanualHangMugsOnMugHolderFromDryingRack.hdf5 --debug
+
+# python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualPlacePearFromBowlOnCuttingBoard
+# python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualPlacePearFromBowlOnCuttingBoard --download_from_s3
