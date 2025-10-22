@@ -12,7 +12,7 @@ from egomimic.utils.egomimicUtils import (
     interpolate_arr
 )
 import subprocess
-
+import shutil
 import h5py
 import json
 from egomimic.scripts.masking.utils import *
@@ -174,8 +174,8 @@ def process_episode_parallel(episode_data):
         for camera_name in ["scene_right_0"]:
             camera_id = camera_names[camera_name]
             front_img_1 = observations[camera_id]
-            intrinsics = np.load(os.path.join(episode_path, 
-                                            "intrinsics.npz"))[camera_id]
+            # intrinsics = np.load(os.path.join(episode_path, 
+            #                                 "intrinsics.npz"))[camera_id]
             extrinsics = np.load(os.path.join(episode_path, 
                                             "extrinsics.npz"))[camera_id][0]
             # print(f"Images shape: {front_img_1.shape}, "
@@ -266,7 +266,7 @@ def process_episode_parallel(episode_data):
         print(f"Error processing episode {ep_idx} at {episode_path}: {e}")
         return None
 
-def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, download_from_s3=True, cleanup_local_data=True):
+def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, download_from_s3=True, cleanup_local_data=True, max_workers=None):
     """
     Process raw data for all tasks specified in the CSV file
     
@@ -294,6 +294,10 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
         os.makedirs(output_dir, exist_ok=True)
         
         output_hdf5_path = os.path.join(output_dir, f"{task_name}.hdf5")
+        if os.path.exists(output_hdf5_path) and os.path.getsize(output_hdf5_path) > 0:
+            print(f"Output HDF5 {output_hdf5_path} already exists, skipping task")
+            continue
+
         f = h5py.File(output_hdf5_path, "w")
         data = f.create_group("data")
         total_episode_count = 0
@@ -336,8 +340,16 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
             # Prepare episode data for parallel processing
             episode_data_list = [(ep_idx, episode_path) for ep_idx, episode_path in enumerate(episodes) if os.path.exists(episode_path)]
             
+            # Find optimal number of workers (run benchmark only once)
+            # if max_workers is None and 'optimal_workers' not in locals():
+            #     optimal_workers = benchmark_thread_count(episode_data_list)
+            # elif max_workers is not None:
+            #     optimal_workers = max_workers
+            optimal_workers = 16
+            
+            print (f"Using {optimal_workers} worker threads for processing")
             # Process episodes in parallel
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            with ThreadPoolExecutor(max_workers=optimal_workers) as executor:
                 # Submit all episode processing tasks
                 future_to_episode = {
                     executor.submit(process_episode_parallel, ep_data): ep_data 
@@ -378,15 +390,48 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
             split_train_val_from_hdf5(hdf5_path=output_hdf5_path, val_ratio=VAL_RATIO)
         else:
             # this task only goes into val split
-            split_train_val_from_hdf5(hdf5_path=output_hdf5_path, val_ratio=0)
+            split_train_val_from_hdf5(hdf5_path=output_hdf5_path, val_ratio=1.0)
         print(f"Completed processing {task_name} with {total_episode_count} episodes, saving at {output_hdf5_path}")
         
-    # delete local data to save space
-    if cleanup_local_data:
-        local_task_dir = os.path.join(local_base_path, task_name)
-        if os.path.exists(local_task_dir):
-            subprocess.run(["rm", "-rf", local_task_dir])
+        # delete local data to save space
+        if cleanup_local_data:
+            local_task_dir = os.path.join(local_base_path, task_name)
+            shutil.rmtree(local_task_dir)
             print(f"Deleted local data at {local_task_dir} to save space")
+
+def benchmark_thread_count(episode_data_list, max_workers_to_test=None):
+    """
+    Benchmark different thread counts to find optimal performance
+    """
+    import time
+    import multiprocessing
+    
+    if max_workers_to_test is None:
+        max_workers_to_test = min(multiprocessing.cpu_count(), 16)
+    
+    # Test with small subset of episodes
+    test_episodes = episode_data_list[:min(10, len(episode_data_list))]
+    
+    results = {}
+    thread_counts = [1, 2, 4, 8, max_workers_to_test]
+    
+    for num_workers in thread_counts:
+        print(f"Testing with {num_workers} workers...")
+        start_time = time.time()
+        
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = [executor.submit(process_episode_parallel, ep_data) 
+                      for ep_data in test_episodes]
+            [future.result() for future in futures]  # Process all futures
+        
+        elapsed_time = time.time() - start_time
+        results[num_workers] = elapsed_time
+        print(f"  {num_workers} workers: {elapsed_time:.2f} seconds")
+    
+    # Find optimal thread count
+    optimal_workers = min(results.keys(), key=results.get)
+    print(f"\nOptimal thread count: {optimal_workers}")
+    return optimal_workers
 
 def main():
     parser = argparse.ArgumentParser(description='Process LBM simulation egocentric data to EgoMimic format')
@@ -405,6 +450,8 @@ def main():
                         help='Specific tasks to process (if not provided, processes all tasks from CSV)')
     parser.add_argument('--cleanup_local_data', action='store_true', default=False,
                         help='Whether to delete local data after processing')
+    parser.add_argument('--max_workers', type=int, default=None,
+                        help='Maximum number of worker threads for parallel processing (auto-detect if not specified)')
     
     args = parser.parse_args()
     
@@ -435,7 +482,8 @@ def main():
         local_base_path=args.local_base_path,
         output_base_path=args.output_base_path,
         download_from_s3=args.download_from_s3,
-        cleanup_local_data=args.cleanup_local_data
+        cleanup_local_data=args.cleanup_local_data,
+        max_workers=args.max_workers
     )
 
 if __name__ == "__main__":
@@ -445,4 +493,6 @@ if __name__ == "__main__":
 # python scripts/pl_train.py --config configs/egomimic_oboo.json --dataset ../datasets/LBM_sim_egocentric/converted/BimanualHangMugsOnMugHolderFromDryingRack.hdf5 --debug
 
 # python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualPlacePearFromBowlOnCuttingBoard
-# python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualPlacePearFromBowlOnCuttingBoard --download_from_s3
+# python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualPlacePearFromBowlOnCuttingBoard --download_from_s3  saved to -> datasets/LBM_sim_egocentric/converted/BimanualPlacePearFromBowlOnCuttingBoard.hdf5
+
+# python egomimic/process_LBM_sim_egocentric_to_egomimic.py --download_from_s3 --cleanup_local_data  2>&1 | tee process_LBMsim_std_stderr2.txt

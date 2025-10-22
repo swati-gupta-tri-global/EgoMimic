@@ -85,11 +85,11 @@ def s3_file_exists(s3_uri):
         else:
             raise  # Something else went wrong
 
-def download_from_s3(s3_path, local_path, s3_command="sync", extra_options=None):
-    command = ["aws", "s3", s3_command, s3_path, local_path]
-
-    if extra_options is not None:
-        command += extra_options
+def download_from_s3(s3_path, local_path):
+    # command = ["aws", "s3", s3_command, s3_path, local_path]
+    s3_path = os.path.join(s3_path, "*")
+    command = ["s5cmd", "cp", s3_path, local_path]
+    print (command)
 
     print(f"Downloading {s3_path} to {local_path}...")
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -170,7 +170,7 @@ def process_single_episode(inpt):
     
         decoder = VideoDecoder(mp4_file, device="cpu")
         assert decoder.metadata.num_frames == N, f"decoder.metadata.num_frames: {decoder.metadata.num_frames}, N: {N}"
-        print ("Seq len: ", N, step_size, decoder.metadata.num_frames)
+        # print ("Seq len: ", N, step_size, decoder.metadata.num_frames)
         # original_im_dims = np.array([decoder.metadata.width, decoder.metadata.height])
    
         images = []
@@ -197,9 +197,9 @@ def process_single_episode(inpt):
                 right_idxfinger_knuckle_3D_poses_segment[N-i:] = np.tile(right_idxfinger_knuckle_3D_poses[N-1], (i+step_size-N, 1, 1))
                 if "confidences" in f:
                     left_idxfinger_knuckle_confidences_segment[:N-i] = left_idxfinger_knuckle_confidences[i:N]
-                    left_idxfinger_knuckle_confidences_segment[N-i:] = np.tile(left_idxfinger_knuckle_confidences[N-1], (i+step_size-N, 1))
+                    left_idxfinger_knuckle_confidences_segment[N-i:] = np.tile(left_idxfinger_knuckle_confidences[N-1], (i+step_size-N,))
                     right_idxfinger_knuckle_confidences_segment[:N-i] = right_idxfinger_knuckle_confidences[i:N]
-                    right_idxfinger_knuckle_confidences_segment[N-i:] = np.tile(right_idxfinger_knuckle_confidences[N-1], (i+step_size-N, 1))
+                    right_idxfinger_knuckle_confidences_segment[N-i:] = np.tile(right_idxfinger_knuckle_confidences[N-1], (i+step_size-N,))
             else:
                 left_idxfinger_knuckle_3D_poses_segment = left_idxfinger_knuckle_3D_poses[i:i+step_size] # (30, 4, 4)
                 right_idxfinger_knuckle_3D_poses_segment = right_idxfinger_knuckle_3D_poses[i:i+step_size]
@@ -224,9 +224,10 @@ def process_single_episode(inpt):
                     valid_indices.update(valid_indices_handside.tolist())
 
             valid_indices = sorted(list(valid_indices))
-            print (f"valid_indices: {valid_indices}, len: {len(valid_indices)}")
+            # print (f"valid_indices: {valid_indices}, len: {len(valid_indices)}")
             if len(valid_indices) == step_size:
-                print (f"[All valid] All hand tracks detected above confidence threshold {hand_detection_confidence_threshold} for episode {ep_no}, step starting at {i}")
+                pass
+                # print (f"[All valid] All hand tracks detected above confidence threshold {hand_detection_confidence_threshold} for episode {ep_no}, step starting at {i}")
                 # for these valid indices, pick out the hand tracks -  actions, interp actions
             else:
                 print (f"[Partial valid] {len(valid_indices)}/{step_size} hand tracks detected above confidence threshold {hand_detection_confidence_threshold} for episode {ep_no}, step starting at {i}, skipping this chunk")
@@ -251,7 +252,7 @@ def process_single_episode(inpt):
             print (f"[Skipping] No valid data for episode {ep_no}")
             return episode_data_list
         
-        print (f"len(images): {len(images)}, len(ee_poses): {len(ee_poses)}, len(actions_xyz): {len(actions_xyz)}, actions_xyz[0].shape: {actions_xyz[0].shape}, actions_xyz[-1].shape: {actions_xyz[-1].shape}")
+        # print (f"len(images): {len(images)}, len(ee_poses): {len(ee_poses)}, len(actions_xyz): {len(actions_xyz)}, actions_xyz[0].shape: {actions_xyz[0].shape}, actions_xyz[-1].shape: {actions_xyz[-1].shape}")
 
         actions_xyz = np.array(actions_xyz)
         actions_xyz_act = interpolate_arr(actions_xyz, 100)  # (num_valid * oversample_rate, 6)
@@ -302,12 +303,12 @@ def process_data_into_egodex_format(local_download_dir,
         mp4_file = os.path.join(local_download_dir, f"{ep_no}.mp4")
         hdf5_file = os.path.join(local_download_dir, f"{ep_no}.hdf5")
         function_inpts.append((ep_no, mp4_file, hdf5_file, step_size, oversample_rate, hand_detection_confidence_threshold, im_dims, save_annotated_images))
-        if ep_no > 2:
-            break  # ### DEBUG ###
+        # if ep_no > 2:
+        #     break  # ### DEBUG ###
 
-    episode_data_dicts = [process_single_episode(inpt) for inpt in function_inpts] ### DEBUG ###
-    # with Pool(n_workers) as p:
-    #     episode_data_lists = list(p.imap(process_single_episode, function_inpts))
+    # episode_data_dicts = [process_single_episode(inpt) for inpt in function_inpts] ### DEBUG ###
+    with Pool(n_workers) as p:
+        episode_data_dicts = list(p.imap(process_single_episode, function_inpts))
     
     # import ipdb; ipdb.set_trace()
     task_datadict = {}
@@ -318,6 +319,11 @@ def process_data_into_egodex_format(local_download_dir,
         task_datadict[episode_data_dict["ep_no"]] = episode_data_dict
 
     return task_datadict
+
+def load_from_task_list(task_list_path):
+    with open(task_list_path, 'r') as f:
+        tasks_subset = f.read().splitlines()
+    return tasks_subset
 
 if __name__ == "__main__":
     
@@ -357,25 +363,22 @@ if __name__ == "__main__":
     BASE_LOCAL_PROCESSED_DIR = f"/home/swatigupta/EgoMimic/datasets/egodex/processed"
 
     # data_splits = ["test", "part1", "part2", "part3", "part4", "part5", "extra"]
-    # data_splits = ["part1", "part2", "part3", "part4", "part5", "extra"]
-    data_splits = ["test"]
+    data_splits = ["part1", "part2", "part3", "part4", "part5", "extra"]
+    # data_splits = ["test"]
 
     im_dims = np.array([NEW_IMAGE_W, NEW_IMAGE_H])
-
-    # if SUBSET is not None:
-    #     subset_file = f"{SUBSET}.txt"
-    #     with open(subset_file, "r") as f:
-    #         lines = f.readlines()
-    #         tasks_subset = [line.strip("\n/ \t") for line in lines]
-    # else:
-    #     tasks_subset = None 
     
+    task_list_path = BASE_LOCAL_DOWNLOAD_DIR + "/tasks_list_subset.txt"
+    task_list = load_from_task_list(task_list_path)
 
     for data_split in data_splits:
-        # s3_split_download_dir = os.path.join(BASE_S3_DOWNLOAD_DIR, data_split)
-        # task_dirs = list_s3_subdirectories(s3_split_download_dir)
-        # task_names = [task_dir.strip("/").split("/")[-1] for task_dir in task_dirs]
+        s3_split_download_dir = os.path.join(BASE_S3_DOWNLOAD_DIR, data_split)
+        task_dirs = list_s3_subdirectories(s3_split_download_dir)
+        s3_task_names = [task_dir.strip("/").split("/")[-1] for task_dir in task_dirs]
 
+        tasks_subset = [task_name for task_name in s3_task_names if task_name in task_list]
+        print (len(tasks_subset), "tasks to process for split:", data_split)
+        print (tasks_subset)
         # print("\n" + "=" * 30 + f" Processing {data_split} " + "=" * 30)
         # print(f"task_names:", task_names)
         # print(f"len(task_names):", len(task_names))
@@ -385,11 +388,22 @@ if __name__ == "__main__":
         #     print(f"[after subset filtering] task_names:", task_names)
         #     print(f"[after subset filtering] len(task_names):", len(task_names))
 
-        task_names = os.listdir(os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split))
+        # task_names = os.listdir(os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split))
 
         datalist = []
-        for i, task in enumerate(task_names):
+        for i, task in enumerate(tasks_subset):
             print ("Processing task: ", task)
+
+            hdf5_write_path = f"{local_processed_dir}/{task}.hdf5"
+            if os.path.exists(hdf5_write_path) and os.path.getsize(hdf5_write_path) > 0:
+                print(f"Output HDF5 {hdf5_write_path} already exists, skipping task")
+                continue
+
+            s3_task_download_dir = os.path.join(s3_split_download_dir, task)
+            if not os.path.exists(os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)):
+                download_from_s3(s3_task_download_dir, os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task))
+            else:
+                print (f"Local dir {os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)} already exists, skipping S3 download")
             # s3_download_dir = os.path.join(s3_split_download_dir, task)
             local_download_dir = os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)
             local_processed_dir = os.path.join(BASE_LOCAL_PROCESSED_DIR, data_split)
@@ -415,8 +429,6 @@ if __name__ == "__main__":
             hdf5_write_path = f"{local_processed_dir}/{task}.hdf5"
             with h5py.File(hdf5_write_path, "w") as f:
                     data = f.create_group("data")
-                    # data.attrs["type"] = "1"
-                    # data.create_dataset("type", data=1)  # 1 for human data
                     for idx, (ep_idx, episode_data) in enumerate(task_datalist.items()):
                         if len(episode_data) == 0:
                             print (f"[Skipping] No valid data for episode {ep_idx} of task {task}")
@@ -429,14 +441,18 @@ if __name__ == "__main__":
                         )
                         group.create_dataset("obs/ee_pose", data=episode_data["ee_pose"])
                         group.attrs["num_samples"] = int(episode_data["actions_xyz"].shape[0])
-                        # group.create_dataset("type", data=np.ones(group.attrs["num_samples"], dtype=np.int32))  # 1 for human data
+
             split_train_val_from_hdf5(hdf5_path=hdf5_write_path, val_ratio=0.2)
             print (f"Saved {hdf5_write_path}")
-            exit(1)  # ### DEBUG ###
+
+            # clean up local download dir to save space
+            if os.path.exists(local_download_dir):
+                shutil.rmtree(local_download_dir)
+            # exit(1)  # ### DEBUG ###
 
 
 """
-python3 process_egodex_data.py 2>&1 | tee process_egodex_std_stderr2.txt
+python3 egomimic/process_egodex_data.py 2>&1 | tee process_egodex_std_stderr2.txt
 
 processed dir structure 
 desc/
