@@ -5,6 +5,7 @@ import yaml
 import ipdb
 import pandas as pd
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from egomimic.utils.egomimicUtils import (
     # cam_frame_to_cam_pixels,
     ee_pose_to_cam_frame,
@@ -150,6 +151,121 @@ def split_train_val_from_hdf5(hdf5_path, val_ratio):
         file.create_dataset("mask/train", data=np.array(train_mask, dtype="S"))
         file.create_dataset("mask/valid", data=np.array(val_mask, dtype="S"))
 
+def process_episode_parallel(episode_data):
+    """Process a single episode in parallel"""
+    ep_idx, episode_path = episode_data
+    
+    try:
+        # print(f"Processing episode {ep_idx}: {episode_path}")
+
+        meta_data_file = os.path.join(episode_path, "metadata.yaml")
+        if not os.path.isfile(meta_data_file):
+            print(f"{meta_data_file} does not exist, skipping episode")
+            return None
+            
+        meta_data = load_yaml(meta_data_file)
+        observations_file = os.path.join(episode_path, "observations.npz")
+        observations = np.load(observations_file)
+
+        # Get camera data
+        camera_names = {val:key for key, val in 
+                       meta_data["camera_id_to_semantic_name"].items()}
+
+        for camera_name in ["scene_right_0"]:
+            camera_id = camera_names[camera_name]
+            front_img_1 = observations[camera_id]
+            intrinsics = np.load(os.path.join(episode_path, 
+                                            "intrinsics.npz"))[camera_id]
+            extrinsics = np.load(os.path.join(episode_path, 
+                                            "extrinsics.npz"))[camera_id][0]
+            # print(f"Images shape: {front_img_1.shape}, "
+            #       f"intrinsics shape: {intrinsics.shape}, "
+            #       f"extrinsics shape: {extrinsics.shape}")
+
+        # Load actions
+        actions_file = os.path.join(episode_path, "actions.npz")
+        actions = np.load(actions_file, allow_pickle=True)["actions"]
+
+        # Process poses
+        pose_xyz_left = observations["robot__actual__poses__right::panda__xyz"]
+        pose_xyz_right = observations["robot__actual__poses__left::panda__xyz"]
+        pose_xyz_left = ee_pose_to_cam_frame(pose_xyz_left, extrinsics)[:, :3]
+        pose_xyz_right = ee_pose_to_cam_frame(pose_xyz_right, extrinsics)[:, :3]
+
+        # print(f"Pose shapes - left: {pose_xyz_left.shape}, "
+        #       f"right: {pose_xyz_right.shape}")
+        
+        # Get joint positions
+        robot_joint_positions_left = observations["robot__actual__joint_position__left::panda"]
+        robot_joint_positions_right = observations["robot__actual__joint_position__right::panda"]
+
+        ee_pose = np.hstack([pose_xyz_left, pose_xyz_right])
+        joint_positions = np.hstack([robot_joint_positions_left, 
+                                   robot_joint_positions_right])
+        # print(f"EE pose shape: {ee_pose.shape}, "
+        #       f"joint positions shape: {joint_positions.shape}")
+        
+        ac_dim = actions.shape[1]
+        
+        # Process actions with chunking
+        horizon_seconds = 4.0
+        N = actions.shape[0]
+        # print(f"{N} frames in episode")
+        chunk_size = int(N / horizon_seconds)
+        # print(f"Chunk size: {chunk_size}")
+        
+        ac_reshape_interp = []
+        
+        for i in range(0, N):
+            if i + chunk_size > N:
+                # print(f"Not enough data to create another chunk of size "
+                #       f"{chunk_size} at index {i}, tiling last action")
+                ac_reshape = np.zeros((1, chunk_size, ac_dim))
+                ac_reshape[:, :N - i] = actions[i : N].reshape(1, -1, ac_dim)
+                ac_reshape[:, N - i :] = np.tile(
+                    actions[N - 1].reshape(1, 1, ac_dim), 
+                    (1, chunk_size - (N - i), 1)
+                )
+            else:
+                ac_reshape = actions[i : i + chunk_size].reshape(1, 
+                                                               chunk_size, 
+                                                               ac_dim)
+            
+            ac_reshape_interp.append(interpolate_arr(ac_reshape, 100))
+        
+        ac_reshape_interp = np.concatenate(ac_reshape_interp, axis=0)
+        ac_reshape_interp = ac_reshape_interp.astype(np.float32)
+        ac_reshape_interp = np.nan_to_num(ac_reshape_interp, nan=0.0, 
+                                        posinf=0.0, neginf=0.0)
+
+        # print(f"Action interpolation shape: {ac_reshape_interp.shape}")
+        left_joint_act = ac_reshape_interp[:, :, :7]
+        left_xyz_act = ac_reshape_interp[:, :, 7:10]
+        right_joint_act = ac_reshape_interp[:, :, 10:17]   
+        right_xyz_act = ac_reshape_interp[:, :, 17:20]
+
+        combined_joint_act = np.concatenate([left_joint_act, right_joint_act], 
+                                          axis=2)
+        combined_xyz_act = np.concatenate([left_xyz_act, right_xyz_act], axis=2)
+
+        # print(f"Combined actions - joints: {combined_joint_act.shape}, "
+        #       f"xyz: {combined_xyz_act.shape}")
+        
+        # Return processed episode data
+        return {
+            'ep_idx': ep_idx,
+            'combined_joint_act': combined_joint_act,
+            'combined_xyz_act': combined_xyz_act,
+            'num_samples': int(ac_reshape_interp.shape[0]),
+            'front_img_1': front_img_1,
+            'ee_pose': ee_pose,
+            'joint_positions': joint_positions
+        }
+        
+    except Exception as e:
+        print(f"Error processing episode {ep_idx} at {episode_path}: {e}")
+        return None
+
 def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, download_from_s3=True, cleanup_local_data=True):
     """
     Process raw data for all tasks specified in the CSV file
@@ -208,109 +324,52 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
             for date_path in date_paths:
                 episode_names = os.listdir(date_path + "/diffusion_spartan/")
                 processed = "processed"
-                episodes.extend([os.path.join(date_path, episode_name, processed) for episode_name in episode_names if episode_name.startswith("episode_") and os.path.exists(os.path.join(date_path, episode_name, processed))])
+                episodes.extend([os.path.join(date_path, "diffusion_spartan", episode_name, processed) for episode_name in episode_names if episode_name.startswith("episode_")])
 
             total_episode_count +=  len(episodes)
-
+            # import ipdb; ipdb.set_trace()
             if len(episodes) == 0:
                 print(f"No episodes found in {local_task_path}, skipping environment")
                 continue
             
-            for ep_idx, episode_path in tqdm(enumerate(episodes), total=len(episodes), desc=f"Processing {task_name} in {environment} ({sim_or_real})"):
-                print(f"Processing episode {ep_idx}: {episode_path}")
-
-                meta_data_file = os.path.join(episode_path, "metadata.yaml")
-                if not os.path.isfile(meta_data_file):
-                    print(f"{meta_data_file} does not exist, skipping episode")
-                    continue
-                    
-                meta_data = load_yaml(meta_data_file)
-                observations_file = os.path.join(episode_path, "observations.npz")
-                observations = np.load(observations_file)
-
-                # Get camera data
-                camera_names = {val:key for key, val in meta_data["camera_id_to_semantic_name"].items()}
-
-                for camera_name in ["scene_right_0"]:
-                    camera_id = camera_names[camera_name]
-                    front_img_1 = observations[camera_id]
-                    # front_img_1_depth = observations[f"{camera_id}_depth"]
-                    intrinsics = np.load(os.path.join(episode_path, "intrinsics.npz"))[camera_id]
-                    extrinsics = np.load(os.path.join(episode_path, "extrinsics.npz"))[camera_id][0]
-                    print(f"Images shape: {front_img_1.shape}, intrinsics shape: {intrinsics.shape}, extrinsics shape: {extrinsics.shape}")
-
-                # Load actions
-                actions_file = os.path.join(episode_path, "actions.npz")
-                actions = np.load(actions_file, allow_pickle=True)["actions"] # shape=(N, 20) --> ac_dim=20 (bimanual)
-
-                # Process poses
-                pose_xyz_left = observations["robot__actual__poses__right::panda__xyz"] # shape=(N, 3) --> obs/ee_pose (left hand_pose)
-                pose_xyz_right = observations["robot__actual__poses__left::panda__xyz"] # shape=(N, 3) --> obs/ee_pose (right hand_pose)
-                pose_xyz_left = ee_pose_to_cam_frame(pose_xyz_left, extrinsics)[:, :3]
-                pose_xyz_right = ee_pose_to_cam_frame(pose_xyz_right, extrinsics)[:, :3]
-
-                print(f"Pose shapes - left: {pose_xyz_left.shape}, right: {pose_xyz_right.shape}")
+            
+            # Prepare episode data for parallel processing
+            episode_data_list = [(ep_idx, episode_path) for ep_idx, episode_path in enumerate(episodes) if os.path.exists(episode_path)]
+            
+            # Process episodes in parallel
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                # Submit all episode processing tasks
+                future_to_episode = {
+                    executor.submit(process_episode_parallel, ep_data): ep_data 
+                    for ep_data in episode_data_list
+                }
                 
-                # Get joint positions
-                robot_joint_positions_left = observations["robot__actual__joint_position__left::panda"] # shape=(N, 7) --> obs/joint_positions
-                robot_joint_positions_right = observations["robot__actual__joint_position__right::panda"] # shape=(N, 7) --> obs/joint_positions
-
-                ee_pose = np.hstack([pose_xyz_left, pose_xyz_right])
-                joint_positions = np.hstack([robot_joint_positions_left, robot_joint_positions_right])
-                print(f"EE pose shape: {ee_pose.shape}, joint positions shape: {joint_positions.shape}")
-                
-                ac_dim = actions.shape[1]
-                data.attrs["env_args"] = json.dumps({})
-                
-                # Process actions with chunking
-                # lbm_fps = 10
-                horizon_seconds = 4.0
-                N = actions.shape[0]
-                print(f"{N} frames in episode")
-                chunk_size = int(N / horizon_seconds)  # Define chunk size
-                print(f"Chunk size: {chunk_size}")
-                
+                # Process completed tasks with progress bar
+                processed_episodes = []
+                for future in tqdm(future_to_episode, 
+                                 desc=f"Processing {task_name} in {environment} ({sim_or_real})"):
+                    result = future.result()
+                    if result is not None:
+                        processed_episodes.append(result)
+            
+            # Store processed episodes in HDF5 (sequential to avoid conflicts)
+            data.attrs["env_args"] = json.dumps({})
+            for episode_result in processed_episodes:
+                ep_idx = episode_result['ep_idx']
                 group = data.create_group(f"demo_{ep_idx}")
-                ac_reshape_interp = []
-                
-                for i in range(0, N):
-                    if i + chunk_size > N:
-                        print(f"Not enough data to create another chunk of size {chunk_size} at index {i}")
-                        # copy-padding for the last few frames
-                        ac_reshape = np.zeros((1, chunk_size, ac_dim))
-                        ac_reshape[:, :N - i] = actions[i : N].reshape(1, -1, ac_dim)
-                        ac_reshape[:, N - i :] = np.tile(
-                            actions[N - 1].reshape(1, 1, ac_dim), (1, chunk_size - (N - i), 1)
-                        )
-                    else:
-                        ac_reshape = actions[i : i + chunk_size].reshape(1, chunk_size, ac_dim)
-                    
-                    ac_reshape_interp.append(interpolate_arr(ac_reshape, 100))
-                
-                ac_reshape_interp = np.concatenate(ac_reshape_interp, axis=0)
-                # Ensure proper data type and finite values
-                ac_reshape_interp = ac_reshape_interp.astype(np.float32)
-                ac_reshape_interp = np.nan_to_num(ac_reshape_interp, nan=0.0, posinf=0.0, neginf=0.0)
-
-                print(f"Action interpolation shape: {ac_reshape_interp.shape}")
-                left_joint_act = ac_reshape_interp[:, :, :7]
-                left_xyz_act = ac_reshape_interp[:, :, 7:10]
-                right_joint_act = ac_reshape_interp[:, :, 10:17]   
-                right_xyz_act = ac_reshape_interp[:, :, 17:20]
-
-                combined_joint_act = np.concatenate([left_joint_act, right_joint_act], axis=2)
-                combined_xyz_act = np.concatenate([left_xyz_act, right_xyz_act], axis=2)
-
-                print(f"Combined actions - joints: {combined_joint_act.shape}, xyz: {combined_xyz_act.shape}")
                 
                 # Store data in HDF5
-                group.create_dataset("actions_joints_act", data=combined_joint_act)
-                group.create_dataset("actions_xyz_act", data=combined_xyz_act)
-                group.attrs["num_samples"] = int(ac_reshape_interp.shape[0])
-                group.create_dataset("obs/front_img_1", data=front_img_1)
-                # group.create_dataset("obs/front_img_1_depth", data=front_img_1_depth)
-                group.create_dataset("obs/ee_pose", data=ee_pose)
-                group.create_dataset("obs/joint_positions", data=joint_positions)
+                group.create_dataset("actions_joints_act", 
+                                   data=episode_result['combined_joint_act'])
+                group.create_dataset("actions_xyz_act", 
+                                   data=episode_result['combined_xyz_act'])
+                group.attrs["num_samples"] = episode_result['num_samples']
+                group.create_dataset("obs/front_img_1", 
+                                   data=episode_result['front_img_1'])
+                group.create_dataset("obs/ee_pose", 
+                                   data=episode_result['ee_pose'])
+                group.create_dataset("obs/joint_positions", 
+                                   data=episode_result['joint_positions'])
 
         # Split train/validation
         f.close()
@@ -320,8 +379,8 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
         else:
             # this task only goes into val split
             split_train_val_from_hdf5(hdf5_path=output_hdf5_path, val_ratio=0)
-        print(f"Completed processing {task_name} with {total_episode_count} episodes")
-
+        print(f"Completed processing {task_name} with {total_episode_count} episodes, saving at {output_hdf5_path}")
+        
     # delete local data to save space
     if cleanup_local_data:
         local_task_dir = os.path.join(local_base_path, task_name)
@@ -344,7 +403,7 @@ def main():
                         help='Whether to download data from S3')
     parser.add_argument('--task_filter', type=str, nargs='*', default=None,
                         help='Specific tasks to process (if not provided, processes all tasks from CSV)')
-    parser.add_argument('--cleanup_local_data', action='store_true', default=True,
+    parser.add_argument('--cleanup_local_data', action='store_true', default=False,
                         help='Whether to delete local data after processing')
     
     args = parser.parse_args()
