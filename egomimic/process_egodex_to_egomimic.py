@@ -354,13 +354,13 @@ if __name__ == "__main__":
     #     desc += "_debug"
 
     desc = ""
-    BASE_S3_DOWNLOAD_DIR = f"s3://tri-ml-datasets/cv_datasets/downloads/EgoDex"
+    BASE_S3_DOWNLOAD_DIR = "s3://tri-ml-datasets/cv_datasets/downloads/EgoDex"
     # BASE_LOCAL_DOWNLOAD_DIR = f"/home/ubuntu/fsx/HAMSTER_data/EgoDex/raw_{desc}"
     # BASE_LOCAL_PROCESSED_DIR = f"/home/ubuntu/fsx/HAMSTER_data/EgoDex/{desc}"
-    # BASE_S3_UPLOAD_DIR = f"s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/EgoDex/{desc}"
+    BASE_S3_UPLOAD_DIR = "s3://robotics-manip-lbm/swatigupta/egomimic_data/egodex/processed/"
 
-    BASE_LOCAL_DOWNLOAD_DIR = f"/home/swatigupta/EgoMimic/datasets/egodex/raw"
-    BASE_LOCAL_PROCESSED_DIR = f"/home/swatigupta/EgoMimic/datasets/egodex/processed"
+    BASE_LOCAL_DOWNLOAD_DIR = "/home/swatigupta/EgoMimic/datasets/egodex/raw"
+    BASE_LOCAL_PROCESSED_DIR = "/home/swatigupta/EgoMimic/datasets/egodex/processed"
 
     # data_splits = ["test", "part1", "part2", "part3", "part4", "part5", "extra"]
     data_splits = ["part1", "part2", "part3", "part4", "part5", "extra"]
@@ -393,8 +393,9 @@ if __name__ == "__main__":
         datalist = []
         for i, task in enumerate(tasks_subset):
             print ("Processing task: ", task)
-
+            local_processed_dir = os.path.join(BASE_LOCAL_PROCESSED_DIR, data_split)
             hdf5_write_path = f"{local_processed_dir}/{task}.hdf5"
+
             if os.path.exists(hdf5_write_path) and os.path.getsize(hdf5_write_path) > 0:
                 print(f"Output HDF5 {hdf5_write_path} already exists, skipping task")
                 continue
@@ -406,7 +407,7 @@ if __name__ == "__main__":
                 print (f"Local dir {os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)} already exists, skipping S3 download")
             # s3_download_dir = os.path.join(s3_split_download_dir, task)
             local_download_dir = os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)
-            local_processed_dir = os.path.join(BASE_LOCAL_PROCESSED_DIR, data_split)
+            
             # s3_upload_dir = os.path.join(BASE_S3_UPLOAD_DIR, data_split, task)
 
             os.makedirs(local_processed_dir, exist_ok=True)
@@ -445,9 +446,10 @@ if __name__ == "__main__":
             split_train_val_from_hdf5(hdf5_path=hdf5_write_path, val_ratio=0.2)
             print (f"Saved {hdf5_write_path}")
 
-            # clean up local download dir to save space
-            if os.path.exists(local_download_dir):
-                shutil.rmtree(local_download_dir)
+            if upload_to_s3(local_processed_dir, BASE_S3_UPLOAD_DIR, s3_command="sync"):
+                print (f"Uploaded {local_processed_dir} to {BASE_S3_UPLOAD_DIR} successfully")
+                # clean up local download dir to save space
+                shutil.rmtree(local_processed_dir)
             # exit(1)  # ### DEBUG ###
 
 

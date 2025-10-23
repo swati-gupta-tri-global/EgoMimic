@@ -486,6 +486,9 @@ def main():
         max_workers=args.max_workers
     )
 
+    # upload processed data  (egomimic format) to s3
+    # s5cmd cp "datasets/LBM_sim_egocentric/converted/*" s3://robotics-manip-lbm/swatigupta/egomimic_data/LBM_sim_egocentric/processed/
+
 if __name__ == "__main__":
     main()
 
