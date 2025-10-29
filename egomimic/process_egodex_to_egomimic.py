@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 from glob import glob
 from tqdm import tqdm, trange
@@ -103,22 +104,23 @@ def download_from_s3(s3_path, local_path):
         print(f"Error downloading folder:\n{stderr}")
         return False
 
-def upload_to_s3(local_path, s3_path, s3_command="sync", extra_options=None):
-    command = ["aws", "s3", s3_command, local_path, s3_path]
-
-    if extra_options is not None:
-        command += extra_options
+def upload_to_s3(local_path, s3_path):
+    # Use s5cmd for file uploads
+    if os.path.isfile(local_path):
+        command = ["s5cmd", "cp", "--concurrency=16", local_path, s3_path]
 
     print(f"Uploading {local_path} to {s3_path}...")
+    print (command)
+
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # process = subprocess.Popen(command)
     stdout, stderr = process.communicate()
 
     if process.returncode == 0:
-        # print("Download successful!")
+        # print("Upload successful!")
         return True
     else:
-        print(f"Error uploading folder:\n{stderr}")
+        print(f"Error uploading:\n{stderr}")
         return False
 
 # Egodex data arrangement
@@ -159,6 +161,9 @@ def process_single_episode(inpt):
         if "confidences" in f:
             left_idxfinger_knuckle_confidences = f["confidences"]["leftHand"][:] # (300, )
             right_idxfinger_knuckle_confidences = f["confidences"]["rightHand"][:]
+        else:
+            print (f"[Warning] No confidence data found in hdf5 for episode {ep_no}, skipping episode")
+            return episode_data_list
 
         if left_idxfinger_knuckle_confidences.max() < hand_detection_confidence_threshold or right_idxfinger_knuckle_confidences.max() < hand_detection_confidence_threshold:
             print (f"[Warning] all hand tracks detected below confidence threshold {hand_detection_confidence_threshold} for episode {ep_no}, skipping episode")
@@ -179,7 +184,11 @@ def process_single_episode(inpt):
         actions_xyz_act = []  # interpolated actions
 
         
-        for i in trange(0, decoder.metadata.num_frames, desc=f"[Processing episode {ep_no}]"):
+        # Check if running in interactive terminal for progress bars
+        use_tqdm = False
+        iterator = trange(0, decoder.metadata.num_frames, desc=f"[Processing episode {ep_no}]") if use_tqdm else range(0, decoder.metadata.num_frames)
+        
+        for i in iterator:
             initial_image = np.moveaxis(decoder[i].cpu().detach().numpy(), 0, -1)
             initial_image = cv2.resize(initial_image, im_dims)
             
@@ -230,7 +239,7 @@ def process_single_episode(inpt):
                 # print (f"[All valid] All hand tracks detected above confidence threshold {hand_detection_confidence_threshold} for episode {ep_no}, step starting at {i}")
                 # for these valid indices, pick out the hand tracks -  actions, interp actions
             else:
-                print (f"[Partial valid] {len(valid_indices)}/{step_size} hand tracks detected above confidence threshold {hand_detection_confidence_threshold} for episode {ep_no}, step starting at {i}, skipping this chunk")
+                # print (f"[Partial valid] {len(valid_indices)}/{step_size} hand tracks detected above confidence threshold {hand_detection_confidence_threshold} for episode {ep_no}, step starting at {i}, skipping this chunk")
                 continue
 
             # Our goal is to construct the action-chunk (a_t -> a_t+H) by transforming each position in the trajectory into the
@@ -256,14 +265,20 @@ def process_single_episode(inpt):
 
         actions_xyz = np.array(actions_xyz)
         actions_xyz_act = interpolate_arr(actions_xyz, 100)  # (num_valid * oversample_rate, 6)
-        episode_data_list = dict(ep_no=ep_no, 
-                    front_img_1=np.array(images), 
-                    actions_xyz=actions_xyz,
-                    actions_xyz_act=actions_xyz_act,
-                    ee_pose=np.squeeze(np.array(ee_poses)))
+        
+        # Return processed data instead of writing directly
+        episode_data_list = {
+            "ep_no": ep_no,
+            "actions_xyz": actions_xyz,
+            "actions_xyz_act": actions_xyz_act,
+            "front_img_1": np.array(images),
+            "ee_pose": np.squeeze(np.array(ee_poses)),
+            "num_samples": int(actions_xyz.shape[0])
+        }
+        
+        return episode_data_list
 
-
-    return episode_data_list
+    return {}
 
 def process_data_into_egodex_format(local_download_dir, 
                                      local_processed_dir, 
@@ -274,7 +289,9 @@ def process_data_into_egodex_format(local_download_dir,
                                      save_annotated_images, 
                                      oversample_rate, 
                                      singlehand,
-                                     hand_detection_confidence_threshold):
+                                     hand_detection_confidence_threshold,
+                                     hdf5_write_path,
+                                     batch_size=None):
 
     # ### DEBUG ###
     print (f"Processing {local_download_dir} into {local_processed_dir} with {n_workers} workers")
@@ -298,27 +315,62 @@ def process_data_into_egodex_format(local_download_dir,
     mp4_files = glob(os.path.join(local_download_dir, "*.mp4"))
     episode_numbers = sorted([int(mp4_file.split("/")[-1].split(".")[0]) for mp4_file in mp4_files])
 
-    function_inpts = []
-    for ep_no in episode_numbers:
-        mp4_file = os.path.join(local_download_dir, f"{ep_no}.mp4")
-        hdf5_file = os.path.join(local_download_dir, f"{ep_no}.hdf5")
-        function_inpts.append((ep_no, mp4_file, hdf5_file, step_size, oversample_rate, hand_detection_confidence_threshold, im_dims, save_annotated_images))
-        # if ep_no > 2:
-        #     break  # ### DEBUG ###
-
-    # episode_data_dicts = [process_single_episode(inpt) for inpt in function_inpts] ### DEBUG ###
-    with Pool(n_workers) as p:
-        episode_data_dicts = list(p.imap(process_single_episode, function_inpts))
+    # Set batch size (number of episodes to process before writing to HDF5)
+    if batch_size is None:
+        batch_size = n_workers * 2  # Process 2 batches per worker set
     
-    # import ipdb; ipdb.set_trace()
-    task_datadict = {}
-    for episode_data_dict in episode_data_dicts:
-        if len(episode_data_dict) == 0:
-            print ("[Skipping] No valid data for episode")
-            continue
-        task_datadict[episode_data_dict["ep_no"]] = episode_data_dict
+    total_successful = 0
+    demo_idx = 0
+    
+    # Process episodes in batches
+    for batch_start in range(0, len(episode_numbers), batch_size):
+        batch_end = min(batch_start + batch_size, len(episode_numbers))
+        batch_episodes = episode_numbers[batch_start:batch_end]
+        
+        print(f"Processing batch {batch_start//batch_size + 1}: episodes {batch_start} to {batch_end-1}")
+        
+        function_inpts = []
+        for ep_no in batch_episodes:
+            mp4_file = os.path.join(local_download_dir, f"{ep_no}.mp4")
+            hdf5_file = os.path.join(local_download_dir, f"{ep_no}.hdf5")
+            function_inpts.append((ep_no, mp4_file, hdf5_file, step_size, oversample_rate, hand_detection_confidence_threshold, im_dims, save_annotated_images))
 
-    return task_datadict
+        # Process batch with multiprocessing
+        with Pool(n_workers) as p:
+            batch_results = list(p.imap(process_single_episode, function_inpts))
+        
+        # Filter successful episodes
+        successful_batch = [result for result in batch_results if len(result) > 0]
+        
+        # Write successful episodes to HDF5 sequentially (no race conditions)
+        if successful_batch:
+            with h5py.File(hdf5_write_path, "a") as f:
+                if "data" not in f:
+                    data = f.create_group("data")
+                else:
+                    data = f["data"]
+                
+                for episode_data in successful_batch:
+                    group = data.create_group(f"demo_{demo_idx}")
+                    group.create_dataset("actions_xyz", data=episode_data["actions_xyz"])
+                    group.create_dataset("actions_xyz_act", data=episode_data["actions_xyz_act"])
+                    group.create_dataset("obs/front_img_1", data=episode_data["front_img_1"])
+                    group.create_dataset("obs/ee_pose", data=episode_data["ee_pose"])
+                    group.attrs["num_samples"] = episode_data["num_samples"]
+                    demo_idx += 1
+        
+        batch_successful = len(successful_batch)
+        batch_failed = len(batch_results) - batch_successful
+        total_successful += batch_successful
+        
+        print(f"Batch complete: {batch_successful} successful, {batch_failed} failed")
+        
+        # Optional: force garbage collection after each batch to free memory
+        import gc
+        gc.collect()
+    
+    print(f"Processed {total_successful} episodes successfully for task in {local_download_dir}")
+    return total_successful
 
 def load_from_task_list(task_list_path):
     with open(task_list_path, 'r') as f:
@@ -362,11 +414,25 @@ if __name__ == "__main__":
     BASE_LOCAL_DOWNLOAD_DIR = "/home/swatigupta/EgoMimic/datasets/egodex/raw"
     BASE_LOCAL_PROCESSED_DIR = "/home/swatigupta/EgoMimic/datasets/egodex/processed"
 
-    # data_splits = ["test", "part1", "part2", "part3", "part4", "part5", "extra"]
-    data_splits = ["part1", "part2", "part3", "part4", "part5", "extra"]
-    # data_splits = ["test"]
+    data_splits = ["part2", "part3", "part4", "part5", "extra"]
+    # 4 tasks to process for split: part1^M
+    # ['add_remove_lid', 'clean_cups', 'clean_tableware', 'declutter_desk']
+    # 2 tasks to process for split: part2
+    # ['basic_fold', 'basic_pick_place']
 
     im_dims = np.array([NEW_IMAGE_W, NEW_IMAGE_H])
+
+    # check aws sso login
+    try:
+        boto3.client('s3').list_buckets()
+    except ClientError as e:
+        print (e)
+        print("AWS SSO login required. Please run 'aws sso login' and try again.")
+        exit(1)
+
+    # current date-time string
+    current_time = time.strftime("%Y%m%d-%H%M%S")
+    print (f"Processing started at {current_time}")
     
     task_list_path = BASE_LOCAL_DOWNLOAD_DIR + "/tasks_list_subset.txt"
     task_list = load_from_task_list(task_list_path)
@@ -391,12 +457,12 @@ if __name__ == "__main__":
         # task_names = os.listdir(os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split))
 
         datalist = []
+        local_processed_dir = os.path.join(BASE_LOCAL_PROCESSED_DIR, data_split)
         for i, task in enumerate(tasks_subset):
             print ("Processing task: ", task)
-            local_processed_dir = os.path.join(BASE_LOCAL_PROCESSED_DIR, data_split)
             hdf5_write_path = f"{local_processed_dir}/{task}.hdf5"
 
-            if os.path.exists(hdf5_write_path) and os.path.getsize(hdf5_write_path) > 0:
+            if os.path.exists(hdf5_write_path) and os.path.getsize(hdf5_write_path) > 1024 * 1024:
                 print(f"Output HDF5 {hdf5_write_path} already exists, skipping task")
                 continue
 
@@ -405,17 +471,15 @@ if __name__ == "__main__":
                 download_from_s3(s3_task_download_dir, os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task))
             else:
                 print (f"Local dir {os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)} already exists, skipping S3 download")
-            # s3_download_dir = os.path.join(s3_split_download_dir, task)
-            local_download_dir = os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)
-            
-            # s3_upload_dir = os.path.join(BASE_S3_UPLOAD_DIR, data_split, task)
+            local_task_download_dir = os.path.join(BASE_LOCAL_DOWNLOAD_DIR, data_split, task)
 
             os.makedirs(local_processed_dir, exist_ok=True)
 
-            # task_dataset_json_s3_uri = os.path.join(s3_upload_dir, "task_dataset.json")
-            # task_dataset_json_file = os.path.join(local_processed_dir, "task_dataset.json")
-
-            task_datalist = process_data_into_egodex_format(local_download_dir, 
+            # # Initialize empty HDF5 file
+            with h5py.File(hdf5_write_path, "w") as f:
+                f.create_group("data")
+            
+            num_successful = process_data_into_egodex_format(local_task_download_dir, 
                                             local_processed_dir,
                                             desc,
                                             N_WORKERS,
@@ -424,37 +488,33 @@ if __name__ == "__main__":
                                             SAVE_ANNOTATED_IMAGES,
                                             OVERSAMPLE_RATE,
                                             SINGLE_HAND,
-                                            HAND_DETECTION_CONFIDENCE_THRESHOLD)
-
-            # Save an hdf5 per task
-            hdf5_write_path = f"{local_processed_dir}/{task}.hdf5"
-            with h5py.File(hdf5_write_path, "w") as f:
-                    data = f.create_group("data")
-                    for idx, (ep_idx, episode_data) in enumerate(task_datalist.items()):
-                        if len(episode_data) == 0:
-                            print (f"[Skipping] No valid data for episode {ep_idx} of task {task}")
-                            continue
-                        group = data.create_group(f"demo_{idx}")
-                        group.create_dataset("actions_xyz", data=episode_data["actions_xyz"])
-                        group.create_dataset("actions_xyz_act", data=episode_data["actions_xyz_act"])
-                        group.create_dataset(
-                            "obs/front_img_1", data=episode_data["front_img_1"]
-                        )
-                        group.create_dataset("obs/ee_pose", data=episode_data["ee_pose"])
-                        group.attrs["num_samples"] = int(episode_data["actions_xyz"].shape[0])
+                                            HAND_DETECTION_CONFIDENCE_THRESHOLD,
+                                            hdf5_write_path,
+                                            batch_size=N_WORKERS * 2)  # Process 2x worker count per batch
+            
+            if num_successful == 0:
+                print(f"No episodes processed successfully for task {task}")
+                # Remove empty HDF5 file
+                if os.path.exists(hdf5_write_path):
+                    os.remove(hdf5_write_path)
+                continue
 
             split_train_val_from_hdf5(hdf5_path=hdf5_write_path, val_ratio=0.2)
+            f.close()
             print (f"Saved {hdf5_write_path}")
 
-            if upload_to_s3(local_processed_dir, BASE_S3_UPLOAD_DIR, s3_command="sync"):
-                print (f"Uploaded {local_processed_dir} to {BASE_S3_UPLOAD_DIR} successfully")
-                # clean up local download dir to save space
-                shutil.rmtree(local_processed_dir)
+            if upload_to_s3(hdf5_write_path, BASE_S3_UPLOAD_DIR):
+                print (f"Uploaded {hdf5_write_path} to {BASE_S3_UPLOAD_DIR} successfully")
+                # clean up local download dir to save space  
+                os.remove(hdf5_write_path)  # Remove file, not directory
+                shutil.rmtree(local_task_download_dir)
             # exit(1)  # ### DEBUG ###
 
 
 """
-python3 egomimic/process_egodex_data.py 2>&1 | tee process_egodex_std_stderr2.txt
+python3 egomimic/process_egodex_to_egomimic.py 2>&1 | tee process_egodex_std_stderr2.txt
+
+script -c "python3 egomimic/process_egodex_to_egomimic.py" process_egodex_$(date +%Y%m%d_%H%M%S).log
 
 processed dir structure 
 desc/

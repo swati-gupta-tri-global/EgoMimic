@@ -294,7 +294,8 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
         os.makedirs(output_dir, exist_ok=True)
         
         output_hdf5_path = os.path.join(output_dir, f"{task_name}.hdf5")
-        if os.path.exists(output_hdf5_path) and os.path.getsize(output_hdf5_path) > 0:
+        # check if size is greater than 1MB
+        if os.path.exists(output_hdf5_path) and os.path.getsize(output_hdf5_path) > 1024 * 1024:
             print(f"Output HDF5 {output_hdf5_path} already exists, skipping task")
             continue
 
@@ -499,3 +500,7 @@ if __name__ == "__main__":
 # python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualPlacePearFromBowlOnCuttingBoard --download_from_s3  saved to -> datasets/LBM_sim_egocentric/converted/BimanualPlacePearFromBowlOnCuttingBoard.hdf5
 
 # python egomimic/process_LBM_sim_egocentric_to_egomimic.py --download_from_s3 --cleanup_local_data  2>&1 | tee process_LBMsim_std_stderr2.txt
+
+# python egomimic/process_LBM_sim_egocentric_to_egomimic.py \
+#     --task_filter BimanualHangMugsOnMugHolderFromTable PutBananaOnSaucer PutOrangeInCenterOfTable \
+#     --download_from_s3 --cleanup_local_data
