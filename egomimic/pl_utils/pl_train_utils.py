@@ -6,7 +6,7 @@ from pytorch_lightning import Trainer, seed_everything, Callback
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.plugins.environments import SLURMEnvironment
+# from pytorch_lightning.plugins.environments import SLURMEnvironment
 
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.file_utils as FileUtils

@@ -89,7 +89,7 @@ def s3_file_exists(s3_uri):
 def download_from_s3(s3_path, local_path):
     # command = ["aws", "s3", s3_command, s3_path, local_path]
     s3_path = os.path.join(s3_path, "*")
-    command = ["s5cmd", "cp", s3_path, local_path]
+    command = ["s5cmd", "cp", "--concurrency=16", s3_path, local_path]
     print (command)
 
     print(f"Downloading {s3_path} to {local_path}...")
@@ -497,6 +497,7 @@ if __name__ == "__main__":
                 # Remove empty HDF5 file
                 if os.path.exists(hdf5_write_path):
                     os.remove(hdf5_write_path)
+                    shutil.rmtree(local_task_download_dir)
                 continue
 
             split_train_val_from_hdf5(hdf5_path=hdf5_write_path, val_ratio=0.2)

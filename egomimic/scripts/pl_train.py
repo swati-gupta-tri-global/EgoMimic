@@ -16,6 +16,9 @@ Args:
     dataset (str): if provided, override the dataset path defined in the config
 
     debug (bool): set this flag to run a quick training run for debugging purposes
+
+python scripts/pl_train.py --config configs/egomimic_combined_lbm_egodex.json --dataset ../datasets/LBM_sim_egocentric/converted/BimanualHangMugsOnMugHolderFromDryingRack.hdf5 --dataset_2 ../datasets/egodex/processed/test/fold_stack_unstack_unfold_cloths.hdf5 --debug 
+datasets/LBM_sim_egocentric/converted/BimanualPlacePearFromBowlOnCuttingBoard.hdf5
 """
 import argparse
 import json

@@ -39,7 +39,7 @@
         }
     },
     "train": {
-        "data": "./LBM_sim_egocentric/converted/PutOrangeOnSaucer.hdf5",
+        "data": "./LBM_sim_egocentric/converted/BimanualHangMugsOnMugHolderFromDryingRack.hdf5",
         "data_type": "robot",
         "output_dir":"../trained_models_highlevel",
         "num_data_workers": 5,
@@ -119,7 +119,7 @@
                 "low_dim": [
                     "ee_pose"
                 ],
-                "rgb": ["front_img_1_line"]
+                "rgb": ["front_img_1"]
             }
         }
     },
@@ -129,7 +129,7 @@
                 "low_dim": [
                     "joint_positions"
                 ],
-                "rgb": ["front_img_1_line"],
+                "rgb": ["front_img_1"],
                 "depth": [],
                 "scan": []
             },
