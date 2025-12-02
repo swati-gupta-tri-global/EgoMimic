@@ -75,14 +75,23 @@ class EgoMimicModel(ACTModel):
         )
 
         hidden_dim = transformer.d
+        
+        # Determine hand dimensions based on action dimension
         if a_dim == 7:
             hand_state_dim = 3
             hand_action_dim = 3
         elif a_dim == 14:
             hand_state_dim = 6
             hand_action_dim = 6
+        # else:
+        #     # Default case - this might indicate an issue with configuration
+        #     print(f"Warning: Unexpected a_dim value: {a_dim}. Using default hand dimensions.")
+        #     hand_state_dim = 6  # Default to 6
+        #     hand_action_dim = 6  # Default to 6
         
-        print ("a_dim: ", a_dim)
+        print(f"Action dimension (a_dim): {a_dim}")
+        print(f"Hand state dimension: {hand_state_dim}")
+        print(f"Hand action dimension: {hand_action_dim}")
         # hidden dim: 512
         # import ipdb; ipdb.set_trace()
         
@@ -106,7 +115,7 @@ class EgoMimicModel(ACTModel):
         self.hand_action_head = nn.Linear(hidden_dim, hand_action_dim)
 
     def forward(self, qpos, image, env_state, modality, actions, is_pad=None):
-        print ("egomimic: ", actions.shape, qpos.shape)
+        # print ("egomimic: ", actions.shape if actions is not None else "None", qpos.shape)
         if modality == "robot":
             return self._forward(
                 qpos,
@@ -190,6 +199,14 @@ class EgoMimic(ACT):
             num_channels=num_channels,
         )
 
+        # Debug configuration values
+        print(f"Policy config debug:")
+        print(f"  a_dim: {policy_config['a_dim']}")
+        print(f"  state_dim: {policy_config['state_dim']}")
+        print(f"  num_queries: {policy_config['num_queries']}")
+        print(f"  action_length: {policy_config.get('action_length', 'NOT SET')}")
+        print(f"  latent_dim: {policy_config['latent_dim']}")
+
         model.cuda()
 
         return model
@@ -271,8 +288,9 @@ class EgoMimic(ACT):
             batch, cam_keys, proprio_keys
         )
         # import ipdb; ipdb.set_trace()
-    
-        print (actions_hand.shape, actions_robot.shape)
+        # if actions_hand is not None:
+        #     print (modality, actions_hand.shape if actions_hand is not None else "None", 
+        #            actions_robot.shape if actions_robot is not None else "None")
         actions = actions_hand if modality == "hand" else actions_robot
 
         a_hat, is_pad_hat, (mu, logvar) = self.nets["policy"](

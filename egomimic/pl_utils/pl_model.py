@@ -100,7 +100,15 @@ class ModelWrapper(LightningModule):
             )
 
         info["losses"] = TensorUtils.detach(losses)
-        self.step_log_all_train.append(self.model.log_info(info))
+        step_log = self.model.log_info(info)
+        self.step_log_all_train.append(step_log)
+
+        # Log training metrics immediately for wandb (in addition to epoch-level logging)
+        for k, v in step_log.items():
+            self.log(f"Train_Step/{k}", v, on_step=True, on_epoch=False, prog_bar=False, sync_dist=True)
+        
+        # Log the main loss to progress bar
+        self.log("train_loss", losses["action_loss"], on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         # count=0
         # for name, param in self.named_parameters():
@@ -134,12 +142,17 @@ class ModelWrapper(LightningModule):
     def custom_eval(self, video_dir):
         self.eval()
         self.zero_grad()
+        
+        # Get the data type from config, default to 'robot' if not specified
+        data_type = getattr(self.model.global_config.train, 'data_type', 'robot')
+        print (f"{self.model.global_config.train.data_type}")
         with torch.no_grad():
             valid_step_log = ValUtils.evaluate_high_level_policy(
                 self.model,
                 self.datamodule.val_dataloader_1(),
                 video_dir,
                 ac_key=self.model.global_config.train.ac_key,
+                type=data_type,
             )  # save vid only once every video_freq epochs
 
         return valid_step_log
@@ -195,10 +208,14 @@ class ModelWrapper(LightningModule):
                         )  # save vid only once every video_freq epochs
                     self.train()
                 for k, v in valid_step_log.items():
-                    self.log("Valid/" + k, v, sync_dist=False)
+                    self.log("Valid/" + k, v, sync_dist=False, on_step=False, on_epoch=True)
                 if self.dual_dl:
                     for k, v in valid_step_log_2.items():
-                        self.log("Valid/" + k, v, sync_dist=False)
+                        self.log("Valid/" + k, v, sync_dist=False, on_step=False, on_epoch=True)
+
+        # Synchronize all ranks after validation (rank 0 does validation, others wait)
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.barrier()
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())

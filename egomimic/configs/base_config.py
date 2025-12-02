@@ -119,6 +119,9 @@ class BaseConfig(Config):
         self.experiment.save.video_freq = (
             10  # save videos every n epochs (set to None to disable)
         )
+        self.experiment.save_eval_videos = (
+            True  # save evaluation videos (set to False to speed up evaluation)
+        )
 
         # epoch definitions - if not None, set an epoch to be this many gradient steps, else the full dataset size will be used
         self.experiment.epoch_every_n_steps = (

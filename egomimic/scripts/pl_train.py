@@ -17,8 +17,39 @@ Args:
 
     debug (bool): set this flag to run a quick training run for debugging purposes
 
-python scripts/pl_train.py --config configs/egomimic_combined_lbm_egodex.json --dataset ../datasets/LBM_sim_egocentric/converted/BimanualHangMugsOnMugHolderFromDryingRack.hdf5 --dataset_2 ../datasets/egodex/processed/test/fold_stack_unstack_unfold_cloths.hdf5 --debug 
-datasets/LBM_sim_egocentric/converted/BimanualPlacePearFromBowlOnCuttingBoard.hdf5
+python3 scripts/pl_train.py --config configs/egomimic_combined_lbm_egodex.json --dataset ../datasets/LBM_sim_egocentric/processed/BimanualHangMugsOnMugHolderFromDryingRack.hdf5 --dataset_2 ../datasets/egodex/processed/test/fold_stack_unstack_unfold_cloths.hdf5 --debug 
+datasets/LBM_sim_egocentric/processed/BimanualPlacePearFromBowlOnCuttingBoard.hdf5
+
+
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 scripts/pl_train.py   --config configs/egomimic_combined_lbm_egodex.json   --dataset ../datasets/LBM_sim_egocentric/small_split   --dataset_2 ../datasets/egodex/small_split   --debug --gpus-per-node 8 --num-nodes 1
+
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+python3 scripts/pl_train.py \
+  --config configs/egomimic_combined_lbm_egodx.json \
+  --dataset ../datasets/LBM_sim_egocentric/small_split \
+  --dataset_2 ../datasets/egodx/small_split \
+  --debug \
+  --gpus-per-node 8 \
+  --num-nodes 1
+
+# You requested gpu: [0, 1, 2, 3, 4, 5, 6, 7]
+ But your machine only has: [0, 1, 2, 3]
+
+NCCL_SOCKET_IFNAME=bond0 NCCL_DEBUG=INFO NCCL_P2P_DISABLE=1 TORCH_NCCL_BLOCKING_WAIT=1 NCCL_IB_DISABLE=1 python3 scripts/pl_train.py  --config configs/egomimic_combined_lbm_egodex.json --gpus-per-node 4   --num-nodes 1
+
+NCCL_DEBUG=INFO python3 scripts/pl_train.py  --config configs/egomimic_combined_lbm_egodex.json --gpus-per-node 4  --num-nodes 1
+
+torchrun --nproc_per_node=4 scripts/pl_train.py --config configs/egomimic_combined_lbm_egodex.json --gpus-per-node 4 --num-nodes 1
+
+# trained 40 epochs with sample data: /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2025-11-13-02-40-03/models/last.ckpt
+NCCL_DEBUG=INFO python3 scripts/pl_train.py  --config configs/egomimic_combined_lbm_egodex.json --gpus-per-node 2   --num-nodes 1 --ckpt /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2025-11-13-02-40-03/models/last.ckpt --eval
+
+# trained full run
+torchrun --nproc_per_node=4 scripts/pl_train.py  --config configs/egomimic_combined_lbm_egodex.json --gpus-per-node 4   --num-nodes 1 --ckpt /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2025-11-22-18-26-12/models/model_epoch_epoch=9.ckpt
+
+# eval
+torchrun --nproc_per_node=4 scripts/pl_train.py  --config configs/egomimic_combined_lbm_egodex.json --gpus-per-node 4   --num-nodes 1 --ckpt /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2025-11-22-18-26-12/models/model_epoch_epoch=9.ckpt --eval
+CUDA_VISIBLE_DEVICES=6,7 torchrun --nproc_per_node=2 --master-port=29501 scripts/pl_train.py  --config configs/egomimic_combined_lbm_egodex.json --gpus-per-node 2 --num-workers 2  --no-eval-videos --num-nodes 1 --ckpt /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2025-11-22-18-26-12/models/model_epoch_epoch=39.ckpt --eval
 """
 import argparse
 import json
@@ -57,9 +88,11 @@ def main(args):
     else:
         assert False, "Must provide a config file or a ckpt path"
 
+    # if args.resume_dir is not None:
     if args.name is not None and args.description is not None:
         base_output_dir = os.path.dirname(egomimic.__file__)
         possible_resume = os.path.join(base_output_dir, "../trained_models_highlevel", args.name, args.description, "models/last.ckpt")
+        # possible_resume = os.path.join(args.resume_dir, "models/last.ckpt")
         print(f"TRYING TO RESUME FROM: {possible_resume}")
         if os.path.exists(possible_resume) or os.path.islink(possible_resume):
             args.ckpt_path = possible_resume
@@ -94,6 +127,12 @@ def main(args):
 
     if args.batch_size:
         config.train.batch_size = args.batch_size
+    
+    if args.num_workers is not None:
+        config.train.num_data_workers = args.num_workers
+    
+    if args.no_eval_videos:
+        config.experiment.save_eval_videos = False
     
     if args.train_key:
         config.train.hdf5_filter_key = args.train_key
@@ -199,6 +238,12 @@ def main(args):
     important_stats = None
     try:
         if args.eval:
+            # Handle dataset path for evaluation
+            if args.dataset is not None:
+                config.unlock()
+                config.train.data = args.dataset
+                config.lock()
+            
             eval(config, args.ckpt_path, type=config.train.data_type)
             return
         else:
@@ -247,20 +292,24 @@ def train_argparse():
         help="description",
     )
 
-    # Dataset path, to override the one in the config
+    # Dataset paths, to override the one in the config
     parser.add_argument(
         "--dataset",
         type=str,
+        nargs='+',
         default=None,
-        help="(optional) if provided, override the dataset path defined in the config",
+        help="(optional) if provided, override the dataset path(s) defined in the config. "
+             "Can specify multiple HDF5 files, directories containing HDF5 files, or glob patterns.",
     )
 
-    # Dataset path, to override the one in the config
+    # Dataset paths, to override the one in the config
     parser.add_argument(
         "--dataset_2",
         type=str,
+        nargs='+',
         default=None,
-        help="(optional) if provided, override the dataset path defined in the config",
+        help="(optional) if provided, override the dataset path(s) defined in the config. "
+             "Can specify multiple HDF5 files, directories containing HDF5 files, or glob patterns.",
     )
 
     parser.add_argument(
@@ -295,6 +344,12 @@ def train_argparse():
     parser.add_argument("--hand-lambda", type=float, default=None, help="hand data weighting")
 
     parser.add_argument("--batch-size", type=int, default=None, help="batch size")
+
+    parser.add_argument("--num-workers", type=int, default=None, help="number of DataLoader workers (default: 16, use 0-4 if OOM issues)")
+
+    parser.add_argument(
+        "--no-eval-videos", action="store_true", help="disable saving evaluation videos to speed up evaluation"
+    )
 
     parser.add_argument(
         "--wandb_project_name",

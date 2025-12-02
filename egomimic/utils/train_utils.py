@@ -15,6 +15,7 @@ import imageio
 import numpy as np
 from copy import deepcopy
 from collections import OrderedDict
+import glob
 
 import robomimic
 import robomimic.utils.tensor_utils as TensorUtils
@@ -22,6 +23,7 @@ import robomimic.utils.log_utils as LogUtils
 import robomimic.utils.file_utils as FileUtils
 
 from egomimic.utils.dataset import PlaydataSequenceDataset
+from egomimic.utils.multi_dataset import create_multi_file_dataset
 from robomimic.envs.env_base import EnvBase
 from robomimic.envs.wrappers import EnvWrapper
 
@@ -83,7 +85,7 @@ def get_exp_dir(config, auto_remove_exp_dir=False, rank=0):
     return log_dir, output_dir, video_dir, time_str
 
 
-def load_data_for_training(config, obs_keys, type, dataset_path=None):
+def load_data_for_training(config, obs_keys, data_type, dataset_path=None):
     """
     Data loading at the start of an algorithm.
 
@@ -115,30 +117,81 @@ def load_data_for_training(config, obs_keys, type, dataset_path=None):
             "did not specify filter keys corresponding to train and valid split in dataset"
             " - please fill config.train.hdf5_filter_key and config.train.hdf5_validation_filter_key"
         )
-        train_demo_keys = FileUtils.get_demos_for_filter_key(
-            hdf5_path=dataset_path,
-            filter_key=train_filter_by_attribute,
-        )
-        valid_demo_keys = FileUtils.get_demos_for_filter_key(
-            hdf5_path=dataset_path,
-            filter_key=valid_filter_by_attribute,
-        )
-        assert set(train_demo_keys).isdisjoint(set(valid_demo_keys)), (
-            "training demonstrations overlap with " "validation demonstrations!"
-        )
+        
+        # Handle both single files and lists of files
+        if isinstance(dataset_path, str):
+            dataset_paths = [dataset_path]
+        else:
+            dataset_paths = dataset_path
+        
+        # Get current rank from environment (for torchrun/DDP)
+        # Only rank 0 should print validation messages to avoid I/O contention
+        local_rank = int(os.environ.get('LOCAL_RANK', 0))
+        is_rank_zero = (local_rank == 0)
+        
+        # Validate and filter files based on required filter keys
+        valid_paths = []
+        skipped_files = []
+        
+        for path in dataset_paths:
+            try:
+                train_demo_keys = FileUtils.get_demos_for_filter_key(
+                    hdf5_path=path,
+                    filter_key=train_filter_by_attribute,
+                )
+                valid_demo_keys = FileUtils.get_demos_for_filter_key(
+                    hdf5_path=path,
+                    filter_key=valid_filter_by_attribute,
+                )
+                assert set(train_demo_keys).isdisjoint(set(valid_demo_keys)), (
+                    f"training demonstrations overlap with validation demonstrations in {path}!"
+                )
+                valid_paths.append(path)
+            except (KeyError, FileNotFoundError) as e:
+                if is_rank_zero:
+                    print(f"\n⚠️  WARNING: Skipping file {path} - missing required filter keys!")
+                    print(f"   Looking for: 'mask/{train_filter_by_attribute}' and 'mask/{valid_filter_by_attribute}'")
+                    print(f"   Reason: {e}")
+                    
+                    # Try to show what keys exist in the file
+                    try:
+                        import h5py
+                        with h5py.File(path, 'r') as f:
+                            if 'mask' in f:
+                                available_keys = list(f['mask'].keys())
+                                print(f"   Available mask keys in this file: {available_keys}")
+                            else:
+                                print(f"   This file has no 'mask' group at all!")
+                                print(f"   Top-level groups: {list(f.keys())}")
+                    except Exception as inspect_error:
+                        print(f"   Could not inspect file: {inspect_error}")
+                
+                skipped_files.append(path)
+        
+        # Update dataset_path to only include valid files
+        if len(valid_paths) == 0:
+            raise ValueError(f"No valid HDF5 files found with filter keys 'mask/{train_filter_by_attribute}' and 'mask/{valid_filter_by_attribute}'")
+        
+        if skipped_files and is_rank_zero:
+            print(f"\n📊 Dataset Summary for {data_type}:")
+            print(f"   ✓ Valid files: {len(valid_paths)}")
+            print(f"   ⚠️  Skipped files: {len(skipped_files)}")
+        
+        dataset_path = valid_paths if len(valid_paths) > 1 else valid_paths[0]
+        
         train_dataset = dataset_factory(
             config,
             obs_keys,
             filter_by_attribute=train_filter_by_attribute,
             dataset_path=dataset_path,
-            type=type
+            type=data_type
         )
         valid_dataset = dataset_factory(
             config,
             obs_keys,
             filter_by_attribute=valid_filter_by_attribute,
             dataset_path=dataset_path,
-            type=type
+            type=data_type
         )
     else:
         train_dataset = dataset_factory(
@@ -146,7 +199,7 @@ def load_data_for_training(config, obs_keys, type, dataset_path=None):
             obs_keys,
             filter_by_attribute=train_filter_by_attribute,
             dataset_path=dataset_path,
-            type=type
+            type=data_type
         )
         valid_dataset = None
 
@@ -171,17 +224,23 @@ def dataset_factory(config, obs_keys, type, filter_by_attribute=None, dataset_pa
         filter_by_attribute (str): if provided, use the provided filter key
             to select a subset of demonstration trajectories to load
 
-        dataset_path (str): if provided, the PlaydataSequenceDataset instance should load
-            data from this dataset path. Defaults to config.train.data.
+        dataset_path (str or list): if provided, the dataset instance should load
+            data from this dataset path(s). Can be a single path, list of paths,
+            or directory containing HDF5 files. Defaults to config.train.data.
 
     Returns:
         dataset (PlaydataSequenceDataset instance): dataset object
     """
     if dataset_path is None:
         dataset_path = config.train.data
+    
+    # Expand directories and globs to actual HDF5 file paths
+    expanded_paths = expand_dataset_paths(dataset_path)
+    if not expanded_paths:
+        raise ValueError(f"No valid HDF5 files found for dataset_path: {dataset_path}")
 
     ds_kwargs = dict(
-        hdf5_path=dataset_path,
+        hdf5_paths=expanded_paths,  # Use expanded paths
         obs_keys=obs_keys,
         dataset_keys=config.train.dataset_keys,
         goal_obs_gap=config.algo.playdata.goal_image_range,
@@ -201,9 +260,64 @@ def dataset_factory(config, obs_keys, type, filter_by_attribute=None, dataset_pa
         prestacked_actions=config.train.prestacked_actions,
         hdf5_normalize_actions=config.train.hdf5_normalize_actions
     )
-    dataset = PlaydataSequenceDataset(**ds_kwargs)
+    dataset = create_multi_file_dataset(**ds_kwargs)
 
     return dataset
+
+
+def expand_dataset_paths(dataset_paths):
+    """
+    Expand dataset paths to handle directories, globs, and individual files.
+    
+    Args:
+        dataset_paths (str, list): Single path, list of paths, or None
+        
+    Returns:
+        list: List of absolute paths to HDF5 files
+    """
+    if dataset_paths is None:
+        return None
+    
+    # Convert to list if single string
+    if isinstance(dataset_paths, str):
+        dataset_paths = [dataset_paths]
+    
+    expanded_paths = []
+    
+    for path in dataset_paths:
+        path = os.path.expanduser(path)
+        
+        if os.path.isdir(path):
+            # If it's a directory, find all HDF5 files recursively
+            pattern = os.path.join(path, "**", "*.hdf5")
+            hdf5_files = glob.glob(pattern, recursive=True)
+            if hdf5_files:
+                print(f"Found {len(hdf5_files)} HDF5 files in directory: {path}")
+                expanded_paths.extend(sorted(hdf5_files))
+            else:
+                print(f"Warning: No HDF5 files found in directory: {path}")
+        elif "*" in path or "?" in path:
+            # If it contains wildcards, use glob
+            globbed_files = glob.glob(path)
+            if globbed_files:
+                print(f"Found {len(globbed_files)} files matching pattern: {path}")
+                expanded_paths.extend(sorted(globbed_files))
+            else:
+                print(f"Warning: No files found matching pattern: {path}")
+        elif os.path.isfile(path) and path.endswith('.hdf5'):
+            # Regular HDF5 file
+            expanded_paths.append(path)
+        elif os.path.isfile(path):
+            print(f"Warning: File {path} is not an HDF5 file (skipping)")
+        else:
+            print(f"Warning: Path does not exist: {path}")
+    
+    if expanded_paths:
+        print(f"Total HDF5 files to load: {len(expanded_paths)}")
+        for i, path in enumerate(expanded_paths):
+            print(f"  {i+1}: {path}")
+    
+    return expanded_paths if expanded_paths else None
 
 
 def run_rollout(

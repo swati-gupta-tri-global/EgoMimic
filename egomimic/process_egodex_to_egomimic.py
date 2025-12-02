@@ -17,8 +17,8 @@ import shutil
 import subprocess
 from urllib.parse import urlparse
 from multiprocessing import Pool
-from rdp import rdp
-import random
+# from rdp import rdp
+# import random
 from egomimic.utils.egomimicUtils import (
     ee_pose_to_cam_frame,
     interpolate_arr,
@@ -89,7 +89,7 @@ def s3_file_exists(s3_uri):
 def download_from_s3(s3_path, local_path):
     # command = ["aws", "s3", s3_command, s3_path, local_path]
     s3_path = os.path.join(s3_path, "*")
-    command = ["s5cmd", "cp", "--concurrency=16", s3_path, local_path]
+    command = ["s5cmd", "cp", "--concurrency=4", s3_path, local_path]
     print (command)
 
     print(f"Downloading {s3_path} to {local_path}...")
@@ -107,7 +107,7 @@ def download_from_s3(s3_path, local_path):
 def upload_to_s3(local_path, s3_path):
     # Use s5cmd for file uploads
     if os.path.isfile(local_path):
-        command = ["s5cmd", "cp", "--concurrency=16", local_path, s3_path]
+        command = ["s5cmd", "cp", "--concurrency=4", local_path, s3_path]
 
     print(f"Uploading {local_path} to {s3_path}...")
     print (command)
@@ -411,10 +411,11 @@ if __name__ == "__main__":
     # BASE_LOCAL_PROCESSED_DIR = f"/home/ubuntu/fsx/HAMSTER_data/EgoDex/{desc}"
     BASE_S3_UPLOAD_DIR = "s3://robotics-manip-lbm/swatigupta/egomimic_data/egodex/processed/"
 
-    BASE_LOCAL_DOWNLOAD_DIR = "/home/swatigupta/EgoMimic/datasets/egodex/raw"
-    BASE_LOCAL_PROCESSED_DIR = "/home/swatigupta/EgoMimic/datasets/egodex/processed"
+    BASE_LOCAL_DOWNLOAD_DIR = "datasets/egodex/raw"
+    BASE_LOCAL_PROCESSED_DIR = "datasets/egodex/processed"
 
-    data_splits = ["part2", "part3", "part4", "part5", "extra"]
+    data_splits = ["part1"]
+    # data_splits = ["part3", "part4", "part5", "extra"]
     # 4 tasks to process for split: part1^M
     # ['add_remove_lid', 'clean_cups', 'clean_tableware', 'declutter_desk']
     # 2 tasks to process for split: part2
@@ -445,6 +446,9 @@ if __name__ == "__main__":
         tasks_subset = [task_name for task_name in s3_task_names if task_name in task_list]
         print (len(tasks_subset), "tasks to process for split:", data_split)
         print (tasks_subset)
+        tasks_subset.clear()
+        tasks_subset = ['clean_tableware', 'declutter_desk']
+        print ("actual", tasks_subset)
         # print("\n" + "=" * 30 + f" Processing {data_split} " + "=" * 30)
         # print(f"task_names:", task_names)
         # print(f"len(task_names):", len(task_names))
@@ -497,6 +501,7 @@ if __name__ == "__main__":
                 # Remove empty HDF5 file
                 if os.path.exists(hdf5_write_path):
                     os.remove(hdf5_write_path)
+                if os.path.exists(local_task_download_dir):
                     shutil.rmtree(local_task_download_dir)
                 continue
 
@@ -507,15 +512,15 @@ if __name__ == "__main__":
             if upload_to_s3(hdf5_write_path, BASE_S3_UPLOAD_DIR):
                 print (f"Uploaded {hdf5_write_path} to {BASE_S3_UPLOAD_DIR} successfully")
                 # clean up local download dir to save space  
-                os.remove(hdf5_write_path)  # Remove file, not directory
+                # os.remove(hdf5_write_path)  # Remove file, not directory
                 shutil.rmtree(local_task_download_dir)
             # exit(1)  # ### DEBUG ###
 
 
 """
-python3 egomimic/process_egodex_to_egomimic.py 2>&1 | tee process_egodex_std_stderr2.txt
+AWS_REGION=us-east-1  python3 egomimic/process_egodex_to_egomimic.py 2>&1 | tee process_egodex_std_stderr2.txt
 
-script -c "python3 egomimic/process_egodex_to_egomimic.py" process_egodex_$(date +%Y%m%d_%H%M%S).log
+AWS_REGION=us-east-1 script -c "python3 egomimic/process_egodex_to_egomimic.py" process_egodex_$(date +%Y%m%d_%H%M%S).log
 
 processed dir structure 
 desc/
@@ -529,4 +534,5 @@ desc/
                     ...
                     frame_XXX.png
 
+AWS_REGION=us-east-1 aws s3 cp s3://robotics-manip-lbm/swatigupta/egomimic_data/egodex/processed/add_remove_lid.hdf5 .
 """

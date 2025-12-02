@@ -85,15 +85,16 @@ def get_env_metadata_from_dataset(dataset_path):
     return env_meta
 
 
-def get_shape_metadata_from_dataset(dataset_path, all_obs_keys=None, verbose=False):
+def get_shape_metadata_from_dataset(dataset_path, all_obs_keys=None, verbose=False, ac_key="actions"):
     """
-    Retrieves shape metadata from dataset.
+    Retrieves shape metadata from dataset(s).
 
     Args:
-        dataset_path (str): path to dataset
+        dataset_path (str or list): path to dataset(s). Can be a single path or list of paths.
         all_obs_keys (list): list of all modalities used by the model. If not provided, all modalities
             present in the file are used.
         verbose (bool): if True, include print statements
+        ac_key (str): action key to use for extracting action dimension
 
     Returns:
         shape_meta (dict): shape metadata. Contains the following keys:
@@ -106,34 +107,182 @@ def get_shape_metadata_from_dataset(dataset_path, all_obs_keys=None, verbose=Fal
 
     shape_meta = {}
 
-    # read demo file for some metadata
-    dataset_path = os.path.expanduser(dataset_path)
-    # print('dataset_path: ', dataset_path)
-    f = h5py.File(dataset_path, "r")
-    demo_id = list(f["data"].keys())[0]
-    demo = f["data/{}".format(demo_id)]
+    # Handle both single path and multiple paths
+    if isinstance(dataset_path, str):
+        dataset_paths = [dataset_path]
+    else:
+        dataset_paths = dataset_path
+
+    # read demo file for some metadata - use first file as reference
+    first_dataset_path = os.path.expanduser(dataset_paths[0])
+    print(f'Getting shape metadata from first dataset: {first_dataset_path}')
+    
+    try:
+        f = h5py.File(first_dataset_path, "r")
+    except Exception as e:
+        print(f"Error opening HDF5 file {first_dataset_path}: {e}")
+        raise
+        
+    try:
+        if "data" not in f:
+            print(f"Error: No 'data' group found in {first_dataset_path}")
+            print(f"Available top-level groups: {list(f.keys())}")
+            raise KeyError("No 'data' group found")
+            
+        demo_keys = list(f["data"].keys())
+        if not demo_keys:
+            print(f"Error: No demos found in data group")
+            raise ValueError("No demos found in data group")
+            
+        demo_id = demo_keys[0]
+        print(f"Using demo '{demo_id}' from {len(demo_keys)} available demos")
+        
+        if demo_id not in f["data"]:
+            print(f"Error: Demo '{demo_id}' not accessible")
+            raise KeyError(f"Demo '{demo_id}' not accessible")
+            
+        demo = f["data/{}".format(demo_id)]
+        print(f"Demo structure: {list(demo.keys())}")
+        
+    except Exception as e:
+        print(f"Error accessing demo structure: {e}")
+        f.close()
+        raise
 
     # action dimension
-    shape_meta["ac_dim"] = f["data/{}/actions".format(demo_id)].shape[1]
+    try:
+        action_data = f["data/{}/{}".format(demo_id, ac_key)]
+        print(f"Action data shape: {action_data.shape}")
+        # Action data is shaped as [batch, interp_dim, ac_dim], so we want shape[2]
+        shape_meta["ac_dim"] = action_data.shape[2] 
+        print(f"Action key '{ac_key}' found with shape: {action_data.shape}")
+        print(f"Action dimension (ac_dim) set to: {shape_meta['ac_dim']}")
+    except KeyError:
+        # Fallback to default actions key if ac_key doesn't exist
+        try:
+            action_data = f["data/{}/actions".format(demo_id)]
+            shape_meta["ac_dim"] = action_data.shape[2]  # Use shape[2] for [batch, interp_dim, ac_dim]
+            print(f"Fallback: using 'actions' key with shape: {action_data.shape}")
+            print(f"Action dimension (ac_dim) set to: {shape_meta['ac_dim']}")
+        except KeyError:
+            print(f"Error: Neither '{ac_key}' nor 'actions' found in demo {demo_id}")
+            # List available action keys for debugging
+            available_keys = list(demo.keys())
+            action_keys = [k for k in available_keys if 'action' in k.lower()]
+            print(f"Available keys in demo: {available_keys}")
+            print(f"Keys containing 'action': {action_keys}")
+            raise
 
-    # observation dimensions
+    # Validate action dimensions across all files if multiple files are provided
+    if len(dataset_paths) > 1:
+        print(f"Validating action dimensions across {len(dataset_paths)} files...")
+        reference_ac_dim = shape_meta["ac_dim"]
+        
+        for i, dataset_path in enumerate(dataset_paths[1:], 1):
+            try:
+                dataset_path = os.path.expanduser(dataset_path)
+                print(f"Checking file {i+1}/{len(dataset_paths)}: {dataset_path}")
+                
+                with h5py.File(dataset_path, "r") as f_check:
+                    demo_id_check = list(f_check["data"].keys())[0]
+                    
+                    try:
+                        action_data_check = f_check["data/{}/{}".format(demo_id_check, ac_key)]
+                        file_ac_dim = action_data_check.shape[2]  # Use shape[2] for [batch, interp_dim, ac_dim]
+                    except KeyError:
+                        try:
+                            action_data_check = f_check["data/{}/actions".format(demo_id_check)]
+                            file_ac_dim = action_data_check.shape[2]  # Use shape[2] for [batch, interp_dim, ac_dim]
+                        except KeyError:
+                            print(f"Warning: No action data found in file {i+1}, skipping validation")
+                            continue
+                    
+                    print(f"  File {i+1} action shape: {action_data_check.shape}, ac_dim: {file_ac_dim}")
+                    
+                    if file_ac_dim != reference_ac_dim:
+                        print(f"ERROR: Action dimension mismatch!")
+                        print(f"  Reference (file 1): {reference_ac_dim}")
+                        print(f"  File {i+1}: {file_ac_dim}")
+                        print(f"  This will cause issues during training!")
+                        # You might want to raise an exception here or handle this case
+                        
+            except Exception as e:
+                print(f"Error validating file {i+1}: {e}")
+                continue
+                
+        print(f"Action dimension validation complete. Using ac_dim={reference_ac_dim}")
+
+    # observation dimensions - process while file is still open
     all_shapes = OrderedDict()
+
+    # Always check what obs keys are actually available in the file
+    try:
+        if "obs" not in demo:
+            print(f"Error: No 'obs' group found in demo {demo_id}")
+            print(f"Available groups in demo: {list(demo.keys())}")
+            raise KeyError("No 'obs' group found")
+        
+        available_obs_keys = list(demo["obs"].keys())
+        print(f"Available obs keys in file: {available_obs_keys}")
+    except Exception as e:
+        print(f"Error checking available obs keys: {e}")
+        f.close()
+        raise
 
     if all_obs_keys is None:
         # use all modalities present in the file
-        all_obs_keys = [k for k in demo["obs"]]
-    # print(all_obs_keys)
+        all_obs_keys = available_obs_keys
+        print(f"Using all available obs keys: {all_obs_keys}")
+    else:
+        print(f"Requested obs keys from config: {all_obs_keys}")
+        # Check if requested keys exist
+        missing_keys = set(all_obs_keys) - set(available_obs_keys)
+        if missing_keys:
+            print(f"WARNING: Requested obs keys not found in file: {missing_keys}")
+            print(f"Available obs keys: {available_obs_keys}")
+            # Filter to only use available keys
+            all_obs_keys = [k for k in all_obs_keys if k in available_obs_keys]
+            print(f"Using filtered obs keys: {all_obs_keys}")
+
+    print(f"Processing {len(all_obs_keys)} observation keys: {all_obs_keys}")
+    
     for k in sorted(all_obs_keys):
         # print(k)
-        initial_shape = demo["obs/{}".format(k)].shape[1:]
-        if verbose:
-            print("obs key {} with shape {}".format(k, initial_shape))
-        # Store processed shape for each obs key
-        all_shapes[k] = ObsUtils.get_processed_shape(
-            obs_modality=ObsUtils.OBS_KEYS_TO_MODALITIES[k],
-            input_shape=initial_shape,
-        )
+        try:
+            obs_path = "obs/{}".format(k)
+            if obs_path not in demo:
+                print(f"Warning: Observation key '{k}' not found at path '{obs_path}'")
+                print(f"Available obs keys: {list(demo['obs'].keys()) if 'obs' in demo else 'No obs group'}")
+                print(f"Trying alternative access methods...")
+                
+                # Try direct access to obs group
+                if 'obs' in demo and k in demo['obs']:
+                    print(f"Found '{k}' in obs group via direct access")
+                    obs_data = demo['obs'][k]
+                    initial_shape = obs_data.shape[1:]
+                else:
+                    print(f"Skipping observation key '{k}' - not accessible")
+                    continue
+            else:
+                obs_data = demo[obs_path]
+                initial_shape = obs_data.shape[1:]
+                
+            if verbose:
+                print("obs key {} with shape {}".format(k, initial_shape))
+            # Store processed shape for each obs key
+            all_shapes[k] = ObsUtils.get_processed_shape(
+                obs_modality=ObsUtils.OBS_KEYS_TO_MODALITIES[k],
+                input_shape=initial_shape,
+            )
+        except Exception as e:
+            print(f"Error processing observation key '{k}': {e}")
+            print(f"Demo structure around obs: {list(demo.keys())}")
+            if 'obs' in demo:
+                print(f"Available obs keys: {list(demo['obs'].keys())}")
+            f.close()
+            raise
 
+    # Close file after processing all data
     f.close()
 
     shape_meta["all_shapes"] = all_shapes
