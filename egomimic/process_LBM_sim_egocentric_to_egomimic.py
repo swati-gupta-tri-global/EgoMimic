@@ -15,9 +15,21 @@ import subprocess
 import shutil
 import h5py
 import json
-from egomimic.scripts.masking.utils import *
-from panda_conversions import update_project_single_joint_position_to_image
+# from egomimic.scripts.masking.utils import *
+# export PATH=$PATH:~/go/bin for s5cmd
+# python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualHangMugsOnMugHolderFromTable --csv_path filtered_output.csv --download_from_s3
 
+"""
+root@ee3cde590bca:/workspace/externals/EgoMimic# h5ls -r  datasets/LBM_sim_egocentric/processed/TurnMugRightsideUp.hdf5 | grep demo_0/
+/data/demo_0/actions_joints_act Dataset {321, 100, 16}
+/data/demo_0/actions_xyz_act Dataset {321, 100, 6}
+/data/demo_0/obs         Group
+/data/demo_0/obs/ee_pose Dataset {321, 6}
+/data/demo_0/obs/extrinsics Dataset {321, 4, 4}
+/data/demo_0/obs/front_img_1 Dataset {321, 480, 640, 3}
+/data/demo_0/obs/intrinsics Dataset {321, 3, 3}
+/data/demo_0/obs/joint_positions Dataset {321, 14}
+"""
 OOD_TASKS = ["PutCupOnSaucer", "TurnCupUpsideDown", "TurnMugRightsideUp",
              "PutKiwiInCenterOfTable", "BimanualPutMugsOnPlatesFromTable", "BimanualPlaceAvocadoFromBowlOnCuttingBoard", "BimanualPlaceAppleFromBowlIntoBin", "BimanualLayCerealBoxOnCuttingBoardFromTopShelf"]
 VAL_RATIO = 0.05
@@ -48,7 +60,7 @@ def download_s3_folder(s3_path, local_folder):
 
 def download_s3_folder_s5cmd(s3_path, local_folder):
     command = ["s5cmd", "cp", s3_path, local_folder]
-    print (command)
+    print ("s5cmd command: ", command)
     # s5cmd cp  s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/LBM_sim_egocentric/raw/data/tasks/BimanualPlacePearFromBowlOnCuttingBoard/riverway/sim/bc/teleop/*/diffusion_spartan/episode_*/processed/ datasets/LBM_sim_egocentric/data/tasks/BimanualPlacePearFromBowlOnCuttingBoard/riverway/sim/bc/teleop
     # command = ["aws", "s3", "sync", s3_path, local_folder, "--exclude", "*", "--include", "observations.npz"]
 
@@ -174,8 +186,8 @@ def process_episode_parallel(episode_data):
         for camera_name in ["scene_right_0"]:
             camera_id = camera_names[camera_name]
             front_img_1 = observations[camera_id]
-            # intrinsics = np.load(os.path.join(episode_path, 
-            #                                 "intrinsics.npz"))[camera_id]
+            intrinsics = np.load(os.path.join(episode_path, 
+                                            "intrinsics.npz"))[camera_id]
             extrinsics = np.load(os.path.join(episode_path, 
                                             "extrinsics.npz"))[camera_id][0]
             # print(f"Images shape: {front_img_1.shape}, "
@@ -183,39 +195,59 @@ def process_episode_parallel(episode_data):
             #       f"extrinsics shape: {extrinsics.shape}")
 
         # Load actions
-        actions_file = os.path.join(episode_path, "actions.npz")
-        actions = np.load(actions_file, allow_pickle=True)["actions"]
-
+        # actions_file = os.path.join(episode_path, "actions.npz")
+        # actions = np.load(actions_file, allow_pickle=True)["actions"]
+        # print (f"actions:", actions[0])
         # Process poses
-        pose_xyz_left = observations["robot__actual__poses__right::panda__xyz"]
-        pose_xyz_right = observations["robot__actual__poses__left::panda__xyz"]
+        pose_xyz_left = observations["robot__actual__poses__left::panda__xyz"]
+        pose_xyz_right = observations["robot__actual__poses__right::panda__xyz"]
         pose_xyz_left = ee_pose_to_cam_frame(pose_xyz_left, extrinsics)[:, :3]
         pose_xyz_right = ee_pose_to_cam_frame(pose_xyz_right, extrinsics)[:, :3]
 
         # print(f"Pose shapes - left: {pose_xyz_left.shape}, "
         #       f"right: {pose_xyz_right.shape}")
         
+    #     ipdb> print("Left joint ranges:",
+    #   f"min={robot_joint_positions_left.min():.3f}, max={robot_joint_positions_left.max():.3f}")
+    #     Left joint ranges: min=-2.427, max=2.645
+    #     Right joint ranges: min=-2.356, max=2.561
         # Get joint positions
-        robot_joint_positions_left = observations["robot__actual__joint_position__left::panda"]
+        robot_joint_positions_left = observations["robot__actual__joint_position__left::panda"] # (219, 7)
         robot_joint_positions_right = observations["robot__actual__joint_position__right::panda"]
+
+        # check keys and shapes, use instead of action array if possible
+        robot_position_action_left = observations["robot__desired__poses__left::panda__xyz"] # (219, 6)
+        robot_position_action_right = observations["robot__desired__poses__right::panda__xyz"]
+        robot_joint_action_left = observations["robot__desired__joint_position__left::panda"] # (219, 7)
+        robot_joint_action_right = observations["robot__desired__joint_position__right::panda"]
+        # robot__desired__poses__left::panda__rot_6d # (219, 6)
+        robot_gripper_action_left = observations["robot__desired__grippers__left::panda_hand"] # (219, 1)
+        robot_gripper_action_right = observations["robot__desired__grippers__right::panda_hand"]
 
         ee_pose = np.hstack([pose_xyz_left, pose_xyz_right])
         joint_positions = np.hstack([robot_joint_positions_left, 
                                    robot_joint_positions_right])
-        # print(f"EE pose shape: {ee_pose.shape}, "
-        #       f"joint positions shape: {joint_positions.shape}")
-        
+
+        # print(f"Actions shape: {actions.shape}")
+        position_actions = np.hstack([robot_position_action_left, robot_position_action_right])
+        joint_actions = np.hstack([robot_joint_action_left, robot_joint_action_right])
+        gripper_actions = np.hstack([robot_gripper_action_left, robot_gripper_action_right])
+        actions = np.hstack([position_actions, joint_actions, gripper_actions])
+        # print(f"Joint actions shape: {joint_actions.shape}, "
+        #       f"Position actions shape: {position_actions.shape}, "
+        #       f"Gripper actions shape: {gripper_actions.shape}, "
+        #       f"Combined actions shape: {actions.shape}")
         ac_dim = actions.shape[1]
         
         # Process actions with chunking
         horizon_seconds = 4.0
-        N = actions.shape[0]
+        N = joint_actions.shape[0]
         # print(f"{N} frames in episode")
         chunk_size = int(N / horizon_seconds)
         # print(f"Chunk size: {chunk_size}")
         
         ac_reshape_interp = []
-        
+            
         for i in range(0, N):
             if i + chunk_size > N:
                 # print(f"Not enough data to create another chunk of size "
@@ -239,17 +271,45 @@ def process_episode_parallel(episode_data):
                                         posinf=0.0, neginf=0.0)
 
         # print(f"Action interpolation shape: {ac_reshape_interp.shape}")
-        left_joint_act = ac_reshape_interp[:, :, :7]
-        left_xyz_act = ac_reshape_interp[:, :, 7:10]
-        right_joint_act = ac_reshape_interp[:, :, 10:17]   
-        right_xyz_act = ac_reshape_interp[:, :, 17:20]
+        # Example action structure from LBM
+        # action[ 0: 3] = xyz0
+        # action[ 3: 9] = rot0
+        # action[18:19] = grip0
 
-        combined_joint_act = np.concatenate([left_joint_act, right_joint_act], 
+        # action[ 9:12] = xyz1
+        # action[12:18] = rot1
+        # action[19:20] = grip1
+        # left_xyz_act = ac_reshape_interp[:, :, :3]
+        # left_joint_act = ac_reshape_interp[:, :, 3:9]  # BUG: this isnt joint angles, but rotation matrix entries for ee orientation
+        # left_gripper_act = ac_reshape_interp[:, :, 18:19]
+        # right_xyz_act = ac_reshape_interp[:, :, 9:12]
+        # right_joint_act = ac_reshape_interp[:, :, 12:18]
+        # right_gripper_act = ac_reshape_interp[:, :, 19:20]
+
+        left_xyz_act = ac_reshape_interp[:, :, :3]
+        right_xyz_act = ac_reshape_interp[:, :, 3:6]
+        left_joint_act = ac_reshape_interp[:, :, 6:13]
+        right_joint_act = ac_reshape_interp[:, :, 13:20]
+        left_gripper_act = ac_reshape_interp[:, :, 20:21]
+        right_gripper_act = ac_reshape_interp[:, :, 21:22]
+
+        # print ("left gripper act val:", left_gripper_act[0, 0, 0:10], left_gripper_act[0, 1, 0:10])
+        # print ("right gripper act val:", right_gripper_act[0, 0, 0:10], right_gripper_act[0, 1, 0:10])
+
+        combined_joint_act = np.concatenate([left_joint_act, left_gripper_act, right_joint_act, right_gripper_act], 
                                           axis=2)
         combined_xyz_act = np.concatenate([left_xyz_act, right_xyz_act], axis=2)
 
         # print(f"Combined actions - joints: {combined_joint_act.shape}, "
         #       f"xyz: {combined_xyz_act.shape}")
+        
+        # Get sequence length from the actions
+        seq_len = ac_reshape_interp.shape[0]
+        
+        # Repeat intrinsics and extrinsics for each timestep in the sequence
+        # This ensures they have the same first dimension as other observations
+        intrinsics_seq = np.tile(intrinsics[np.newaxis, :, :], (seq_len, 1, 1))  # (seq_len, 3, 3)
+        extrinsics_seq = np.tile(extrinsics[np.newaxis, :, :], (seq_len, 1, 1))  # (seq_len, 4, 4)
         
         # Return processed episode data
         return {
@@ -259,6 +319,8 @@ def process_episode_parallel(episode_data):
             'num_samples': int(ac_reshape_interp.shape[0]),
             'front_img_1': front_img_1,
             'ee_pose': ee_pose,
+            'intrinsics': intrinsics_seq,
+            'extrinsics': extrinsics_seq,
             'joint_positions': joint_positions
         }
         
@@ -290,14 +352,14 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
         print(f"Available environments: {environments}")
         
         # Create output directory
-        output_dir = os.path.join(output_base_path, "converted")
+        output_dir = os.path.join(output_base_path, "processed")
         os.makedirs(output_dir, exist_ok=True)
         
         output_hdf5_path = os.path.join(output_dir, f"{task_name}.hdf5")
         # check if size is greater than 1MB
-        if os.path.exists(output_hdf5_path) and os.path.getsize(output_hdf5_path) > 1024 * 1024:
-            print(f"Output HDF5 {output_hdf5_path} already exists, skipping task")
-            continue
+        # if os.path.exists(output_hdf5_path) and os.path.getsize(output_hdf5_path) > 1024 * 1024:  # > 1MB
+        #     print(f"Output HDF5 {output_hdf5_path} already exists, skipping task")
+        #     continue
 
         f = h5py.File(output_hdf5_path, "w")
         data = f.create_group("data")
@@ -308,6 +370,7 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
             
             if download_from_s3:
                 # Download episodes from S3 to local_base_path
+                print ("here", os.path.join(local_base_path, task_name, environment, sim_or_real))
                 if not os.path.exists(os.path.join(local_base_path, task_name, environment, sim_or_real)):
                     print (f"Downloading data for {task_name} in {environment} ({sim_or_real}) from S3...")
                     download_task_data_from_s3(
@@ -364,6 +427,13 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
                     result = future.result()
                     if result is not None:
                         processed_episodes.append(result)
+
+            # DEBUG : Single thread processing
+            # processed_episodes = []
+            # for ep_data in tqdm(episode_data_list, desc=f"Processing {task_name} in {environment} ({sim_or_real})"):
+            #     result = process_episode_parallel(ep_data)
+            #     if result is not None:
+            #         processed_episodes.append(result)
             
             # Store processed episodes in HDF5 (sequential to avoid conflicts)
             data.attrs["env_args"] = json.dumps({})
@@ -383,6 +453,10 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
                                    data=episode_result['ee_pose'])
                 group.create_dataset("obs/joint_positions", 
                                    data=episode_result['joint_positions'])
+                group.create_dataset("obs/intrinsics", 
+                                   data=episode_result['intrinsics'])
+                group.create_dataset("obs/extrinsics", 
+                                   data=episode_result['extrinsics'])
 
         # Split train/validation
         f.close()
@@ -501,6 +575,4 @@ if __name__ == "__main__":
 
 # python egomimic/process_LBM_sim_egocentric_to_egomimic.py --download_from_s3 --cleanup_local_data  2>&1 | tee process_LBMsim_std_stderr2.txt
 
-# python egomimic/process_LBM_sim_egocentric_to_egomimic.py \
-#     --task_filter BimanualHangMugsOnMugHolderFromTable PutBananaOnSaucer PutOrangeInCenterOfTable \
-#     --download_from_s3 --cleanup_local_data
+# python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualHangMugsOnMugHolderFromTable PutBananaOnSaucer PutOrangeInCenterOfTable --download_from_s3 --cleanup_local_data
