@@ -585,8 +585,7 @@ def run_inference_on_dataset(rollout_policy, config, dataset_path, output_dir, n
         print (all_demos)
         demo_names = all_demos[:min(len(demo_names), num_demos)]  # Process max num_demos demos
         print (f"Processing demos: {demo_names}")
-        # demo_names = sorted(demo_names)[:min(len(demo_names), num_demos)]  # Process max num_demos demos
-        exit(1)
+   
         all_results = []
         
         for demo_name in demo_names:

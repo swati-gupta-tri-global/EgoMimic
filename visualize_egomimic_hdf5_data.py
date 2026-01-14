@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Script to visualize end-effector poses projected onto images from EgoDex/LBM HDF5 dataset.
+Script to visualize end-effector poses projected onto images from EgoDex/LBM/AVP egomimic-style HDF5 dataset and produce a video
 Visualizes both left and right hand EE poses as colored circles on the front camera image.
 You can also visualize the action_xyz as dots on the image.
 
 Usage:
-python3 visualize_ee_pose.py --hdf5 /workspace/externals/EgoMimic/datasets/LBM_sim_egocentric/processed/BimanualHangMugsOnMugHolderFromTable.hdf5 --demo 0 --visualize-ee
-python3 visualize_ee_pose.py --hdf5 /workspace/externals/EgoMimic/datasets/egodex/processed/part1/add_remove_lid.hdf5 --demo 0 --visualize-ee
-python3 visualize_ee_pose.py --hdf5 /workspace/externals/EgoMimic/datasets/AVP/processed/egoPutKiwiInCenterOfTable.hdf5 --demo 0 --visualize-actions
+python3 visualize_egomimic_hdf5_data.py --hdf5 /workspace/externals/EgoMimic/datasets/LBM_sim_egocentric/processed/BimanualHangMugsOnMugHolderFromTable.hdf5 --demo 0 --visualize-ee
+python3 visualize_egomimic_hdf5_data.py --hdf5 /workspace/externals/EgoMimic/datasets/egodex/processed/part1/add_remove_lid.hdf5 --demo 0 --visualize-ee
+python3 visualize_egomimic_hdf5_data.py --hdf5 /workspace/externals/EgoMimic/datasets/AVP/processed/egoPutKiwiInCenterOfTable.hdf5 --demo 0 --visualize-actions
 """
 
 import h5py

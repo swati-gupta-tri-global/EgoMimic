@@ -194,13 +194,13 @@ def process_episode_parallel(episode_data):
             #       f"intrinsics shape: {intrinsics.shape}, "
             #       f"extrinsics shape: {extrinsics.shape}")
 
-        # Load actions
+        # Load actions (Note that left and right convention seems to be flipped, see outputs of visualize_LBM_episode.py)
         # actions_file = os.path.join(episode_path, "actions.npz")
         # actions = np.load(actions_file, allow_pickle=True)["actions"]
         # print (f"actions:", actions[0])
         # Process poses
-        pose_xyz_left = observations["robot__actual__poses__left::panda__xyz"]
-        pose_xyz_right = observations["robot__actual__poses__right::panda__xyz"]
+        pose_xyz_right = observations["robot__actual__poses__left::panda__xyz"]
+        pose_xyz_left = observations["robot__actual__poses__right::panda__xyz"]
         pose_xyz_left = ee_pose_to_cam_frame(pose_xyz_left, extrinsics)[:, :3]
         pose_xyz_right = ee_pose_to_cam_frame(pose_xyz_right, extrinsics)[:, :3]
 
@@ -212,17 +212,21 @@ def process_episode_parallel(episode_data):
     #     Left joint ranges: min=-2.427, max=2.645
     #     Right joint ranges: min=-2.356, max=2.561
         # Get joint positions
-        robot_joint_positions_left = observations["robot__actual__joint_position__left::panda"] # (219, 7)
-        robot_joint_positions_right = observations["robot__actual__joint_position__right::panda"]
+        robot_joint_positions_right = observations["robot__actual__joint_position__left::panda"] # (219, 7)
+        robot_joint_positions_left = observations["robot__actual__joint_position__right::panda"]
 
         # check keys and shapes, use instead of action array if possible
-        robot_position_action_left = observations["robot__desired__poses__left::panda__xyz"] # (219, 6)
-        robot_position_action_right = observations["robot__desired__poses__right::panda__xyz"]
-        robot_joint_action_left = observations["robot__desired__joint_position__left::panda"] # (219, 7)
-        robot_joint_action_right = observations["robot__desired__joint_position__right::panda"]
+        robot_position_action_right = observations["robot__desired__poses__left::panda__xyz"] # (219, 3)
+        robot_position_action_left = observations["robot__desired__poses__right::panda__xyz"]
+        robot_joint_action_right = observations["robot__desired__joint_position__left::panda"] # (219, 7)
+        robot_joint_action_left = observations["robot__desired__joint_position__right::panda"]
         # robot__desired__poses__left::panda__rot_6d # (219, 6)
-        robot_gripper_action_left = observations["robot__desired__grippers__left::panda_hand"] # (219, 1)
-        robot_gripper_action_right = observations["robot__desired__grippers__right::panda_hand"]
+        robot_gripper_action_right = observations["robot__desired__grippers__left::panda_hand"] # (219, 1)
+        robot_gripper_action_left = observations["robot__desired__grippers__right::panda_hand"]
+
+        # Transform position actions to camera frame (same as poses)
+        robot_position_action_left = ee_pose_to_cam_frame(robot_position_action_left, extrinsics)[:, :3]
+        robot_position_action_right = ee_pose_to_cam_frame(robot_position_action_right, extrinsics)[:, :3]
 
         ee_pose = np.hstack([pose_xyz_left, pose_xyz_right])
         joint_positions = np.hstack([robot_joint_positions_left, 
