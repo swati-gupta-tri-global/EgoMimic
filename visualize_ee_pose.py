@@ -43,7 +43,7 @@ def project_3d_to_2d(point_3d, intrinsics):
     return int(u), int(v)
 
 
-def visualize_ee_poses(hdf5_path, demo_idx=0, output_dir="./ee_pose_visualization", skip_frames=5, create_video=True, visualize_ee=False, visualize_actions=True):
+def visualize_ee_poses(hdf5_path, demo_idx=0, output_dir="./ee_pose_visualization", skip_frames=1, create_video=True, visualize_ee=False, visualize_actions=True):
     """
     Visualize end-effector poses and/or actions projected onto front camera images.
     
@@ -224,7 +224,7 @@ def visualize_ee_poses(hdf5_path, demo_idx=0, output_dir="./ee_pose_visualizatio
         # Create a video from frames (optional)
         if create_video:
             print("\nCreating video from frames...")
-            ret = create_video_from_frames(output_dir, task_name, demo_idx)
+            ret = create_video_from_frames(output_dir, task_name, demo_idx, fps=30)
             if ret != 0:
                 print("Video creation failed.")
             else:

@@ -9,14 +9,14 @@ extract joint actions, XYZ actions, and gripper commands.
 Usage:
 docker exec -it swati-egomimic python /workspace/externals/EgoMimic/egomimic_inference.py --ckpt_path /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2025-11-22-18-26-12/models/model_epoch_epoch=139.ckpt \ 
     --dataset_path /workspace/externals/EgoMimic/datasets/egodex/processed/part1/clean_cups.hdf5 \ 
-    --output_dir /workspace/externals/EgoMimic/inference_output_egodx --num_samples 1 --data_type 1
+    --output_dir /workspace/externals/EgoMimic/inference_output_egodx --num_frames 200 --data_type 1
 
 python egomimic_inference.py --ckpt_path /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2026-01-12-18-04-24/models/model_epoch_epoch=49.ckpt  --dataset_path datasets/LBM_sim_egocentric/train_split/PutBananaOnSaucer.hdf5 --output_dir inference_output_lbm --num_frames 200 --data_type 0 --visualize
 
-docker exec -it swati-egomimic python /workspace/externals/EgoMimic/egomimic_inference.py --ckpt_path /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2026-01-06-22-03-51/models/model_epoch_epoch=19.ckpt     --dataset_path /workspace/externals/EgoMimic/datasets/LBM_sim_egocentric/processed/BimanualHangMugsOnMugHolderFromDryingRack.hdf5     --output_dir /workspace/externals/EgoMimic/inference_output --num_samples 1 --data_type 0
+docker exec -it swati-egomimic python /workspace/externals/EgoMimic/egomimic_inference.py --ckpt_path /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2026-01-06-22-03-51/models/model_epoch_epoch=19.ckpt     --dataset_path /workspace/externals/EgoMimic/datasets/LBM_sim_egocentric/processed/BimanualHangMugsOnMugHolderFromDryingRack.hdf5     --output_dir /workspace/externals/EgoMimic/inference_output --num_frames 200 --data_type 0
 docker exec -it swati-egomimic python /workspace/externals/EgoMimic/egomimic_inference.py --ckpt_path /workspace/externals/EgoMimic/trained_models_highlevel/test/None_DT_2026-01-06-22-03-51/models/model_epoch_epoch=19.ckpt \ 
     --dataset_path /workspace/externals/EgoMimic/datasets/egodex/processed/part1/clean_cups.hdf5 \ 
-    --output_dir /workspace/externals/EgoMimic/inference_output_egodex --num_samples 1 --data_type 1
+    --output_dir /workspace/externals/EgoMimic/inference_output_egodex --num_frames 200 --data_type 1
 
 """
 
@@ -396,7 +396,7 @@ def prepare_observation(image, config, device="cuda"):
     return obs_dict
 
 
-def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_dir, num_frames, shape_meta, max_demos=3):
+def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_dir, num_frames, shape_meta, num_demos=3):
     """
     Run inference and create videos with predicted XYZ actions visualized on RGB frames.
     
@@ -405,13 +405,17 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
         config: Model configuration  
         dataset_path: Path to HDF5 dataset
         output_dir: Output directory for videos
-        num_samples: Number of frames to process per demo
+        num_frames: Number of frames to process per demo
         shape_meta: Shape metadata
-        max_demos: Maximum number of demos to process
+        num_demos: Number of demos to process
     """
     os.makedirs(output_dir, exist_ok=True)
     
-    print(f"\nCreating visualization videos from dataset: {dataset_path}")
+    # Extract task name from dataset path
+    # Example: /path/to/PutBananaOnSaucer.hdf5 -> PutBananaOnSaucer
+    task_name = os.path.splitext(os.path.basename(dataset_path))[0]
+    print(f"\nTask name: {task_name}")
+    print(f"Creating visualization videos from dataset: {dataset_path}")
     
     with h5py.File(dataset_path, 'r') as f:
         # Get demo names
@@ -420,7 +424,9 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
         else:
             demo_names = [k for k in f.keys() if k.startswith('demo_')]
         
-        demo_names = sorted(demo_names)[:min(len(demo_names), max_demos)]
+        all_demos = sorted(demo_names, key=lambda x: int(x.split('_')[1]))
+        demo_names = all_demos[:min(len(demo_names), num_demos)]  # Process only first num_demos demos
+        print (f"Processing demos: {demo_names}")
         
         for demo_name in demo_names:
             print(f"\nProcessing {demo_name} for visualization...")
@@ -546,9 +552,9 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
             # Save video
             if video_frames:
                 video_tensor = torch.stack([torch.from_numpy(frame) for frame in video_frames])
-                video_path = os.path.join(output_dir, f'{demo_name}_visualization.mp4')
+                video_path = os.path.join(output_dir, f'{task_name}_{demo_name}_visualization.mp4')
                 print(f"Saving visualization video: {video_path}")
-                write_video_safe(video_path, video_tensor, fps=10)
+                write_video_safe(video_path, video_tensor, fps=30)
                 print(f"Video saved successfully!")
 
 
@@ -575,8 +581,12 @@ def run_inference_on_dataset(rollout_policy, config, dataset_path, output_dir, n
         else:
             demo_names = [k for k in f.keys() if k.startswith('demo_')]
         
-        demo_names = sorted(demo_names)[:min(len(demo_names), num_demos)]  # Process max num_demos demos
-        
+        all_demos = sorted(demo_names, key=lambda x: int(x.split('_')[1]))
+        print (all_demos)
+        demo_names = all_demos[:min(len(demo_names), num_demos)]  # Process max num_demos demos
+        print (f"Processing demos: {demo_names}")
+        # demo_names = sorted(demo_names)[:min(len(demo_names), num_demos)]  # Process max num_demos demos
+        exit(1)
         all_results = []
         
         for demo_name in demo_names:
@@ -835,7 +845,7 @@ def main():
                         help='Path to HDF5 dataset for inference (optional)')
     parser.add_argument('--output_dir', type=str, default='./inference_output',
                         help='Output directory for results')
-    parser.add_argument('--num_frames', type=int, default=10,
+    parser.add_argument('--num_frames', type=int, default=200,
                         help='Number of frames to process per demo from dataset')
     parser.add_argument('--num_demos', type=int, default=3,
                         help='Number of demos to process from dataset')
@@ -869,7 +879,7 @@ def main():
                 args.output_dir,
                 args.num_frames,
                 shape_meta,
-                max_demos=args.num_demos
+                args.num_demos
             )
         else:
             # Run inference on dataset (JSON output only)
@@ -880,7 +890,7 @@ def main():
                 args.output_dir, 
                 args.num_frames,
                 shape_meta,
-                max_demos=args.num_demos
+                args.num_demos
             )
     
     if args.interactive:
