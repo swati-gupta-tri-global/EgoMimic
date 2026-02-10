@@ -155,7 +155,14 @@ def ee_pose_to_cam_pixels(ee_pose_base, T_cam_base, intrinsics):
     ee_pose_grip_cam = np.linalg.inv(T_cam_base) @ ee_pose_base.T
 
     px_val = intrinsics @ ee_pose_grip_cam
-    px_val = px_val / px_val[2, :]
+    
+    # Safety check: avoid division by very small Z values that cause overflow
+    z_vals = px_val[2, :]
+    eps = 1e-6  # Small epsilon to prevent division by near-zero values
+    safe_z = np.where(np.abs(z_vals) < eps, eps * np.sign(z_vals), z_vals)
+    safe_z = np.where(safe_z == 0, eps, safe_z)  # Handle exact zeros
+    
+    px_val = px_val / safe_z
 
     return px_val.T
 
@@ -164,15 +171,30 @@ def cam_frame_to_cam_pixels(ee_pose_cam, intrinsics):
     """
     camera frame 3d coordinates to pixels in camera frame
     ee_pose_cam: (N, 3)
-    intrinsics: 3x4 matrix
+    intrinsics: 3x3 or 3x4 matrix
     """
+    # Handle case where intrinsics has extra batch dimension
+    if intrinsics.ndim == 3 and intrinsics.shape[0] == 1:
+        intrinsics = intrinsics.squeeze(0)  # Remove batch dimension
+    
+    # Convert 3x3 intrinsics to 3x4 by adding a column of zeros
+    if intrinsics.shape == (3, 3):
+        intrinsics = np.concatenate([intrinsics, np.zeros((3, 1))], axis=1)
+    
     N, _ = ee_pose_cam.shape
     ee_pose_cam = np.concatenate([ee_pose_cam, np.ones((N, 1))], axis=1)
     # print("3d pos in cam frame: ", ee_pose_cam)
 
     # print("intrinsics: ", intrinsics.shape, ee_pose_cam.shape)
     px_val = intrinsics @ ee_pose_cam.T
-    px_val = px_val / px_val[2, :]
+    
+    # Safety check: avoid division by very small Z values that cause overflow
+    z_vals = px_val[2, :]
+    eps = 1e-6  # Small epsilon to prevent division by near-zero values
+    safe_z = np.where(np.abs(z_vals) < eps, eps * np.sign(z_vals), z_vals)
+    safe_z = np.where(safe_z == 0, eps, safe_z)  # Handle exact zeros
+    
+    px_val = px_val / safe_z
     # print("2d pos cam frame: ", px_val)
 
     return px_val.T
@@ -194,20 +216,44 @@ def draw_dot_on_frame(frame, pixel_vals, show=True, palette="Purples", dot_size=
     color_palette = (color_palette[:, :3] * 255).astype(np.uint8)
     color_palette = color_palette.tolist()
 
+    dots_drawn = 0
+    dots_skipped_extreme = 0
+    dots_skipped_bounds = 0
+
     for i, pixel_val in enumerate(pixel_vals):
         try:
+            # Check if pixel coordinates are within reasonable bounds
+            x, y = int(pixel_val[0]), int(pixel_val[1])
+            
+            # Skip drawing if coordinates are extreme (likely overflow)
+            if abs(x) > 1e6 or abs(y) > 1e6:
+                dots_skipped_extreme += 1
+                continue
+                
+            # Skip if coordinates are outside reasonable image bounds
+            if x < -1000 or x > frame.shape[1] + 1000 or y < -1000 or y > frame.shape[0] + 1000:
+                dots_skipped_bounds += 1
+                continue
+                
             frame = cv2.circle(
                 frame,
-                (int(pixel_val[0]), int(pixel_val[1])),
+                (x, y),
                 dot_size,
                 color_palette[i],
                 -1,
             )
-        except:
-            print("Got bad pixel_val: ", pixel_val)
+            dots_drawn += 1
+        except Exception as e:
+            print("Got bad pixel_val: ", pixel_val, "Error:", str(e))
         if show:
             plt.imshow(frame)
             plt.show()
+    
+    # Debug: print stats occasionally
+    import random
+    if random.random() < 0.01:  # 1% of the time
+        total_dots = len(pixel_vals)
+        print(f"[DEBUG] Dots: {dots_drawn}/{total_dots} drawn, {dots_skipped_extreme} extreme, {dots_skipped_bounds} out-of-bounds")
 
     return frame
 

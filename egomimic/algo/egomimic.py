@@ -83,6 +83,13 @@ class EgoMimicModel(ACTModel):
         elif a_dim == 14:
             hand_state_dim = 6
             hand_action_dim = 6
+        # both robot and hand data use only end-effector xyz pose actions (no joints)
+        elif a_dim == 6:
+            hand_state_dim = 6
+            hand_action_dim = 6
+        elif a_dim == 16:
+            hand_state_dim = 6
+            hand_action_dim = 6
         # else:
         #     # Default case - this might indicate an issue with configuration
         #     print(f"Warning: Unexpected a_dim value: {a_dim}. Using default hand dimensions.")

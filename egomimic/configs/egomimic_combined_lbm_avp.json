@@ -41,6 +41,8 @@
     "train": {
         "data": "../datasets/LBM_sim_egocentric/train_split",
         "data_type": "robot",
+        "data_2": "../datasets/AVP/processed",
+        "data_2_type": "hand",
         "output_dir":"../trained_models_highlevel",
         "num_data_workers": 8,
         "hdf5_cache_mode": "low_dim",

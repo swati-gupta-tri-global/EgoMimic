@@ -34,6 +34,7 @@ from egomimic.utils.egomimicUtils import (
 /data/demo_0/obs/intrinsics Dataset {300, 3, 3}
 
 """
+VAL_RATIO = 0.05
 def split_train_val_from_hdf5(hdf5_path, val_ratio):
     with h5py.File(hdf5_path, "a") as file:
         demo_keys = [key for key in file["data"].keys() if "demo" in key]
@@ -158,7 +159,7 @@ def upload_to_s3(local_path, s3_path):
 # Note that leftHand and rightHand refer to the wrists in egodex (end effector)
 
 def process_single_episode(inpt):
-    ep_no, mp4_file, hdf5_file, step_size, oversample_rate, hand_detection_confidence_threshold, im_dims, save_annotated_images = inpt 
+    ep_no, mp4_file, hdf5_file, step_size, hand_detection_confidence_threshold, im_dims, save_annotated_images = inpt 
 
     episode_data_list = {}
     left_keypoint_name = "leftIndexFingerKnuckle"  # Using index finger knuckle as EE pose
@@ -273,10 +274,10 @@ def process_single_episode(inpt):
                 right_2d, right_valid = project_to_2d(right_hand_cam, viz_intrinsics)
                 
                 # Debug: print image dimensions and coordinates
-                if i == 0:
-                    print(f"[Debug] Resized viz_image.shape: {viz_image.shape}")
-                    print(f"[Debug] Left 2D: {left_2d}, Right 2D: {right_2d}")
-                    print(f"[Debug] Using scaled intrinsics for projection")
+                # if i == 0:
+                #     print(f"[Debug] Resized viz_image.shape: {viz_image.shape}")
+                #     print(f"[Debug] Left 2D: {left_2d}, Right 2D: {right_2d}")
+                #     print(f"[Debug] Using scaled intrinsics for projection")
                 
                 # Draw circles on the image - large and very visible
                 if left_valid:
@@ -286,8 +287,8 @@ def process_single_episode(inpt):
                     cv2.circle(viz_image, left_2d, 27, (255, 255, 255), 3)
                     cv2.putText(viz_image, "L", (left_2d[0] - 20, left_2d[1] - 35), 
                                cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 4)
-                    if not in_bounds:
-                        print(f"[Warning] Left hand out of bounds at frame {i} for episode {ep_no}: {left_2d}, im_dims: {im_dims}")
+                    # if not in_bounds:
+                    #     print(f"[Warning] Left hand out of bounds at frame {i} for episode {ep_no}: {left_2d}, im_dims: {im_dims}")
                 
                 if right_valid:
                     in_bounds = 0 <= right_2d[0] < im_dims[0] and 0 <= right_2d[1] < im_dims[1]
@@ -296,8 +297,8 @@ def process_single_episode(inpt):
                     cv2.circle(viz_image, right_2d, 27, (255, 255, 255), 3)
                     cv2.putText(viz_image, "R", (right_2d[0] - 20, right_2d[1] - 35), 
                                cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 4)
-                    if not in_bounds:
-                        print(f"[Warning] Right hand out of bounds at frame {i} for episode {ep_no}: {right_2d}, im_dims: {im_dims}")
+                    # if not in_bounds:
+                    #     print(f"[Warning] Right hand out of bounds at frame {i} for episode {ep_no}: {right_2d}, im_dims: {im_dims}")
 
                 
                 # Add frame info
@@ -419,11 +420,11 @@ def process_data_into_egodex_format(local_download_dir,
                                      step_size, 
                                      im_dims,
                                      save_annotated_images, 
-                                     oversample_rate, 
                                      singlehand,
                                      hand_detection_confidence_threshold,
                                      hdf5_write_path,
-                                     batch_size=None):
+                                     batch_size=None,
+                                     max_demos=None):
 
     # ### DEBUG ###
     print (f"Processing {local_download_dir} into {local_processed_dir} with {n_workers} workers")
@@ -446,6 +447,11 @@ def process_data_into_egodex_format(local_download_dir,
 
     mp4_files = glob(os.path.join(local_download_dir, "*.mp4"))
     episode_numbers = sorted([int(mp4_file.split("/")[-1].split(".")[0]) for mp4_file in mp4_files])
+    
+    # Don't limit episode_numbers here - we'll process until we get max_demos successful ones
+    print(f"Found {len(episode_numbers)} total episodes available")
+    if max_demos is not None:
+        print(f"Target: {max_demos} successful demos (will process more episodes if needed due to filtering)")
 
     # Set batch size (number of episodes to process before writing to HDF5)
     if batch_size is None:
@@ -453,13 +459,19 @@ def process_data_into_egodex_format(local_download_dir,
     
     total_successful = 0
     demo_idx = 0
+    episode_idx = 0
     
-    # Process episodes in batches
-    for batch_start in range(0, len(episode_numbers), batch_size):
-        batch_end = min(batch_start + batch_size, len(episode_numbers))
-        batch_episodes = episode_numbers[batch_start:batch_end]
+    # Process episodes in batches until we reach max_demos or run out of episodes
+    while episode_idx < len(episode_numbers):
+        # Check if we've reached the target number of successful demos
+        if max_demos is not None and total_successful >= max_demos:
+            print(f"Reached target of {max_demos} successful demos, stopping processing")
+            break
+            
+        batch_end = min(episode_idx + batch_size, len(episode_numbers))
+        batch_episodes = episode_numbers[episode_idx:batch_end]
         
-        print(f"Processing batch {batch_start//batch_size + 1}: episodes {batch_start} to {batch_end-1}")
+        print(f"Processing batch starting at episode {episode_idx}: episodes {batch_episodes[0]} to {batch_episodes[-1]} ({total_successful}/{max_demos if max_demos else '?'} successful so far)")
         
         function_inpts = []
         # DEBUG: Reduce no of demo episodes processed for testing
@@ -467,7 +479,7 @@ def process_data_into_egodex_format(local_download_dir,
         for ep_no in batch_episodes:
             mp4_file = os.path.join(local_download_dir, f"{ep_no}.mp4")
             hdf5_file = os.path.join(local_download_dir, f"{ep_no}.hdf5")
-            function_inpts.append((ep_no, mp4_file, hdf5_file, step_size, oversample_rate, hand_detection_confidence_threshold, im_dims, save_annotated_images))
+            function_inpts.append((ep_no, mp4_file, hdf5_file, step_size, hand_detection_confidence_threshold, im_dims, save_annotated_images))
 
         # Process batch with multiprocessing
         with Pool(n_workers) as p:
@@ -499,7 +511,10 @@ def process_data_into_egodex_format(local_download_dir,
         batch_failed = len(batch_results) - batch_successful
         total_successful += batch_successful
         
-        print(f"Batch complete: {batch_successful} successful, {batch_failed} failed")
+        print(f"Batch complete: {batch_successful} successful, {batch_failed} failed (total successful: {total_successful})")
+        
+        # Move to next batch
+        episode_idx = batch_end
         
         # Optional: force garbage collection after each batch to free memory
         import gc
@@ -516,11 +531,9 @@ def load_from_task_list(task_list_path):
 if __name__ == "__main__":
     
     STEP_SIZE = 30 # = FPS for 1s horizon
-    OVERSAMPLE_RATE = 2
     SINGLE_HAND = False
     HAND_DETECTION_CONFIDENCE_THRESHOLD = 0.5
-    # SUBSET = "small_subset"
-    # SUBSET = "smaller_subset"
+    MAX_DEMOS = 200  # Maximum number of demos to process per task (None = process all)
     SUBSET = None
 
     NEW_IMAGE_W = 640
@@ -551,8 +564,8 @@ if __name__ == "__main__":
     BASE_LOCAL_PROCESSED_DIR = "datasets/egodex/processed"
 
     # data_splits = ["part1"]
-    data_splits = ["part2"]
-    # data_splits = ["part3", "part4", "part5", "extra"]
+    # data_splits = ["part2"]
+    data_splits = ["part1", "part2", "part3", "part4", "part5", "extra"]
     # 4 tasks to process for split: part1^M
     # ['add_remove_lid', 'clean_cups', 'clean_tableware', 'declutter_desk']
     # 2 tasks to process for split: part2
@@ -573,17 +586,32 @@ if __name__ == "__main__":
     print (f"Processing started at {current_time}")
     
     # Skip S3 task listing, use local directories directly
-    task_list_path = BASE_LOCAL_DOWNLOAD_DIR + "/tasks_list_subset.txt"
-    task_list = load_from_task_list(task_list_path)
+    # task_list_path = BASE_LOCAL_DOWNLOAD_DIR + "/tasks_list_subset.txt"
+    # task_list = load_from_task_list(task_list_path)
+    
+    # Hardcoded list of specific tasks to process
+    tasks_to_process = {
+        'part1': ['add_remove_lid', 'clean_cups'],
+        'part2': ['basic_pick_place'],
+        'part3': ['insert_remove_cups_from_rack'],
+        'part4': ['setup_cleanup_table', 'stock_unstock_fridge'],
+        'part5': ['stack_unstack_bowls', 'stack_unstack_cups', 'wash_put_away_dishes']
+    }
 
     for data_split in data_splits:
+        # Skip splits that have no tasks in our list
+        if data_split not in tasks_to_process:
+            print(f"Skipping {data_split} - no tasks to process")
+            continue
+            
         s3_split_download_dir = os.path.join(BASE_S3_DOWNLOAD_DIR, data_split)
         task_dirs = list_s3_subdirectories(s3_split_download_dir)
         s3_task_names = [task_dir.strip("/").split("/")[-1] for task_dir in task_dirs]
 
-        tasks_subset = [task_name for task_name in s3_task_names if task_name in task_list]
-        print (len(tasks_subset), "tasks to process for split:", data_split)
-        print (tasks_subset)
+        # Filter to only process specified tasks for this split
+        tasks_subset = [task_name for task_name in s3_task_names if task_name in tasks_to_process[data_split]]
+        print(f"{len(tasks_subset)} tasks to process for split: {data_split}")
+        print(tasks_subset)
         # tasks_subset.clear()
         # tasks_subset = ['clean_tableware']
         print (f"Processing {len(tasks_subset)} tasks for split: {data_split}")
@@ -639,11 +667,11 @@ if __name__ == "__main__":
                                             STEP_SIZE,
                                             im_dims,
                                             SAVE_ANNOTATED_IMAGES,
-                                            OVERSAMPLE_RATE,
                                             SINGLE_HAND,
                                             HAND_DETECTION_CONFIDENCE_THRESHOLD,
                                             hdf5_write_path,
-                                            batch_size=N_WORKERS * 2)  # Process 2x worker count per batch
+                                            batch_size=N_WORKERS * 2,  # Process 2x worker count per batch
+                                            max_demos=MAX_DEMOS)  # Limit number of demos per task
             
             if num_successful == 0:
                 print(f"No episodes processed successfully for task {task}")
@@ -654,7 +682,7 @@ if __name__ == "__main__":
                     shutil.rmtree(local_task_download_dir)
                 continue
 
-            split_train_val_from_hdf5(hdf5_path=hdf5_write_path, val_ratio=0.2)
+            split_train_val_from_hdf5(hdf5_path=hdf5_write_path, val_ratio=VAL_RATIO)
             f.close()
             print (f"Saved {hdf5_write_path}")
             upload_to_s3_flag = False
@@ -665,6 +693,40 @@ if __name__ == "__main__":
                     # os.remove(hdf5_write_path)  # Remove file, not directory
                     shutil.rmtree(local_task_download_dir)
             # exit(1)  # ### DEBUG ###
+    
+    # Clean up empty HDF5 files that were created but have no demos
+    print("\n" + "=" * 50)
+    print("Cleaning up empty HDF5 files...")
+    print("=" * 50)
+    
+    for data_split in data_splits:
+        if data_split not in tasks_to_process:
+            continue
+            
+        local_processed_dir = os.path.join(BASE_LOCAL_PROCESSED_DIR, data_split)
+        if not os.path.exists(local_processed_dir):
+            continue
+            
+        hdf5_files = glob(os.path.join(local_processed_dir, "*.hdf5"))
+        for hdf5_file in hdf5_files:
+            try:
+                with h5py.File(hdf5_file, 'r') as f:
+                    # Check if 'data' group exists and has demos
+                    if 'data' not in f or len(f['data'].keys()) == 0:
+                        print(f"Removing empty HDF5 file: {hdf5_file}")
+                        os.remove(hdf5_file)
+                    else:
+                        num_demos = len([k for k in f['data'].keys() if k.startswith('demo_')])
+                        print(f"Keeping {hdf5_file} with {num_demos} demos")
+            except Exception as e:
+                print(f"Error checking {hdf5_file}: {e}")
+                # If file is corrupted or unreadable, remove it
+                print(f"Removing corrupted file: {hdf5_file}")
+                os.remove(hdf5_file)
+    
+    print("\nProcessing complete!")
+    current_time = time.strftime("%Y%m%d-%H%M%S")
+    print(f"Processing finished at {current_time}")
 
 
 """

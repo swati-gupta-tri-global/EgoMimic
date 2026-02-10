@@ -12,17 +12,17 @@
         "save": {
             "enabled": true,
             "every_n_seconds": null,
-            "every_n_epochs": 200,
+            "every_n_epochs": 10,
             "top_n": 5,
             "epochs": [],
             "on_best_validation": true,
             "on_best_rollout_return": false,
             "on_best_rollout_success_rate": true,
-            "video_freq": 200
+            "video_freq": 10
         },
         "epoch_every_n_steps": 100,
-        "validation_freq": 200,
-        "validation_max_samples": 15000,
+        "validation_freq": 10,
+        "validation_max_samples": 50,
         "env": null,
         "additional_envs": null,
         "render": false,
@@ -39,12 +39,12 @@
         }
     },
     "train": {
-        "data": "./datasets/smallclothfold_robot.hdf5",
+        "data": "../datasets/egomimic/smallclothfold_robot.hdf5",
         "data_type": "robot",
-        "data_2": "./datasets/smallclothfold_human.hdf5",
+        "data_2": "../datasets/egomimic/smallclothfold_human.hdf5",
         "data_2_type": "hand",
         "output_dir":"../trained_models_highlevel",
-        "num_data_workers": 5,
+        "num_data_workers": 8,
         "hdf5_cache_mode": "low_dim",
         "hdf5_use_swmr": true,
         "hdf5_load_next_obs": false,
@@ -72,7 +72,8 @@
         "cuda": true,
         "batch_size": 16,
         "num_epochs": 10000,
-        "seed": 1
+        "seed": 1,
+        "gpus_per_node": 4
     },
     "algo": {
         "optim_params": {
@@ -121,7 +122,7 @@
                 "low_dim": [
                     "ee_pose"
                 ],
-                "rgb": ["front_img_1_line"]
+                "rgb": ["front_img_1"]
             }
         }
     },
@@ -131,7 +132,7 @@
                 "low_dim": [
                     "joint_positions"
                 ],
-                "rgb": ["front_img_1_line", "right_wrist_img"],
+                "rgb": ["front_img_1"],
                 "depth": [],
                 "scan": []
             },

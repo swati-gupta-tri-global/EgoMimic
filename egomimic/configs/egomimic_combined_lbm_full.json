@@ -39,7 +39,7 @@
         }
     },
     "train": {
-        "data": "../datasets/LBM_sim_egocentric/train_split_combined",
+        "data": "../datasets/LBM_sim_egocentric/train_split_combined_equal_val_mask",
         "data_type": "robot",
         "output_dir":"../trained_models_highlevel",
         "num_data_workers": 8,

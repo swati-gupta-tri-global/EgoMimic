@@ -148,7 +148,7 @@ def extract_hand_poses_from_response(response):
 
 def process_single_episode(inpt):
     """Process a single AVP episode into EgoMimic format"""
-    ep_no, episode_dir, step_size, oversample_rate, im_dims, save_annotated_images = inpt 
+    ep_no, episode_dir, step_size, im_dims, save_annotated_images = inpt 
 
     episode_data_list = {}
     
@@ -351,7 +351,7 @@ def process_single_episode(inpt):
     
     # Convert to arrays
     actions_xyz = np.array(actions_xyz)  # (seq_len, step_size, 6)
-    actions_xyz_act = interpolate_arr(actions_xyz, oversample_rate * step_size)
+    actions_xyz_act = interpolate_arr(actions_xyz, 100)  # (seq_len, 100, 6)
     intrinsics_seq = np.array(intrinsics_seq)  # (seq_len, 3, 3)
     extrinsics_seq = np.array(extrinsics_seq)  # (seq_len, 4, 4)
     
@@ -370,7 +370,7 @@ def process_single_episode(inpt):
     return episode_data_list
 
 def process_task(task_dir, output_hdf5_path, n_workers, step_size, im_dims, 
-                 save_annotated_images, oversample_rate):
+                 save_annotated_images):
     """Process all episodes in a task directory"""
     
     # Find all episode directories
@@ -390,7 +390,7 @@ def process_task(task_dir, output_hdf5_path, n_workers, step_size, im_dims,
     # Prepare function inputs
     function_inpts = []
     for ep_no, ep_dir in enumerate(episode_dirs):
-        function_inpts.append((ep_no, ep_dir, step_size, oversample_rate, 
+        function_inpts.append((ep_no, ep_dir, step_size, 
                               im_dims, save_annotated_images))
     
     # Process episodes with multiprocessing
@@ -450,8 +450,6 @@ if __name__ == "__main__":
                         help="Path to output directory where HDF5 file will be saved")
     parser.add_argument("--step_size", type=int, default=30,
                         help="Action horizon/chunk size (default: 30)")
-    parser.add_argument("--oversample_rate", type=int, default=2,
-                        help="Oversample rate (default: 2)")
     parser.add_argument("--image_width", type=int, default=640,
                         help="Output image width (default: 640)")
     parser.add_argument("--image_height", type=int, default=480,
@@ -467,7 +465,6 @@ if __name__ == "__main__":
     
     # Configuration from arguments
     STEP_SIZE = args.step_size
-    OVERSAMPLE_RATE = args.oversample_rate
     NEW_IMAGE_W = args.image_width
     NEW_IMAGE_H = args.image_height
     SAVE_ANNOTATED_IMAGES = args.save_viz
@@ -501,7 +498,6 @@ if __name__ == "__main__":
                 step_size=STEP_SIZE,
                 im_dims=im_dims,
                 save_annotated_images=SAVE_ANNOTATED_IMAGES,
-                oversample_rate=OVERSAMPLE_RATE
             )
             
             if num_successful > 0:
@@ -530,7 +526,6 @@ Usage (inside docker):
 
 Optional arguments:
     --step_size 30              Action horizon/chunk size
-    --oversample_rate 2         Oversample rate
     --image_width 640           Output image width
     --image_height 480          Output image height
     --n_workers 8               Number of parallel workers

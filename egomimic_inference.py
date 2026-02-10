@@ -33,81 +33,127 @@ docker exec -it swati-egomimic python /workspace/externals/EgoMimic/egomimic_inf
 import argparse
 import json
 import os
+import pickle
 import numpy as np
 import torch
 import h5py
 import cv2
 # from pathlib import Path
 
-# Import robomimic modules
-# import robomimic.utils.file_utils as FileUtils
-# import robomimic.utils.torch_utils as TorchUtils
 import robomimic.utils.obs_utils as ObsUtils
-# from robomimic.algo import RolloutPolicy
-# from robomimic.utils.file_utils import policy_from_checkpoint
 
-# Import EgoMimic modules  
-# from egomimic.configs import config_factory
+# Import EgoMimic modules
 from egomimic.utils.val_utils import draw_both_actions_on_frame, write_video_safe
 from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean
-
+from egomimic.utils.val_utils import EXTRINSICS_LEFT, ARIA_INTRINSICS
 
 class EgoMimicRolloutPolicy:
     """
     Custom policy wrapper for EgoMimic that implements get_action using forward_eval
     """
-    def __init__(self, policy, obs_normalization_stats=None, data_type=0):
+    def __init__(self, policy, obs_normalization_stats=None, data_type=0,
+                 hdf5_normalize_obs=False, hdf5_normalize_actions=False,
+                 imagenet_normalize_images=False):
         self.policy = policy
         self.obs_normalization_stats = obs_normalization_stats
         self.data_type = data_type  # 0 = robot, 1 = hand
         self._step_counter = 0
-        
+        self.hdf5_normalize_obs = hdf5_normalize_obs
+        self.hdf5_normalize_actions = hdf5_normalize_actions
+        self.imagenet_normalize_images = imagenet_normalize_images
+
     def __call__(self, obs_dict):
         return self.get_action(obs_dict)
-    
+
+    def _normalize_obs(self, obs, key):
+        """Normalize a single observation using loaded stats."""
+        if self.obs_normalization_stats is None or key not in self.obs_normalization_stats:
+            return obs
+
+        mean = self.obs_normalization_stats[key]["mean"][0]
+        std = self.obs_normalization_stats[key]["std"][0]
+
+        # Handle shape broadcasting
+        m_num_dims = len(mean.shape)
+        shape_len_diff = len(obs.shape) - m_num_dims
+        reshape_padding = tuple([1] * shape_len_diff)
+        mean = mean.reshape(reshape_padding + tuple(mean.shape))
+        std = std.reshape(reshape_padding + tuple(std.shape))
+
+        if isinstance(obs, torch.Tensor) and isinstance(mean, np.ndarray):
+            mean = torch.from_numpy(mean).to(obs.device).float()
+            std = torch.from_numpy(std).to(obs.device).float()
+
+        return (obs - mean) / std
+
     def get_action(self, obs_dict, goal_dict=None):
         """
         Get action prediction using forward_eval method
         """
         import torch
         from collections import OrderedDict
-        
         # Prepare batch format for forward_eval
         batch = OrderedDict()
-        
         # Create obs sub-dictionary
         batch["obs"] = OrderedDict()
-        
         # Add observations to batch["obs"]
         for key, value in obs_dict.items():
             if isinstance(value, np.ndarray):
                 batch["obs"][key] = torch.from_numpy(value).float().unsqueeze(0)
             else:
                 batch["obs"][key] = value.unsqueeze(0) if value.dim() == 1 else value
-        
         # Add required fields
         batch["type"] = torch.tensor([self.data_type], dtype=torch.long)  # 0 = robot, 1 = hand
-        # print(f"[DEBUG] Batch type tensor: {batch['type']}")
         # pad_mask needs to be (batch_size, sequence_length) - using 100 as sequence length
         batch["obs"]["pad_mask"] = torch.ones((1, 100), dtype=torch.float32)  # Not padded
-                
         # Move to device if available
         device = next(self.policy.nets['policy'].parameters()).device
         batch["type"] = batch["type"].to(device)
         for key in batch["obs"]:
             if hasattr(batch["obs"][key], 'to'):
                 batch["obs"][key] = batch["obs"][key].to(device)
-        
+
+        # Normalize observations if enabled (matching training behavior)
+        if self.hdf5_normalize_obs and self.obs_normalization_stats is not None:
+            for key in batch["obs"]:
+                if key == "pad_mask":
+                    continue
+                # Skip RGB keys - they are handled separately via process_obs_dict
+                if key in self.obs_normalization_stats:
+                    batch["obs"][key] = self._normalize_obs(batch["obs"][key], key)
+
+        # Get unnorm_stats for action unnormalization (only if actions were normalized during training)
+        # DEBUG: Set to None to skip action unnormalization and see raw model output
+        # unnorm_stats = None  # UNCOMMENT THIS LINE TO SKIP ACTION UNNORMALIZATION
+        unnorm_stats = self.obs_normalization_stats if self.hdf5_normalize_actions else None
+
+        # DEBUG: Print normalization info (first frame only)
+        if self._step_counter == 0:
+            print(f"\n=== NORMALIZATION DEBUG ===")
+            print(f"hdf5_normalize_obs: {self.hdf5_normalize_obs}")
+            print(f"hdf5_normalize_actions: {self.hdf5_normalize_actions}")
+            print(f"unnorm_stats keys: {list(unnorm_stats.keys()) if unnorm_stats else None}")
+            # Print actual mean/std for actions_xyz_act
+            if unnorm_stats and 'actions_xyz_act' in unnorm_stats:
+                xyz_stats = unnorm_stats['actions_xyz_act']
+                print(f"actions_xyz_act mean shape: {xyz_stats['mean'].shape}")
+                print(f"actions_xyz_act std shape: {xyz_stats['std'].shape}")
+                # Print first few values of mean/std (first timestep, 6 values for left+right xyz)
+                print(f"actions_xyz_act mean[0,:6]: {xyz_stats['mean'][0, 0, :6]}")
+                print(f"actions_xyz_act std[0,:6]: {xyz_stats['std'][0, 0, :6]}")
         # Run forward_eval
         with torch.no_grad():
-            predictions = self.policy.forward_eval(batch, self.obs_normalization_stats)
+            predictions = self.policy.forward_eval(batch, unnorm_stats)
             
         # Debug: Print available prediction keys
         # Available prediction keys: ['actions_joints_act', 'actions_xyz_act']
         # print(f"Available prediction keys: {list(predictions.keys())}")
         # print(f"Expected action key: {self.policy.ac_key}")
             
+        # Increment step counter
+        self._step_counter += 1
+
         # For robot data, return both joint and XYZ actions if both are available
         if 'actions_joints_act' in predictions and 'actions_xyz_act' in predictions:
             # print("Robot data: Returning both joint and XYZ actions")
@@ -201,16 +247,69 @@ def parse_egomimic_actions(action):
             "raw_action": action.tolist() if hasattr(action, 'tolist') else action
         }
 
+def load_normalization_stats(ckpt_path, data_type=0):
+    """
+    Load normalization stats from the checkpoint directory.
+
+    Args:
+        ckpt_path: Path to model checkpoint
+        data_type: 0 for robot, 1 for hand
+
+    Returns:
+        normalization_stats: Dictionary with normalization statistics, or None if not found
+    """
+    # Checkpoint is at: .../models/model_epoch_epoch=X.ckpt
+    # Stats are at: .../ds1_norm_stats.pkl (robot) or .../ds2_norm_stats.pkl (hand)
+    ckpt_dir = os.path.dirname(ckpt_path)  # .../models/
+    exp_dir = os.path.dirname(ckpt_dir)    # .../
+
+    # Select appropriate stats file based on data_type
+    if data_type == 0:  # robot
+        stats_file = os.path.join(exp_dir, "ds1_norm_stats.pkl")
+    else:  # hand
+        stats_file = os.path.join(exp_dir, "ds2_norm_stats.pkl")
+
+    if os.path.exists(stats_file):
+        print(f"Loading normalization stats from: {stats_file}")
+        with open(stats_file, "rb") as f:
+            normalization_stats = pickle.load(f)
+
+        # Check if loaded stats are valid (not None and is a dict)
+        if normalization_stats is not None and isinstance(normalization_stats, dict):
+            print(f"Loaded normalization stats for keys: {list(normalization_stats.keys())}")
+            return normalization_stats
+        else:
+            print(f"WARNING: Stats file exists but contains invalid data: {type(normalization_stats)}")
+    else:
+        print(f"WARNING: Normalization stats file not found: {stats_file}")
+
+    # Try alternative location (ds1 for any data type as fallback)
+    alt_stats_file = os.path.join(exp_dir, "ds1_norm_stats.pkl")
+    if os.path.exists(alt_stats_file) and alt_stats_file != stats_file:
+        print(f"Trying fallback stats file: {alt_stats_file}")
+        with open(alt_stats_file, "rb") as f:
+            normalization_stats = pickle.load(f)
+
+        if normalization_stats is not None and isinstance(normalization_stats, dict):
+            print(f"Loaded normalization stats for keys: {list(normalization_stats.keys())}")
+            return normalization_stats
+        else:
+            print(f"WARNING: Fallback stats file also contains invalid data: {type(normalization_stats)}")
+
+    return None
+
+
 ### Checkpoint keys: ['epoch', 'global_step', 'pytorch-lightning_version', 'state_dict', 'loops', 'callbacks', 'optimizer_states', 'lr_schedulers', 'hparams_name', 'hyper_parameters']
 # Hyper parameters keys: ['config_json', 'shape_meta']
 # State dict sample keys: ['nets.policy.transformer.encoder.layers.0.self_attn.in_proj_weight', 'nets.policy.transformer.encoder.layers.0.self_attn.in_proj_bias', 'nets.policy.transformer.encoder.layers.0.self_attn.out_proj.weight', 'nets.policy.transformer.encoder.layers.0.self_attn.out_proj.bias', 'nets.policy.transformer.encoder.layers.0.linear1.weight', 'nets.policy.transformer.encoder.layers.0.linear1.bias', 'nets.policy.transformer.encoder.layers.0.linear2.weight', 'nets.policy.transformer.encoder.layers.0.linear2.bias', 'nets.policy.transformer.encoder.layers.0.norm1.weight', 'nets.policy.transformer.encoder.layers.0.norm1.bias']
 def load_model_for_rollout(ckpt_path, data_type=0):
     """
     Load model from PyTorch Lightning checkpoint and create RolloutPolicy wrapper.
-    
+
     Args:
         ckpt_path: Path to model checkpoint
-        
+        data_type: 0 for robot, 1 for hand
+
     Returns:
         rollout_policy: RolloutPolicy wrapper for inference
         config: Model configuration
@@ -220,34 +319,52 @@ def load_model_for_rollout(ckpt_path, data_type=0):
     import json
     from egomimic.algo import algo_factory
     from egomimic.pl_utils.pl_data_utils import json_to_config
-    
+
     print(f"Loading model from: {ckpt_path}")
     print(f"Data type: {'robot' if data_type == 0 else 'hand'}")
-    
+
     # Load checkpoint directly
     ckpt = torch.load(ckpt_path, map_location='cpu')
-    
+
     # Extract config and shape_meta from hyperparameters
     config_json = ckpt['hyper_parameters']['config_json']
     shape_meta = ckpt['hyper_parameters']['shape_meta']
 
-    print ("Extracted shape_meta keys:", list(shape_meta.keys()))
-    
+    print("Extracted shape_meta keys:", list(shape_meta.keys()))
+
     # Parse the config JSON and modify it based on data_type before creating the config object
     config_dict = json.loads(config_json)
-    
+
+    # Extract normalization settings from config
+    hdf5_normalize_obs = config_dict.get('train', {}).get('hdf5_normalize_obs', False)
+    hdf5_normalize_actions = config_dict.get('train', {}).get('hdf5_normalize_actions', False)
+    imagenet_normalize_images = config_dict.get('train', {}).get('imagenet_normalize_images', False)
+
+    print(f"Normalization settings from config:")
+    print(f"  hdf5_normalize_obs: {hdf5_normalize_obs}")
+    print(f"  hdf5_normalize_actions: {hdf5_normalize_actions}")
+    print(f"  imagenet_normalize_images: {imagenet_normalize_images}")
+
+    # Load normalization stats if normalization was enabled during training
+    normalization_stats = None
+    if hdf5_normalize_obs or hdf5_normalize_actions:
+        normalization_stats = load_normalization_stats(ckpt_path, data_type)
+        if normalization_stats is None:
+            print("WARNING: Normalization was enabled during training but stats file not found!")
+            print("         Predictions may be incorrect. Check if ds1_norm_stats.pkl exists.")
+
     if data_type == 1 and 'observation_hand' in config_dict:
         # For hand data, replace the observation config with observation_hand
         print("Using hand observation configuration")
         print(f"Hand obs modalities: {config_dict['observation_hand']['modalities']['obs']['low_dim']}")
-        
+
         # Replace observation with observation_hand in the config, but preserve encoder config
         # observation_hand only has modalities, so we need to copy encoder from original observation
         hand_observation = config_dict['observation_hand'].copy()
         hand_observation['encoder'] = config_dict['observation']['encoder']
         config_dict['observation'] = hand_observation
-        
-        # Create hand observation shapes that match ee_pose instead of joint_positions  
+
+        # Create hand observation shapes that match ee_pose instead of joint_positions
         hand_obs_shapes = {}
         for key, shape in shape_meta["all_shapes"].items():
             if key == 'joint_positions':
@@ -256,7 +373,7 @@ def load_model_for_rollout(ckpt_path, data_type=0):
             else:
                 # Keep other observations (like images) as-is
                 hand_obs_shapes[key] = shape
-        
+
         print(f"Updated obs shapes for hand: {hand_obs_shapes}")
         obs_shapes_to_use = hand_obs_shapes
     else:
@@ -264,15 +381,15 @@ def load_model_for_rollout(ckpt_path, data_type=0):
         print("Using robot observation configuration")
         print(f"Robot obs modalities: {config_dict['observation']['modalities']['obs']['low_dim']}")
         obs_shapes_to_use = shape_meta["all_shapes"]
-    
+
     # Create config from the modified JSON
     modified_config_json = json.dumps(config_dict)
     config = json_to_config(modified_config_json)
-    
+
     print(f"Algorithm: {config.algo_name}")
     print(f"Action dimension: {shape_meta.get('ac_dim', 'Unknown')}")
     print(f"All shapes: {list(obs_shapes_to_use.keys())}")
-    
+
     # Create the model using the algo factory
     model = algo_factory(
         algo_name=config.algo_name,
@@ -281,10 +398,10 @@ def load_model_for_rollout(ckpt_path, data_type=0):
         ac_dim=shape_meta["ac_dim"],
         device="cuda"
     )
-    
+
     # Load the state dict into the model
     state_dict = ckpt['state_dict']
-    
+
     # Remove the 'model.' or 'nets.' prefix from keys if present
     clean_state_dict = {}
     for k, v in state_dict.items():
@@ -296,7 +413,7 @@ def load_model_for_rollout(ckpt_path, data_type=0):
             clean_state_dict[clean_key] = v
         else:
             clean_state_dict[k] = v
-    
+
     # Load the cleaned state dict
     try:
         model.nets.load_state_dict(clean_state_dict, strict=False)
@@ -309,68 +426,80 @@ def load_model_for_rollout(ckpt_path, data_type=0):
             print("Successfully loaded policy weights")
         except Exception as e2:
             print(f"Error loading policy weights: {e2}")
-    
+
     # Set model to eval mode
     if hasattr(model, 'eval'):
         model.eval()
     for net_name, net in model.nets.items():
         if hasattr(net, 'eval'):
             net.eval()
-    
+
     # Initialize observation utilities
     ObsUtils.initialize_obs_utils_with_config(config)
-    
-    # Create custom RolloutPolicy wrapper
+
+    # Create custom RolloutPolicy wrapper with normalization settings
     rollout_policy = EgoMimicRolloutPolicy(
         policy=model,
-        obs_normalization_stats=None,
-        data_type=data_type
+        obs_normalization_stats=normalization_stats,
+        data_type=data_type,
+        hdf5_normalize_obs=hdf5_normalize_obs,
+        hdf5_normalize_actions=hdf5_normalize_actions,
+        imagenet_normalize_images=imagenet_normalize_images
     )
-    
+
     print("RolloutPolicy created successfully!")
-    
+
     # Update shape_meta if using hand configuration
     if data_type == 1 and hasattr(config, 'observation_hand'):
         updated_shape_meta = shape_meta.copy()
         updated_shape_meta["all_shapes"] = obs_shapes_to_use
         return rollout_policy, config, updated_shape_meta
-    
+
     return rollout_policy, config, shape_meta
 
 
-def prepare_observation(image, config, device="cuda"):
+def prepare_observation(image, config, device="cuda", imagenet_normalize=False):
     """
     Prepare observation dictionary from image for model input.
-    
+    Matches the preprocessing done during training via process_obs_dict.
+
     Args:
         image: Input image (H, W, 3) numpy array
         config: Model configuration
         device: Device to put tensors on
-        
+        imagenet_normalize: If True, apply ImageNet normalization (must match training config)
+
     Returns:
         obs_dict: Formatted observation dictionary
     """
-    # Convert to tensor and normalize
+    # Convert to float and scale to [0, 1]
     if image.dtype == np.uint8:
         image = image.astype(np.float32) / 255.0
-    
+        image = np.clip(image, 0.0, 1.0)
+
+    # Apply ImageNet normalization if enabled (must match training config)
+    if imagenet_normalize:
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        image = (image - mean) / std
+
     # Convert HWC to CHW
     if len(image.shape) == 3 and image.shape[-1] == 3:
         image = np.transpose(image, (2, 0, 1))
-    
+
     # Convert to tensor
     image_tensor = torch.from_numpy(image).float().unsqueeze(0)  # Add batch dimension
-    
+
     if device == "cuda" and torch.cuda.is_available():
         image_tensor = image_tensor.cuda()
-    
+
     # Create observation dictionary based on config
     obs_dict = {}
-    
+
     # Add RGB observation
     for rgb_key in config.observation.modalities.obs.rgb:
         obs_dict[rgb_key] = image_tensor
-    
+
     # Add dummy low-dim observations if needed
     for low_dim_key in config.observation.modalities.obs.low_dim:
         if low_dim_key == "joint_positions":
@@ -385,7 +514,7 @@ def prepare_observation(image, config, device="cuda"):
             if device == "cuda" and torch.cuda.is_available():
                 dummy_ee = dummy_ee.cuda()
             obs_dict[low_dim_key] = dummy_ee
-    
+
     return obs_dict
 
 
@@ -485,8 +614,14 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
     
     with h5py.File(dataset_path, 'r') as f:
         for demo_name in demo_names:
+            if task_name == "TurnCupUpsideDown" and demo_name == "demo_277":
+                # TODO: some viz issue in this demo, skip for now
+                continue
             print(f"\nProcessing {demo_name} for visualization...")
-            
+
+            # Reset policy state for new demo
+            rollout_policy.reset()
+
             if 'data' in f:
                 demo = f['data'][demo_name]
             else:
@@ -504,8 +639,9 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
                 print(f"Intrinsics shape: {intrinsics.shape}")
                 print(f"Extrinsics shape: {extrinsics.shape}")
             else:
-                print("Warning: No intrinsics/extrinsics found in dataset, skipping visualization")
-                continue
+                print("Warning: No intrinsics/extrinsics found in dataset, using aria defaults")
+                intrinsics = ARIA_INTRINSICS
+                extrinsics = EXTRINSICS_LEFT
             
             # Load ground truth XYZ actions if available
             gt_actions_xyz = None
@@ -528,15 +664,23 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
                 
                 # Make a copy for visualization
                 vis_image = image.copy()
-                
-                # Prepare observation for model
-                obs_dict = prepare_observation(image, config)
-                
+
+                # Prepare observation for model (use imagenet_normalize from rollout_policy)
+                obs_dict = prepare_observation(
+                    image, config,
+                    imagenet_normalize=rollout_policy.imagenet_normalize_images
+                )
+
                 # Add proprioceptive observations from dataset
                 if 'obs' in demo:
                     obs = demo['obs']
                     expected_obs_keys = list(shape_meta.get('all_shapes', {}).keys())
-                    
+
+                    # DEBUG: Print expected obs keys on first frame
+                    if t == 0:
+                        print(f"DEBUG: expected_obs_keys = {expected_obs_keys}")
+                        print(f"DEBUG: obs keys in HDF5 = {list(obs.keys())}")
+
                     for obs_key in expected_obs_keys:
                         if obs_key == 'front_img_1':
                             continue
@@ -546,7 +690,11 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
                         elif obs_key == 'ee_pose' and 'ee_pose' in obs:
                             ee_pose = obs['ee_pose'][t]
                             obs_dict['ee_pose'] = torch.from_numpy(ee_pose).float().unsqueeze(0)
-                
+
+                # DEBUG: Check what's in obs_dict before calling model
+                if t == 0:
+                    print(f"DEBUG: obs_dict keys before model = {list(obs_dict.keys())}")
+
                 # Get prediction
                 with torch.no_grad():
                     predicted_action = rollout_policy(obs_dict)
@@ -587,8 +735,7 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
                 # Visualize ground truth XYZ actions if available
                 if gt_actions_xyz is not None:
                     gt_xyz_t = gt_actions_xyz[t]  # (100, 6)
-                    gt_joints_t = gt_actions_joints[t] if gt_actions_joints is not None else None
-                    
+                    # gt_joints_t = gt_actions_joints[t] if gt_actions_joints is not None else None
                     # Draw ground truth XYZ trajectory as green dots
                     vis_image = draw_both_actions_on_frame(
                         vis_image,
@@ -721,10 +868,13 @@ def run_inference_on_dataset(rollout_policy, config, dataset_path, output_dir, n
                 image = images[t]
                 if image.max() <= 1.0:
                     image = (image * 255).astype(np.uint8)
-                
-                # Prepare observation for model
-                obs_dict = prepare_observation(image, config)
-                
+
+                # Prepare observation for model (use imagenet_normalize from rollout_policy)
+                obs_dict = prepare_observation(
+                    image, config,
+                    imagenet_normalize=rollout_policy.imagenet_normalize_images
+                )
+
                 # Add proprioceptive observations from dataset
                 # Provide observations that match the model's expected keys (based on data_type)
                 if 'obs' in demo:
@@ -995,10 +1145,13 @@ def run_interactive_inference(rollout_policy, config):
                 continue
                 
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            
-            # Prepare observation
-            obs_dict = prepare_observation(image, config)
-            
+
+            # Prepare observation (use imagenet_normalize from rollout_policy)
+            obs_dict = prepare_observation(
+                image, config,
+                imagenet_normalize=rollout_policy.imagenet_normalize_images
+            )
+
             # Get prediction
             with torch.no_grad():
                 predicted_action = rollout_policy(obs_dict)
@@ -1296,9 +1449,13 @@ def run_inference_on_dataset_with_metrics(rollout_policy, config, dataset_path, 
                 image = images[t]
                 if image.max() <= 1.0:
                     image = (image * 255).astype(np.uint8)
-                
-                obs_dict = prepare_observation(image, config)
-                
+
+                # Prepare observation (use imagenet_normalize from rollout_policy if applicable)
+                obs_dict = prepare_observation(
+                    image, config,
+                    imagenet_normalize=rollout_policy.imagenet_normalize_images
+                )
+
                 # Add proprioceptive observations
                 if 'obs' in demo:
                     obs = demo['obs']
