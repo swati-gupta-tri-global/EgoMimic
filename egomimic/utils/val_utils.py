@@ -3,6 +3,8 @@ from egomimic.utils.egomimicUtils import (
     cam_frame_to_cam_pixels,
     draw_dot_on_frame,
     ee_pose_to_cam_frame,
+    EXTRINSICS,
+    ARIA_INTRINSICS,
 )
 # Import Panda FK for correct arm kinematics
 import sys
@@ -64,8 +66,8 @@ def write_video_safe(filename, video_array, fps=30):
         else:
             raise
 
-# EXTRINSICS_RIGHT = EXTRINSICS["ariaJul29"]["right"]
-# EXTRINSICS_LEFT = EXTRINSICS["ariaJul29"]["left"]
+EXTRINSICS_RIGHT = EXTRINSICS["ariaJul29"]["right"]
+EXTRINSICS_LEFT = EXTRINSICS["ariaJul29"]["left"]
 
 # LBM extrinsics # Camera pose matrix T (4x4):
 # [[-0.02281637 -0.76040487  0.64904841 -0.51159135]
@@ -80,15 +82,15 @@ def write_video_safe(filename, video_array, fps=30):
 
 # Translation vector t:
 # [-0.51159135  0.10677921  0.7276687 ]
-LBM_EXTRINSICS_RIGHT = np.array([
-    [-0.02281637, -0.76040487,  0.64904841, -0.51159135],
-    [-0.99642311, -0.03554123, -0.07666683,  0.10677921],
-    [ 0.08136581, -0.6484761 , -0.75687407,  0.7276687 ],
-    [ 0.        ,  0.        ,  0.        ,  1.        ]
-])
-LBM_EXTRINSICS_LEFT = LBM_EXTRINSICS_RIGHT # fixed static camera
+# LBM_EXTRINSICS_RIGHT = np.array([
+#     [-0.02281637, -0.76040487,  0.64904841, -0.51159135],
+#     [-0.99642311, -0.03554123, -0.07666683,  0.10677921],
+#     [ 0.08136581, -0.6484761 , -0.75687407,  0.7276687 ],
+#     [ 0.        ,  0.        ,  0.        ,  1.        ]
+# ])
+# LBM_EXTRINSICS_LEFT = LBM_EXTRINSICS_RIGHT # fixed static camera
 
-# LBM intrinsics
+# # LBM intrinsics
 LBM_INTRINSICS = np.array([
     [[381., 0., 321.26901245, 0.],
      [0., 381., 247.86399841, 0.],
@@ -334,22 +336,22 @@ def evaluate_high_level_policy(
                     print(f"[DEBUG] Using dataset intrinsics: fx={dataset_intrinsics[0,0]:.1f}, fy={dataset_intrinsics[1,1]:.1f}")
             elif type == "robot":
                 # print(f"[DEBUG] No intrinsics found in batch for type {type}, using hardcoded LBM_INTRINSICS")
-                dataset_intrinsics = LBM_INTRINSICS
+                dataset_intrinsics = ARIA_INTRINSICS
             elif type == "hand":
                 # print(f"[DEBUG] No intrinsics found in batch for type {type}, using hardcoded EGODEX_INTRINSICS")
-                dataset_intrinsics = EGODEX_INTRINSICS
+                dataset_intrinsics = ARIA_INTRINSICS
                 
             if 'obs' in data and 'extrinsics' in data['obs']:
                 dataset_extrinsics = data['obs']['extrinsics'][b, 0].cpu().numpy()  # [b, timestep] -> [4, 4]
                 # Check if extrinsics are dummy (all zeros) - use hardcoded values instead
                 if np.allclose(dataset_extrinsics, 0):
-                    print(f"[DEBUG] Extrinsics are dummy (all zeros), using hardcoded LBM_EXTRINSICS_RIGHT")
-                    dataset_extrinsics = LBM_EXTRINSICS_RIGHT
+                    print(f"[DEBUG] Extrinsics are dummy (all zeros), using hardcoded ARIA_EXTRINSICS_RIGHT")
+                    dataset_extrinsics = EXTRINSICS_RIGHT
                 else:
                     print(f"[DEBUG] Using dataset extrinsics from batch")
             else:
-                # print(f"[DEBUG] No extrinsics found in batch for type {type}, using hardcoded LBM_EXTRINSICS_RIGHT/LEFT")
-                dataset_extrinsics = LBM_EXTRINSICS_RIGHT
+                print(f"[DEBUG] No extrinsics found in batch for type {type}, using hardcoded ARIA_EXTRINSICS_RIGHT")
+                dataset_extrinsics = EXTRINSICS_RIGHT
                 
             
             im = (

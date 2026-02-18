@@ -201,9 +201,9 @@ def train(config, ckpt_path=None):
             os.path.join(exp_dir, "videos"),
         )
     else:
-        print("\n============= New Training Run with Config =============")
-        print(config)
-        print("")
+        # print("\n============= New Training Run with Config =============")
+        # print(config)
+        # print("")
         log_dir, ckpt_dir, video_dir, time_str = get_exp_dir(config, rank=RANK)
         base_output_dir = os.path.join(config.train.output_dir, config.experiment.name)
         exp_dir = os.path.join(base_output_dir, time_str)
@@ -235,7 +235,8 @@ def train(config, ckpt_path=None):
         config, dataset_path, config.train.data_type, config.train.alternate_val,
     )
     if config.train.hdf5_normalize_obs:
-        print("Normalization stats for dataset 1: ", trainset.get_obs_normalization_stats())
+        # print("Normalization stats for dataset 1: ", trainset.get_obs_normalization_stats())
+        os.makedirs(os.path.join(log_dir, ".."), exist_ok=True)
         with open(os.path.join(log_dir, "..", "ds1_norm_stats.pkl"), "wb") as pickle_file:
             pickle.dump(trainset.get_obs_normalization_stats(), pickle_file)
 
@@ -255,7 +256,8 @@ def train(config, ckpt_path=None):
         config_2.train.hdf5_filter_key = config_2.train.hdf5_2_filter_key
         trainset_2, validset_2, _ = init_dataset(config_2, dataset_path_2, type=config.train.data_2_type)
         if config.train.hdf5_normalize_obs:
-            print("Normalization stats for dataset 2: ", trainset_2.get_obs_normalization_stats())
+            os.makedirs(os.path.join(log_dir, ".."), exist_ok=True)
+            # print("Normalization stats for dataset 2: ", trainset_2.get_obs_normalization_stats())
             with open(os.path.join(log_dir, "..", "ds2_norm_stats.pkl"), "wb") as pickle_file:
                 pickle.dump(trainset_2.get_obs_normalization_stats(), pickle_file)
 
@@ -389,9 +391,9 @@ def train(config, ckpt_path=None):
         ac_key=config.train.ac_key,
     )
     model = ModelWrapper(config.dump(), shape_meta, datamodule)
-    print("\n============= Model Summary =============")
-    print(model)  # print model summary
-    print("")
+    # print("\n============= Model Summary =============")
+    # print(model)  # print model summary
+    # print("")
 
     trainer.fit(
         model=model,
