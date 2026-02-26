@@ -54,6 +54,9 @@ AWS_REGION=us-east-1 aws s3 cp --recursive s3://robotics-manip-lbm/kylehatch/vid
 
 Usage:
 docker exec swati-egomimic /bin/bash -c "cd /workspace/externals/EgoMimic && python egomimic/process_avp_to_egomimic.py --input_dir /workspace/externals/EgoMimic/datasets/AVP/raw --output_dir /workspace/externals/EgoMimic/datasets/AVP/processed/ --n_workers 8 --save_viz"
+
+# Process a specific task only:
+docker exec swati-egomimic /bin/bash -c "cd /workspace/externals/EgoMimic && python egomimic/process_avp_to_egomimic.py --input_dir /workspace/externals/EgoMimic/datasets/AVP/raw --output_dir /workspace/externals/EgoMimic/datasets/AVP/processed/ --task_name egoPutKiwiInCenterOfTable --n_workers 8"
 """
 VAL_RATIO = 0.05
 
@@ -343,6 +346,10 @@ def process_single_episode(inpt):
             # Add frame info
             cv2.putText(viz_image, f"Frame: {i}/{N}", (10, 30), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
+            # Save visualization frame
+            viz_path = os.path.join(viz_dir, f"frame_{i:04d}.png")
+            cv2.imwrite(viz_path, cv2.cvtColor(viz_image, cv2.COLOR_RGB2BGR))
 
     
     if len(images) == 0:
@@ -385,6 +392,7 @@ def process_task(task_dir, output_hdf5_path, n_workers, step_size, im_dims,
     print(f"Found {len(episode_dirs)} episodes in {task_dir}")
     
     if len(episode_dirs) == 0:
+        print(f"[SKIP] No episodes found, NOT creating HDF5 file")
         return 0
     
     # Prepare function inputs
@@ -398,9 +406,8 @@ def process_task(task_dir, output_hdf5_path, n_workers, step_size, im_dims,
     total_successful = 0
     demo_idx = 0
     
-    # Initialize HDF5 file
-    with h5py.File(output_hdf5_path, "w") as f:
-        f.create_group("data")
+    # Only initialize HDF5 file AFTER we know we have episodes to process
+    hdf5_initialized = False
     
     for batch_start in range(0, len(function_inpts), batch_size):
         batch_end = min(batch_start + batch_size, len(function_inpts))
@@ -416,8 +423,14 @@ def process_task(task_dir, output_hdf5_path, n_workers, step_size, im_dims,
         # Filter successful episodes
         successful_batch = [result for result in batch_results if len(result) > 0]
         
-        # Write to HDF5
+        # Write to HDF5 - only create file when we have successful episodes
         if successful_batch:
+            # Initialize HDF5 file on first successful batch
+            if not hdf5_initialized:
+                with h5py.File(output_hdf5_path, "w") as f:
+                    f.create_group("data")
+                hdf5_initialized = True
+            
             with h5py.File(output_hdf5_path, "a") as f:
                 data = f["data"]
                 
@@ -460,6 +473,8 @@ if __name__ == "__main__":
                         help="Validation split ratio (default: 0.05)")
     parser.add_argument("--save_viz", action="store_true",
                         help="Save visualization frames for debugging")
+    parser.add_argument("--task_name", type=str, default=None,
+                        help="Specific task name to process (e.g., egoPutKiwiInCenterOfTable). If not provided, processes all tasks.")
     
     args = parser.parse_args()
     
@@ -477,59 +492,82 @@ if __name__ == "__main__":
     output_dir = args.output_dir
     
     # Get task name from input directory and create output HDF5 path
-    for task in os.listdir(task_dir):
+    tasks_to_process = os.listdir(task_dir)
+    
+    # Filter to specific task if --task_name is provided
+    if args.task_name:
+        if args.task_name in tasks_to_process:
+            tasks_to_process = [args.task_name]
+            print(f"[INFO] Filtering to single task: {args.task_name}")
+        else:
+            print(f"[ERROR] Task '{args.task_name}' not found in {task_dir}")
+            print(f"Available tasks: {tasks_to_process}")
+            sys.exit(1)
+    
+    # Filter to only directories
+    tasks_to_process = [t for t in tasks_to_process if os.path.isdir(os.path.join(task_dir, t))]
+    print(f"[INFO] Tasks to process: {tasks_to_process}")
+    
+    for task in tasks_to_process:
         task_path = os.path.join(task_dir, task)
-        if os.path.isdir(task_path):
-            task_name = os.path.basename(task_path.rstrip('/'))
-            os.makedirs(output_dir, exist_ok=True)
-            output_hdf5 = os.path.join(output_dir, f"{task_name}.hdf5")
-            
+        task_name = os.path.basename(task_path.rstrip('/'))
+        os.makedirs(output_dir, exist_ok=True)
+        output_hdf5 = os.path.join(output_dir, f"{task_name}.hdf5")
+        
+        print(f"\n{'='*60}")
+        print(f"Processing task: {task_name}")
+        print(f"Input directory: {task_path}")
+        print(f"Output HDF5: {output_hdf5}")
+        print(f"{'='*60}\n")
+        
+        # Process task
+        num_successful = process_task(
+            task_dir=task_path,
+            output_hdf5_path=output_hdf5,
+            n_workers=N_WORKERS,
+            step_size=STEP_SIZE,
+            im_dims=im_dims,
+            save_annotated_images=SAVE_ANNOTATED_IMAGES,
+        )
+        
+        if num_successful > 0:
+            # Add train/val split
+            split_train_val_from_hdf5(output_hdf5, val_ratio=args.val_ratio)
             print(f"\n{'='*60}")
-            print(f"Processing task: {task_name}")
-            print(f"Input directory: {task_path}")
-            print(f"Output HDF5: {output_hdf5}")
+            print(f"Successfully processed {num_successful} episodes")
+            print(f"Output saved to: {output_hdf5}")
+            print(f"Train/val split: {1-args.val_ratio:.0%} / {args.val_ratio:.0%}")
             print(f"{'='*60}\n")
-            
-            # Process task
-            num_successful = process_task(
-                task_dir=task_path,
-                output_hdf5_path=output_hdf5,
-                n_workers=N_WORKERS,
-                step_size=STEP_SIZE,
-                im_dims=im_dims,
-                save_annotated_images=SAVE_ANNOTATED_IMAGES,
-            )
-            
-            if num_successful > 0:
-                # Add train/val split
-                split_train_val_from_hdf5(output_hdf5, val_ratio=args.val_ratio)
-                print(f"\n{'='*60}")
-                print(f"Successfully processed {num_successful} episodes")
-                print(f"Output saved to: {output_hdf5}")
-                print(f"Train/val split: {1-args.val_ratio:.0%} / {args.val_ratio:.0%}")
-                print(f"{'='*60}\n")
-            else:
-                print(f"\n[ERROR] No episodes were successfully processed!")
-                print(f"Please check the tracker_pb2 installation and hand pose extraction.")
-                if os.path.exists(output_hdf5):
-                    os.remove(output_hdf5)
+        else:
+            print(f"\n[ERROR] No episodes were successfully processed for {task_name}!")
+            print(f"Please check the tracker_pb2 installation and hand pose extraction.")
+            # Don't try to remove - HDF5 was never created if num_successful == 0
 
 """
 Usage (inside docker):
+    # Process all tasks:
     python egomimic/process_avp_to_egomimic.py \
         --input_dir /workspace/externals/EgoMimic/datasets/AVP/raw/ \
         --output_dir /workspace/externals/EgoMimic/datasets/AVP/processed \
         --n_workers 8 \
-        --val_ratio 0.2
+        --val_ratio 0.05
+
+    # Process a specific task:
+    python egomimic/process_avp_to_egomimic.py \
+        --input_dir /workspace/externals/EgoMimic/datasets/AVP/raw/ \
+        --output_dir /workspace/externals/EgoMimic/datasets/AVP/processed \
+        --task_name egoPutKiwiInCenterOfTable \
+        --n_workers 8
 
     This will create: /workspace/externals/EgoMimic/datasets/AVP/processed/egoPutKiwiInCenterOfTable.hdf5
 
 Optional arguments:
+    --task_name "taskname"      Process only this specific task (default: all tasks)
     --step_size 30              Action horizon/chunk size
     --image_width 640           Output image width
     --image_height 480          Output image height
     --n_workers 8               Number of parallel workers
-    --val_ratio 0.2             Validation split ratio (0.0 to 1.0)
+    --val_ratio 0.05            Validation split ratio (0.0 to 1.0)
     --save_viz                  Save visualization frames for debugging
 
 Note: The HDF5 filename is automatically generated from the task directory name.

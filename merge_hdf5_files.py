@@ -301,6 +301,8 @@ Examples:
     if not args.output:
         parser.error("--output is required (unless using --verify)")
 
+    if args.input:
+        print ("Input files to merge: ", args.input)
     # Get input files
     input_files = get_hdf5_files(
         input_paths=args.input,

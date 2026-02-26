@@ -617,6 +617,9 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
             if task_name == "TurnCupUpsideDown" and demo_name == "demo_277":
                 # TODO: some viz issue in this demo, skip for now
                 continue
+            elif task_name == "PutKiwiInCenterOfTable" and demo_name in ["demo_19", "demo_37", "demo_46", "demo_41"]:
+                # TODO: some viz issue in these demos, skip for now
+                continue
             print(f"\nProcessing {demo_name} for visualization...")
 
             # Reset policy state for new demo

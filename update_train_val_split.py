@@ -8,6 +8,8 @@ Usage:
 Example inside docker:
     docker exec swati-egomimic /bin/bash -c "cd /workspace/externals/EgoMimic && python3 update_train_val_split.py --directory datasets/LBM_sim_egocentric/held_out \ 
     --output_dir datasets/LBM_sim_egocentric/train_split_combined"
+
+    docker exec swati-egomimic /bin/bash -c "cd /workspace/externals/EgoMimic && python3 update_train_val_split.py --hdf5_path datasets/LBM_sim_egocentric/held_out/PutKiwiInCenterOfTable.hdf5 --output_path datasets/LBM_sim_egocentric/kiwi_0.5_valsplit --val_ratio 0.5"
 """
 
 import h5py
@@ -34,15 +36,24 @@ def update_train_val_split(hdf5_path, val_ratio=VAL_RATIO, seed=42, output_path=
     
     # If output_path is specified, copy the file first
     if output_path is not None:
-        # Create output directory if it doesn't exist
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-            print(f"Created output directory: {output_dir}")
+        # Check if output_path is a directory (existing or intended)
+        if os.path.isdir(output_path):
+            # output_path is an existing directory, copy file into it
+            target_path = os.path.join(output_path, os.path.basename(hdf5_path))
+        elif not output_path.endswith('.hdf5'):
+            # output_path looks like a directory path, create it and copy file into it
+            os.makedirs(output_path, exist_ok=True)
+            target_path = os.path.join(output_path, os.path.basename(hdf5_path))
+        else:
+            # output_path is a file path
+            output_dir = os.path.dirname(output_path)
+            if output_dir and not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                print(f"Created output directory: {output_dir}")
+            target_path = output_path
         
-        print(f"Copying {hdf5_path} to {output_path}...")
-        shutil.copy2(hdf5_path, output_path)
-        target_path = output_path
+        print(f"Copying {hdf5_path} to {target_path}...")
+        shutil.copy2(hdf5_path, target_path)
     else:
         target_path = hdf5_path
     
