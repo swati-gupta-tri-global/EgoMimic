@@ -266,6 +266,28 @@ def train(config, ckpt_path=None):
         with open(os.path.join(log_dir, "..", "config.json"), "w") as outfile:
             json.dump(config, outfile, indent=4)
 
+        # save human-readable experiment info for easier experiment tracking
+        import datetime as _dt
+        import re as _re
+        # Extract val_ratio from dataset path if present (e.g. .../TaskName_val0.5/...)
+        _val_match = _re.search(r"_val([\d.]+)", config.train.data)
+        _val_ratio = float(_val_match.group(1)) if _val_match else None
+        experiment_info = {
+            "name": config.experiment.name,
+            "description": config.experiment.description,
+            "algo": config.algo_name,
+            "dataset": config.train.data,
+            "dataset_2": getattr(config.train, "data_2", None),
+            "val_ratio": _val_ratio,
+            "batch_size": config.train.batch_size,
+            "num_epochs": config.train.num_epochs,
+            "gpus": getattr(config.train, "gpus_per_node", 1),
+            "created_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "exp_dir": os.path.join(log_dir, ".."),
+        }
+        with open(os.path.join(log_dir, "..", "experiment_info.json"), "w") as outfile:
+            json.dump(experiment_info, outfile, indent=4)
+
     # maybe retreve statistics for normalizing observations
     obs_normalization_stats = None
     # if config.train.hdf5_normalize_obs:

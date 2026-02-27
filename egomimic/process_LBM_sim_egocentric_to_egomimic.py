@@ -19,6 +19,8 @@ import json
 # export PATH=$PATH:~/go/bin for s5cmd
 # python egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter BimanualHangMugsOnMugHolderFromTable --csv_path filtered_output.csv --download_from_s3
 
+# Specific tasks
+# python3 egomimic/process_LBM_sim_egocentric_to_egomimic.py --task_filter PutKiwiInCenterOfTable TurnCupUpsideDown TurnMugRightsideUp BimanualPlaceAppleFromBowlOnCuttingBoard  --csv_path filtered_output.csv
 """
 root@ee3cde590bca:/workspace/externals/EgoMimic# h5ls -r  datasets/LBM_sim_egocentric/processed/TurnMugRightsideUp.hdf5 | grep demo_0/
 /data/demo_0/actions_joints_act Dataset {321, 100, 16}
@@ -30,8 +32,9 @@ root@ee3cde590bca:/workspace/externals/EgoMimic# h5ls -r  datasets/LBM_sim_egoce
 /data/demo_0/obs/intrinsics Dataset {321, 3, 3}
 /data/demo_0/obs/joint_positions Dataset {321, 14}
 """
-OOD_TASKS = ["PutCupOnSaucer", "TurnCupUpsideDown", "TurnMugRightsideUp",
-             "PutKiwiInCenterOfTable", "BimanualPutMugsOnPlatesFromTable", "BimanualPlaceAvocadoFromBowlOnCuttingBoard", "BimanualPlaceAppleFromBowlIntoBin", "BimanualLayCerealBoxOnCuttingBoardFromTopShelf"]
+# OOD_TASKS = ["PutCupOnSaucer", "TurnCupUpsideDown", "TurnMugRightsideUp",
+#              "PutKiwiInCenterOfTable", "BimanualPutMugsOnPlatesFromTable", "BimanualPlaceAvocadoFromBowlOnCuttingBoard", "BimanualPlaceAppleFromBowlIntoBin", "BimanualLayCerealBoxOnCuttingBoardFromTopShelf"]
+OOD_TASKS = ["PutKiwiInCenterOfTable", "TurnCupUpsideDown", "TurnMugRightsideUp", "BimanualPlaceAppleFromBowlOnCuttingBoard"]
 VAL_RATIO = 0.05
 base_s3_episode_path = "s3://robotics-manip-lbm/kylehatch/video_cotrain/HAMSTER_data/LBM_sim_egocentric/raw/data/tasks/{}/{}/{}/bc/teleop/{}/diffusion_spartan/episode_{}/processed/"
 
@@ -147,7 +150,7 @@ def inspect_npz_keys(data):
 
 def split_train_val_from_hdf5(hdf5_path, val_ratio):
     with h5py.File(hdf5_path, "a") as file:
-        demo_keys = [key for key in file["data"].keys() if "demo" in key]
+        demo_keys = sorted([key for key in file["data"].keys() if "demo" in key])
         num_demos = len(demo_keys)
         num_val = int(np.ceil(num_demos * val_ratio))
 
@@ -157,8 +160,8 @@ def split_train_val_from_hdf5(hdf5_path, val_ratio):
         val_indices = indices[:num_val]
         train_indices = indices[num_val:]
 
-        train_mask = [f"demo_{i}" for i in train_indices]
-        val_mask = [f"demo_{i}" for i in val_indices]
+        train_mask = [demo_keys[i] for i in train_indices]
+        val_mask = [demo_keys[i] for i in val_indices]
 
         file.create_dataset("mask/train", data=np.array(train_mask, dtype="S"))
         file.create_dataset("mask/valid", data=np.array(val_mask, dtype="S"))
@@ -193,6 +196,17 @@ def process_episode_parallel(episode_data):
             # print(f"Images shape: {front_img_1.shape}, "
             #       f"intrinsics shape: {intrinsics.shape}, "
             #       f"extrinsics shape: {extrinsics.shape}")
+
+        # Check for black/corrupted frames (simulator rendering failures)
+        frame_means = np.array([front_img_1[t].mean() for t in range(front_img_1.shape[0])])
+        black_frame_count = int(np.sum(frame_means < 5.0))
+        black_frame_pct = black_frame_count / front_img_1.shape[0]
+
+        if black_frame_count > 0:  # any black frames → skip episode
+            print(f"Skipping episode {ep_idx}: {black_frame_count}/{front_img_1.shape[0]} "
+                  f"black frames ({black_frame_pct*100:.0f}%) - rendering failure detected "
+                  f"[{episode_path}]")
+            return {'skipped': 'black_frames'}
 
         # Load actions (Note that left and right convention seems to be flipped, see outputs of visualize_LBM_episode.py)
         # actions_file = os.path.join(episode_path, "actions.npz")
@@ -325,7 +339,8 @@ def process_episode_parallel(episode_data):
             'ee_pose': ee_pose,
             'intrinsics': intrinsics_seq,
             'extrinsics': extrinsics_seq,
-            'joint_positions': joint_positions
+            'joint_positions': joint_positions,
+            'raw_episode_path': episode_path
         }
         
     except Exception as e:
@@ -426,11 +441,22 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
                 
                 # Process completed tasks with progress bar
                 processed_episodes = []
-                for future in tqdm(future_to_episode, 
+                black_frame_skips = 0
+                for future in tqdm(future_to_episode,
                                  desc=f"Processing {task_name} in {environment} ({sim_or_real})"):
                     result = future.result()
-                    if result is not None:
-                        processed_episodes.append(result)
+                    if result is None:
+                        continue
+                    if isinstance(result, dict) and result.get('skipped') == 'black_frames':
+                        black_frame_skips += 1
+                        continue
+                    processed_episodes.append(result)
+
+            skipped_count = len(episode_data_list) - len(processed_episodes)
+            if skipped_count > 0:
+                print(f"  Skipped {skipped_count}/{len(episode_data_list)} episodes "
+                      f"({black_frame_skips} due to black frames, "
+                      f"{skipped_count - black_frame_skips} due to other errors)")
 
             # DEBUG : Single thread processing
             # processed_episodes = []
@@ -451,6 +477,7 @@ def process_raw_data(csv_path, base_s3_path, local_base_path, output_base_path, 
                 group.create_dataset("actions_xyz_act", 
                                    data=episode_result['combined_xyz_act'])
                 group.attrs["num_samples"] = episode_result['num_samples']
+                group.attrs["raw_episode_path"] = episode_result['raw_episode_path']
                 group.create_dataset("obs/front_img_1", 
                                    data=episode_result['front_img_1'])
                 group.create_dataset("obs/ee_pose", 
@@ -521,7 +548,7 @@ def main():
                         help='Base S3 path template for downloading data')
     parser.add_argument('--local_base_path', type=str, default='datasets/LBM_sim_egocentric/data/tasks',
                         help='Local base path for storing downloaded data')
-    parser.add_argument('--output_base_path', type=str, default='datasets/LBM_sim_egocentric',
+    parser.add_argument('--output_base_path', type=str, default='datasets/LBM_sim_egocentric/new_processed',
                         help='Base path for output HDF5 files')
     parser.add_argument('--download_from_s3', action='store_true', default=False,
                         help='Whether to download data from S3')

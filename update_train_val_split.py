@@ -6,8 +6,7 @@ Usage:
     python update_train_val_split.py --hdf5_path <path_to_hdf5> --val_ratio <ratio>
     
 Example inside docker:
-    docker exec swati-egomimic /bin/bash -c "cd /workspace/externals/EgoMimic && python3 update_train_val_split.py --directory datasets/LBM_sim_egocentric/held_out \ 
-    --output_dir datasets/LBM_sim_egocentric/train_split_combined"
+    docker exec swati-egomimic /bin/bash -c "cd /workspace/externals/EgoMimic && python3 update_train_val_split.py --directory datasets/LBM_sim_egocentric/held_out --output_dir datasets/LBM_sim_egocentric/train_split_combined"
 
     docker exec swati-egomimic /bin/bash -c "cd /workspace/externals/EgoMimic && python3 update_train_val_split.py --hdf5_path datasets/LBM_sim_egocentric/held_out/PutKiwiInCenterOfTable.hdf5 --output_path datasets/LBM_sim_egocentric/kiwi_0.5_valsplit --val_ratio 0.5"
 """
@@ -23,7 +22,11 @@ VAL_RATIO = 0.05
 def update_train_val_split(hdf5_path, val_ratio=VAL_RATIO, seed=42, output_path=None):
     """
     Update train/val split in an existing HDF5 file.
-    
+
+    When output_path is specified, creates a lightweight file using h5py external
+    links instead of copying the entire HDF5 (which can be 50-88 GB). The new file
+    is only a few KB and links back to the original's data group.
+
     Args:
         hdf5_path: Path to the HDF5 file
         val_ratio: Ratio of validation data (e.g., 0.2 for 20% validation)
@@ -33,89 +36,95 @@ def update_train_val_split(hdf5_path, val_ratio=VAL_RATIO, seed=42, output_path=
     if not os.path.exists(hdf5_path):
         print(f"Error: File {hdf5_path} does not exist!")
         return False
-    
-    # If output_path is specified, copy the file first
+
+    # Resolve to absolute path for external links
+    hdf5_path_abs = os.path.abspath(hdf5_path)
+
     if output_path is not None:
-        # Check if output_path is a directory (existing or intended)
+        # Determine target path
         if os.path.isdir(output_path):
-            # output_path is an existing directory, copy file into it
             target_path = os.path.join(output_path, os.path.basename(hdf5_path))
         elif not output_path.endswith('.hdf5'):
-            # output_path looks like a directory path, create it and copy file into it
             os.makedirs(output_path, exist_ok=True)
             target_path = os.path.join(output_path, os.path.basename(hdf5_path))
         else:
-            # output_path is a file path
             output_dir = os.path.dirname(output_path)
             if output_dir and not os.path.exists(output_dir):
                 os.makedirs(output_dir)
                 print(f"Created output directory: {output_dir}")
             target_path = output_path
-        
-        print(f"Copying {hdf5_path} to {target_path}...")
-        shutil.copy2(hdf5_path, target_path)
     else:
         target_path = hdf5_path
-    
+
+    # Read demo keys from the original file
     print(f"\n{'='*60}")
-    print(f"Updating train/val split for: {target_path}")
-    print(f"New validation ratio: {val_ratio}")
+    print(f"Creating train/val split for: {target_path}")
+    print(f"Source: {hdf5_path_abs}")
+    print(f"Validation ratio: {val_ratio}")
     print(f"{'='*60}\n")
-    
-    with h5py.File(target_path, "a") as file:
-        # Get demo keys
-        if "data" not in file:
+
+    with h5py.File(hdf5_path_abs, "r") as source:
+        if "data" not in source:
             print("Error: No 'data' group found in HDF5 file!")
             return False
-        
-        demo_keys = [key for key in file["data"].keys() if "demo" in key]
+
+        demo_keys = sorted([key for key in source["data"].keys() if "demo" in key])
         num_demos = len(demo_keys)
-        
-        if num_demos == 0:
-            print("Error: No demos found in HDF5 file!")
-            return False
-        
-        print(f"Found {num_demos} demos in the dataset")
-        
-        # Calculate split
-        num_val = int(np.ceil(num_demos * val_ratio))
-        num_train = num_demos - num_val
-        
-        print(f"Splitting into:")
-        print(f"  - Training demos: {num_train} ({100*(1-val_ratio):.1f}%)")
-        print(f"  - Validation demos: {num_val} ({100*val_ratio:.1f}%)")
-        
-        # Set random seed for reproducibility
-        np.random.seed(seed)
-        
-        # Shuffle indices
-        indices = np.arange(num_demos)
-        np.random.shuffle(indices)
-        
-        # Split indices
-        val_indices = indices[:num_val]
-        train_indices = indices[num_val:]
-        
-        # Create masks
-        train_mask = [f"demo_{i}" for i in sorted(train_indices)]
-        val_mask = [f"demo_{i}" for i in sorted(val_indices)]
-        
-        print(f"\nTrain demos: {train_mask[:5]}{'...' if len(train_mask) > 5 else ''}")
-        print(f"Val demos: {val_mask[:5]}{'...' if len(val_mask) > 5 else ''}")
-        
-        # Delete old masks if they exist
-        if "mask" in file:
-            print("\nRemoving old train/val masks...")
-            del file["mask"]
-        
-        # Create new masks
-        print("Creating new train/val masks...")
-        mask_group = file.create_group("mask")
-        mask_group.create_dataset("train", data=np.array(train_mask, dtype="S"))
-        mask_group.create_dataset("valid", data=np.array(val_mask, dtype="S"))
-        
-        print("\n✓ Successfully updated train/val split!")
-    
+
+    if num_demos == 0:
+        print("Error: No demos found in HDF5 file!")
+        return False
+
+    print(f"Found {num_demos} demos in the dataset")
+
+    # Calculate split
+    num_val = int(np.ceil(num_demos * val_ratio))
+    num_train = num_demos - num_val
+
+    print(f"Splitting into:")
+    print(f"  - Training demos: {num_train} ({100*(1-val_ratio):.1f}%)")
+    print(f"  - Validation demos: {num_val} ({100*val_ratio:.1f}%)")
+
+    # Set random seed for reproducibility
+    np.random.seed(seed)
+
+    # Shuffle indices
+    indices = np.arange(num_demos)
+    np.random.shuffle(indices)
+
+    # Split indices
+    val_indices = indices[:num_val]
+    train_indices = indices[num_val:]
+
+    # Create masks
+    train_mask = [demo_keys[i] for i in sorted(train_indices)]
+    val_mask = [demo_keys[i] for i in sorted(val_indices)]
+
+    print(f"\nTrain demos: {train_mask[:5]}{'...' if len(train_mask) > 5 else ''}")
+    print(f"Val demos: {val_mask[:5]}{'...' if len(val_mask) > 5 else ''}")
+
+    if output_path is not None and target_path != hdf5_path:
+        # Create a lightweight file with external link to original data
+        print(f"\nCreating lightweight split file (external link to source)...")
+        with h5py.File(target_path, "w") as f:
+            f["data"] = h5py.ExternalLink(hdf5_path_abs, "data")
+            mask_group = f.create_group("mask")
+            mask_group.create_dataset("train", data=np.array(train_mask, dtype="S"))
+            mask_group.create_dataset("valid", data=np.array(val_mask, dtype="S"))
+        size_kb = os.path.getsize(target_path) / 1024
+        print(f"Split file size: {size_kb:.1f} KB (external link, no data copy)")
+    else:
+        # Modify in-place
+        with h5py.File(target_path, "a") as file:
+            if "mask" in file:
+                print("\nRemoving old train/val masks...")
+                del file["mask"]
+            print("Creating new train/val masks...")
+            mask_group = file.create_group("mask")
+            mask_group.create_dataset("train", data=np.array(train_mask, dtype="S"))
+            mask_group.create_dataset("valid", data=np.array(val_mask, dtype="S"))
+
+    print("\n✓ Successfully updated train/val split!")
     return True
 
 def batch_update_splits(directory, pattern="*.hdf5", val_ratio=0.2, seed=42, output_dir=None):

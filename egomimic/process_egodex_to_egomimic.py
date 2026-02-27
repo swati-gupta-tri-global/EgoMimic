@@ -37,7 +37,7 @@ from egomimic.utils.egomimicUtils import (
 VAL_RATIO = 0.05
 def split_train_val_from_hdf5(hdf5_path, val_ratio):
     with h5py.File(hdf5_path, "a") as file:
-        demo_keys = [key for key in file["data"].keys() if "demo" in key]
+        demo_keys = sorted([key for key in file["data"].keys() if "demo" in key])
         num_demos = len(demo_keys)
         num_val = int(np.ceil(num_demos * val_ratio))
 
@@ -47,8 +47,8 @@ def split_train_val_from_hdf5(hdf5_path, val_ratio):
         val_indices = indices[:num_val]
         train_indices = indices[num_val:]
 
-        train_mask = [f"demo_{i}" for i in train_indices]
-        val_mask = [f"demo_{i}" for i in val_indices]
+        train_mask = [demo_keys[i] for i in train_indices]
+        val_mask = [demo_keys[i] for i in val_indices]
 
         file.create_dataset("mask/train", data=np.array(train_mask, dtype="S"))
         file.create_dataset("mask/valid", data=np.array(val_mask, dtype="S"))

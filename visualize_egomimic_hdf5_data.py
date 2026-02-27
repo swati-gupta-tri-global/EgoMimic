@@ -347,7 +347,7 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize EE poses and/or actions projected onto images")
     parser.add_argument("--hdf5", type=str, required=True, help="Path to HDF5 file")
     parser.add_argument("--demo", type=int, nargs='+', default=[0], 
-                       help="Demo index/indices to visualize (can specify multiple: --demo 0 1 2)")
+                       help="Demo index/indices to visualize (use -1 for all demos, or specify multiple: --demo 0 1 2)")
     parser.add_argument("--output-dir", type=str, default="./ee_pose_visualization", 
                        help="Output directory for visualizations")
     parser.add_argument("--skip-frames", type=int, default=5, 
@@ -367,11 +367,19 @@ def main():
         print(f"Error: HDF5 file not found: {args.hdf5}")
         return
     
+    # Auto-detect all demos if -1 is specified
+    demo_indices = args.demo if isinstance(args.demo, list) else [args.demo]
+    
+    if -1 in demo_indices:
+        with h5py.File(args.hdf5, 'r') as f:
+            demo_keys = sorted([k for k in f['data'].keys() if k.startswith('demo_')])
+            demo_indices = [int(k.split('_')[1]) for k in demo_keys]
+            print(f"Auto-detected {len(demo_indices)} demos: {demo_indices}")
+    
     # Handle action visualization flag (default is True unless --no-actions is set)
     visualize_actions = not args.no_actions
     
     # Process each demo index
-    demo_indices = args.demo if isinstance(args.demo, list) else [args.demo]
     print(f"\nProcessing {len(demo_indices)} demo(s): {demo_indices}")
     
     for demo_idx in demo_indices:

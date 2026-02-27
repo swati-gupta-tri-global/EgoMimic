@@ -435,7 +435,13 @@ if __name__ == "__main__":
     args = train_argparse()
 
     if not args.eval and (args.description is None or "DT" not in args.description):
-        time_str = f"{args.description}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
+        # Build a readable description: use provided text, or derive from config filename
+        desc_prefix = args.description
+        if desc_prefix is None and args.config is not None:
+            desc_prefix = os.path.splitext(os.path.basename(args.config))[0]
+        elif desc_prefix is None:
+            desc_prefix = "run"
+        time_str = f"{desc_prefix}_DT_{datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d-%H-%M-%S')}"
         args.description = time_str
 
     main(args)

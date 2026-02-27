@@ -302,7 +302,7 @@ def visualize_lbm_episode(episode_path, output_dir, max_frames=None):
             ac_reshape = actions[i : i + chunk_size].reshape(1, chunk_size, ac_dim)
         
         # Interpolate to 100 steps
-        ac_reshape_interp.append(interpolate_arr(ac_reshape, 100))
+        ac_reshape_interp.append(ac_reshape)
     
     ac_reshape_interp = np.concatenate(ac_reshape_interp, axis=0)
     ac_reshape_interp = ac_reshape_interp.astype(np.float32)
@@ -323,8 +323,8 @@ def visualize_lbm_episode(episode_path, output_dir, max_frames=None):
     right_xyz_act_cam_flat = ee_pose_to_cam_frame(right_xyz_act_flat, extrinsics)[:, :3]  # (N*100, 3)
     
     # Reshape back to (N, 100, 3)
-    left_xyz_act_cam = left_xyz_act_cam_flat.reshape(N_actions, 100, 3)  # (N, 100, 3)
-    right_xyz_act_cam = right_xyz_act_cam_flat.reshape(N_actions, 100, 3)  # (N, 100, 3)
+    left_xyz_act_cam = left_xyz_act_cam_flat.reshape(N_actions, -1, 3)  # (N, 100, 3)
+    right_xyz_act_cam = right_xyz_act_cam_flat.reshape(N_actions, -1, 3)  # (N, 100, 3)
     
     combined_xyz_act_cam = np.concatenate([left_xyz_act_cam, right_xyz_act_cam], axis=2)  # (N, 100, 6)
     

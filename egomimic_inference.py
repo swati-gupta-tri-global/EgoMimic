@@ -48,6 +48,115 @@ from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean
 from egomimic.utils.val_utils import EXTRINSICS_LEFT, ARIA_INTRINSICS
 
+
+# ── Helper functions to reduce duplication across inference modes ──────────────
+
+def _to_numpy_flat(tensor_or_array):
+    """Convert a tensor or ndarray to a 1D numpy array."""
+    if tensor_or_array is None:
+        return None
+    if torch.is_tensor(tensor_or_array):
+        tensor_or_array = tensor_or_array.cpu().numpy()
+    while tensor_or_array.ndim > 1:
+        tensor_or_array = tensor_or_array[0] if tensor_or_array.shape[0] == 1 else tensor_or_array[0]
+    return tensor_or_array
+
+
+def _prepare_obs_from_demo(demo, t, shape_meta, config, rollout_policy):
+    """
+    Prepare a full observation dict for frame *t* of an HDF5 demo.
+
+    Returns:
+        obs_dict  – ready for ``rollout_policy(obs_dict)``
+        image_u8  – the raw uint8 image (H, W, 3) for visualization
+    """
+    image = demo['obs/front_img_1'][t]
+    if image.max() <= 1.0:
+        image = (image * 255).astype(np.uint8)
+
+    obs_dict = prepare_observation(
+        image, config,
+        imagenet_normalize=rollout_policy.imagenet_normalize_images,
+    )
+
+    # Add proprioceptive observations the model expects
+    if 'obs' in demo:
+        obs = demo['obs']
+        expected_obs_keys = list(shape_meta.get('all_shapes', {}).keys())
+        for obs_key in expected_obs_keys:
+            if obs_key == 'front_img_1':
+                continue
+            if obs_key in obs:
+                obs_dict[obs_key] = torch.from_numpy(
+                    obs[obs_key][t]
+                ).float().unsqueeze(0)
+
+    return obs_dict, image
+
+
+def _process_prediction(predicted_action):
+    """
+    Convert model output to flat numpy arrays.
+
+    Returns:
+        (pred_joints, pred_xyz) – each is a 1-D numpy array or *None*.
+    """
+    if isinstance(predicted_action, dict):
+        joints = _to_numpy_flat(predicted_action.get('actions_joints_act'))
+        xyz = _to_numpy_flat(predicted_action.get('actions_xyz_act'))
+        return joints, xyz
+
+    arr = _to_numpy_flat(predicted_action)
+    if arr is None:
+        return None, None
+    if arr.shape[-1] in (14, 7):
+        return arr, None
+    if arr.shape[-1] in (6, 3):
+        return None, arr
+    return None, None
+
+
+def _collect_gt_at_frame(gt_actions_joints, gt_actions_xyz, t):
+    """Extract ground-truth actions at frame *t*, handling 2-D and 3-D shapes."""
+    gt_j, gt_x = None, None
+    if gt_actions_joints is not None:
+        gt_j = gt_actions_joints[t, 0] if gt_actions_joints.ndim == 3 else gt_actions_joints[t]
+    if gt_actions_xyz is not None:
+        gt_x = gt_actions_xyz[t, 0] if gt_actions_xyz.ndim == 3 else gt_actions_xyz[t]
+    return gt_j, gt_x
+
+
+def _format_metrics_summary(metrics_xyz, metrics_joints):
+    """
+    Compute a JSON-serializable summary dict from accumulated per-demo metric
+    lists (each value is a list of numpy arrays).
+    """
+    summary = {}
+
+    if metrics_xyz["paired_mse"]:
+        xyz_means = {k: np.mean(np.stack(v, axis=0), axis=0) for k, v in metrics_xyz.items()}
+        ndim = xyz_means["paired_mse"].shape[0]
+        if ndim == 6:
+            labels = ["left_x", "left_y", "left_z", "right_x", "right_y", "right_z"]
+        elif ndim == 3:
+            labels = ["x", "y", "z"]
+        else:
+            labels = [str(i) for i in range(ndim)]
+
+        for metric_name in ("paired_mse", "final_mse"):
+            for i, label in enumerate(labels):
+                summary[f"xyz_{metric_name}_{label}"] = float(xyz_means[metric_name][i])
+            summary[f"xyz_{metric_name}_avg"] = float(np.mean(xyz_means[metric_name]))
+        summary["xyz_path_distance_avg"] = float(np.mean(xyz_means["path_distance"]))
+
+    if metrics_joints["paired_mse"]:
+        j_means = {k: np.mean(np.stack(v, axis=0), axis=0) for k, v in metrics_joints.items()}
+        for metric_name in ("paired_mse", "final_mse", "path_distance"):
+            summary[f"joints_{metric_name}_avg"] = float(np.mean(j_means[metric_name]))
+
+    return summary
+
+
 class EgoMimicRolloutPolicy:
     """
     Custom policy wrapper for EgoMimic that implements get_action using forward_eval
@@ -660,43 +769,10 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
             video_frames = []
             
             for t in range(N):
-                # Get observation
-                image = images[t]
-                if image.max() <= 1.0:
-                    image = (image * 255).astype(np.uint8)
-                
-                # Make a copy for visualization
-                vis_image = image.copy()
-
-                # Prepare observation for model (use imagenet_normalize from rollout_policy)
-                obs_dict = prepare_observation(
-                    image, config,
-                    imagenet_normalize=rollout_policy.imagenet_normalize_images
+                obs_dict, image = _prepare_obs_from_demo(
+                    demo, t, shape_meta, config, rollout_policy
                 )
-
-                # Add proprioceptive observations from dataset
-                if 'obs' in demo:
-                    obs = demo['obs']
-                    expected_obs_keys = list(shape_meta.get('all_shapes', {}).keys())
-
-                    # DEBUG: Print expected obs keys on first frame
-                    if t == 0:
-                        print(f"DEBUG: expected_obs_keys = {expected_obs_keys}")
-                        print(f"DEBUG: obs keys in HDF5 = {list(obs.keys())}")
-
-                    for obs_key in expected_obs_keys:
-                        if obs_key == 'front_img_1':
-                            continue
-                        if obs_key == 'joint_positions' and 'joint_positions' in obs:
-                            joint_pos = obs['joint_positions'][t]
-                            obs_dict['joint_positions'] = torch.from_numpy(joint_pos).float().unsqueeze(0)
-                        elif obs_key == 'ee_pose' and 'ee_pose' in obs:
-                            ee_pose = obs['ee_pose'][t]
-                            obs_dict['ee_pose'] = torch.from_numpy(ee_pose).float().unsqueeze(0)
-
-                # DEBUG: Check what's in obs_dict before calling model
-                if t == 0:
-                    print(f"DEBUG: obs_dict keys before model = {list(obs_dict.keys())}")
+                vis_image = image.copy()
 
                 # Get prediction
                 with torch.no_grad():
@@ -773,7 +849,7 @@ def visualize_actions_on_dataset(rollout_policy, config, dataset_path, output_di
 def add_metrics(metrics, gt_actions, pred_actions):
     """
     Calculate and add metrics for a single demo trajectory.
-    
+
     Args:
         metrics: Dictionary with keys 'paired_mse', 'final_mse', 'path_distance'
         gt_actions: Ground truth actions array of shape (seq_len, action_dim)
@@ -795,328 +871,137 @@ def add_metrics(metrics, gt_actions, pred_actions):
 
 
 
-def run_inference_on_dataset(rollout_policy, config, dataset_path, output_dir, num_frames, shape_meta, num_demos=3, use_val_split=False):
+def run_inference_on_dataset(rollout_policy, config, dataset_path, output_dir,
+                             num_frames, shape_meta, num_demos=3,
+                             use_val_split=False, save_per_frame=True):
     """
-    Run inference on dataset samples and save results with metrics.
-    
+    Run inference on dataset samples, compute metrics, and optionally save
+    per-frame prediction details.
+
     Args:
         rollout_policy: RolloutPolicy wrapper
-        config: Model configuration  
+        config: Model configuration
         dataset_path: Path to HDF5 dataset
         output_dir: Output directory for results
         num_frames: Number of frames to process per demo
+        shape_meta: Shape metadata
         num_demos: Number of demos to process
-        use_val_split: If True, only use validation split demos (requires mask/valid in dataset)
+        use_val_split: If True, only use validation split demos
+        save_per_frame: If True, save per-frame inference_results.json
+
+    Returns:
+        dict with keys: 'xyz_metrics', 'joints_metrics', 'summary'
     """
     os.makedirs(output_dir, exist_ok=True)
-    
+
     print(f"\nRunning inference on dataset: {dataset_path}")
-    
-    # Get demo list using common function
+
     demo_names, split_info = get_demo_list_from_dataset(dataset_path, num_demos, use_val_split)
-    
-    # Initialize metrics storage
-    metrics_xyz = {
-        "paired_mse": [],  # MSE between consecutive frame pairs
-        "final_mse": [],   # MSE at final timestep
-        "path_distance": []  # DTW distance between trajectories
-    }
-    metrics_joints = {
-        "paired_mse": [],
-        "final_mse": [],
-        "path_distance": []
-    }
-    
+
+    metrics_xyz = {"paired_mse": [], "final_mse": [], "path_distance": []}
+    metrics_joints = {"paired_mse": [], "final_mse": [], "path_distance": []}
+
     with h5py.File(dataset_path, 'r') as f:
-   
         all_results = []
-        
+
         for demo_name in demo_names:
             print(f"\nProcessing {demo_name}...")
-            
-            if 'data' in f:
-                demo = f['data'][demo_name]
-            else:
-                demo = f[demo_name]
-            
-            # Load data
-            images = demo['obs/front_img_1'][:]  # (N, H, W, 3)
-            
-            # Determine ground truth actions based on what's available
-            # LBM Ground truth joint actions shape: (391, 100, 14)
-            # LBM Ground truth XYZ actions shape: (391, 100, 6)
-            gt_actions_joints = None
-            gt_actions_xyz = None
-            if 'actions_joints_act' in demo:
-                gt_actions_joints = demo['actions_joints_act'][:]
-                print (f"Ground truth joint actions shape: {gt_actions_joints.shape}")
-            if 'actions_xyz_act' in demo:
-                gt_actions_xyz = demo['actions_xyz_act'][:]  
-                print (f"Ground truth XYZ actions shape: {gt_actions_xyz.shape}")
-            
-            N = min(len(images), num_frames)
-            
-            demo_results = []
-            
-            # Collect predicted and ground truth trajectories for metrics
-            pred_joints_traj = []
-            pred_xyz_traj = []
-            gt_joints_traj = []
-            gt_xyz_traj = []
-            
-            for t in range(0, N, max(1, N//10)):  # Sample every 10% of frames
-                print(f"  Processing frame {t}/{N}")
-                
-                # Get observation
-                image = images[t]
-                if image.max() <= 1.0:
-                    image = (image * 255).astype(np.uint8)
 
-                # Prepare observation for model (use imagenet_normalize from rollout_policy)
-                obs_dict = prepare_observation(
-                    image, config,
-                    imagenet_normalize=rollout_policy.imagenet_normalize_images
+            demo = f['data'][demo_name] if 'data' in f else f[demo_name]
+
+            # Load ground truth
+            gt_actions_joints = demo['actions_joints_act'][:] if 'actions_joints_act' in demo else None
+            gt_actions_xyz = demo['actions_xyz_act'][:] if 'actions_xyz_act' in demo else None
+            if gt_actions_joints is not None:
+                print(f"Ground truth joint actions shape: {gt_actions_joints.shape}")
+            if gt_actions_xyz is not None:
+                print(f"Ground truth XYZ actions shape: {gt_actions_xyz.shape}")
+
+            N = min(len(demo['obs/front_img_1']), num_frames)
+
+            demo_results = []
+            pred_joints_traj, pred_xyz_traj = [], []
+            gt_joints_traj, gt_xyz_traj = [], []
+
+            for t in range(0, N, max(1, N // 10)):
+                print(f"  Processing frame {t}/{N}")
+
+                obs_dict, _ = _prepare_obs_from_demo(
+                    demo, t, shape_meta, config, rollout_policy
                 )
 
-                # Add proprioceptive observations from dataset
-                # Provide observations that match the model's expected keys (based on data_type)
-                if 'obs' in demo:
-                    obs = demo['obs']
-                    expected_obs_keys = list(shape_meta.get('all_shapes', {}).keys())
-                    # Expected obs keys: ['front_img_1', 'joint_positions']
-                    # Available obs keys: ['ee_pose', 'extrinsics', 'front_img_1', 'front_img_1_depth', 'intrinsics', 'joint_positions']
-                    print(f"Expected obs keys: {expected_obs_keys}")
-                    print(f"Available obs keys: {list(obs.keys())}")
-                    
-                    # Provide observations that the model expects
-                    for obs_key in expected_obs_keys:
-                        if obs_key == 'front_img_1':
-                            continue  # Image already handled above
-                        if obs_key == 'joint_positions':
-                            # Robot model expects joint_positions
-                            if 'joint_positions' in obs:
-                                joint_pos = obs['joint_positions'][t]
-                                obs_dict['joint_positions'] = torch.from_numpy(joint_pos).float().unsqueeze(0)
-                                print(f"Using joint_positions: {joint_pos[:3]}...")
-                            else:
-                                # Fallback: create dummy joint positions if not available
-                                dummy_joints = np.zeros(14, dtype=np.float32)
-                                obs_dict['joint_positions'] = torch.from_numpy(dummy_joints).float().unsqueeze(0)
-                                print("Using dummy joint_positions")
-                        if obs_key == 'ee_pose':
-                            # Hand model expects ee_pose
-                            if 'ee_pose' in obs:
-                                ee_pose = obs['ee_pose'][t]
-                                obs_dict['ee_pose'] = torch.from_numpy(ee_pose).float().unsqueeze(0)
-                                print(f"Using ee_pose: {ee_pose[:3]}...")
-                            else:
-                                # Fallback: create dummy ee_pose if not available
-                                dummy_ee = np.zeros(6, dtype=np.float32)  # 6D pose
-                                obs_dict['ee_pose'] = torch.from_numpy(dummy_ee).float().unsqueeze(0)
-                                print("Using dummy ee_pose")
-                
-                # Get prediction
                 with torch.no_grad():
                     predicted_action = rollout_policy(obs_dict)
-                
-                # Handle dictionary return (robot data with both joint and XYZ actions)
-                if isinstance(predicted_action, dict):
-                    print(f"Prediction is a dictionary with keys: {predicted_action.keys()}")
-                    # For robot data, we have both joint and XYZ actions
-                    predicted_joints = predicted_action['actions_joints_act']
-                    predicted_xyz = predicted_action['actions_xyz_act']
-                    
-                    # Convert to numpy for metrics
-                    if torch.is_tensor(predicted_joints):
-                        predicted_joints = predicted_joints.cpu().numpy()
-                    if torch.is_tensor(predicted_xyz):
-                        predicted_xyz = predicted_xyz.cpu().numpy()
-                    
-                    # Flatten to 1D if needed (e.g., from (1, 100, 14) to (100, 14) to (14,))
-                    if predicted_joints.ndim > 1:
-                        predicted_joints = predicted_joints[0] if predicted_joints.shape[0] == 1 else predicted_joints
-                        if predicted_joints.ndim > 1:  # Still 2D, take first timestep
-                            predicted_joints = predicted_joints[0]
-                    if predicted_xyz.ndim > 1:
-                        predicted_xyz = predicted_xyz[0] if predicted_xyz.shape[0] == 1 else predicted_xyz
-                        if predicted_xyz.ndim > 1:
-                            predicted_xyz = predicted_xyz[0]
-                    
-                    pred_joints_traj.append(predicted_joints)
-                    pred_xyz_traj.append(predicted_xyz)
-                    
-                    # Parse both action types
-                    parsed_joints = parse_egomimic_actions(predicted_joints)
-                    parsed_xyz = parse_egomimic_actions(predicted_xyz)
-                    
-                    # Combine parsed results
-                    parsed_pred = {
-                        "joint_actions": parsed_joints.get("joint_actions"),
-                        "gripper_actions": parsed_joints.get("gripper_actions"),
-                        "xyz_actions": parsed_xyz.get("xyz_actions"),
-                        "raw_joints": predicted_joints.tolist() if hasattr(predicted_joints, 'tolist') else predicted_joints,
-                        "raw_xyz": predicted_xyz.tolist() if hasattr(predicted_xyz, 'tolist') else predicted_xyz
-                    }
-                else:
-                    # Single action array (hand data or single action type)
-                    # Convert to numpy if tensor
-                    if torch.is_tensor(predicted_action):
-                        predicted_action = predicted_action.cpu().numpy()
-                    
-                    # Flatten if needed
-                    if predicted_action.ndim > 1:
-                        predicted_action = predicted_action[0] if predicted_action.shape[0] == 1 else predicted_action
-                        if predicted_action.ndim > 1:
-                            predicted_action = predicted_action[0]
-                    
-                    # Determine action type and add to appropriate trajectory
-                    if predicted_action.shape[-1] in [14, 7]:  # Joint actions
-                        pred_joints_traj.append(predicted_action)
-                    elif predicted_action.shape[-1] in [6, 3]:  # XYZ actions
-                        pred_xyz_traj.append(predicted_action)
-                    
-                    # Parse actions
-                    parsed_pred = parse_egomimic_actions(predicted_action)
-                
-                # Get ground truth for comparison and trajectory collection
-                gt_parsed = None
-                if gt_actions_joints is not None:
-                    if len(gt_actions_joints.shape) == 3:  # (N, seq_len, action_dim)
-                        gt_action = gt_actions_joints[t, 0]  # Take first timestep
-                    else:  # (N, action_dim)
-                        gt_action = gt_actions_joints[t]
-                    gt_joints_traj.append(gt_action)
-                    gt_parsed_joints = parse_egomimic_actions(gt_action)
-                    
-                    # Add XYZ ground truth if available
-                    if gt_actions_xyz is not None:
-                        if len(gt_actions_xyz.shape) == 3:
-                            gt_xyz = gt_actions_xyz[t, 0]
+
+                # ── predictions ──
+                pred_j, pred_x = _process_prediction(predicted_action)
+                if pred_j is not None:
+                    pred_joints_traj.append(pred_j)
+                if pred_x is not None:
+                    pred_xyz_traj.append(pred_x)
+
+                # ── ground truth ──
+                gt_j, gt_x = _collect_gt_at_frame(gt_actions_joints, gt_actions_xyz, t)
+                if gt_j is not None:
+                    gt_joints_traj.append(gt_j)
+                if gt_x is not None:
+                    gt_xyz_traj.append(gt_x)
+
+                # ── per-frame detail (optional) ──
+                if save_per_frame:
+                    parsed_pred = parse_egomimic_actions(pred_j if pred_j is not None else pred_x)
+                    gt_parsed = None
+                    if gt_j is not None:
+                        gt_parsed_joints = parse_egomimic_actions(gt_j)
+                        if gt_x is not None:
+                            gt_parsed_xyz = parse_egomimic_actions(gt_x)
+                            gt_parsed = {
+                                "joint_actions": gt_parsed_joints.get("joint_actions"),
+                                "gripper_actions": gt_parsed_joints.get("gripper_actions"),
+                                "xyz_actions": gt_parsed_xyz.get("xyz_actions"),
+                            }
                         else:
-                            gt_xyz = gt_actions_xyz[t]
-                        gt_xyz_traj.append(gt_xyz)
-                        gt_parsed_xyz = parse_egomimic_actions(gt_xyz)
-                        
-                        # Combine ground truth
-                        gt_parsed = {
-                            "joint_actions": gt_parsed_joints.get("joint_actions"),
-                            "gripper_actions": gt_parsed_joints.get("gripper_actions"),
-                            "xyz_actions": gt_parsed_xyz.get("xyz_actions")
-                        }
-                    else:
-                        gt_parsed = gt_parsed_joints
-                
-                frame_result = {
-                    "frame": t,
-                    "predicted": parsed_pred,
-                    "ground_truth": gt_parsed,
-                }
-                if not isinstance(predicted_action, dict):
-                    frame_result["raw_prediction"] = predicted_action.tolist() if hasattr(predicted_action, 'tolist') else predicted_action
-                
-                demo_results.append(frame_result)
-            
-            # Compute metrics for this demo
-            if len(pred_xyz_traj) > 0 and len(gt_xyz_traj) > 0:
-                pred_xyz_array = np.array(pred_xyz_traj)
-                gt_xyz_array = np.array(gt_xyz_traj)
-                print(f"Computing XYZ metrics: pred shape {pred_xyz_array.shape}, gt shape {gt_xyz_array.shape}")
-                add_metrics(metrics_xyz, gt_xyz_array, pred_xyz_array)
-            
-            if len(pred_joints_traj) > 0 and len(gt_joints_traj) > 0:
-                pred_joints_array = np.array(pred_joints_traj)
-                gt_joints_array = np.array(gt_joints_traj)
-                print(f"Computing joint metrics: pred shape {pred_joints_array.shape}, gt shape {gt_joints_array.shape}")
-                add_metrics(metrics_joints, gt_joints_array, pred_joints_array)
-            
-            all_results.append({
-                "demo": demo_name,
-                "results": demo_results
-            })
-    
-    # Save results
-    results_path = os.path.join(output_dir, "inference_results.json")
-    with open(results_path, 'w') as f:
-        json.dump(all_results, f, indent=2)
-    
-    # Compute summary metrics
-    summary = {}
-    
-    # XYZ metrics summary
-    if len(metrics_xyz["paired_mse"]) > 0:
-        print("\n=== XYZ ACTION METRICS ===")
-        xyz_summary = {}
-        for key in metrics_xyz:
-            concat = np.stack(metrics_xyz[key], axis=0)
-            mean_stat = np.mean(concat, axis=0)
-            xyz_summary[key] = mean_stat
-        
-        # XYZ actions have 6 dimensions (left_x, left_y, left_z, right_x, right_y, right_z)
-        # or 3 dimensions (x, y, z) for single arm
-        if xyz_summary["paired_mse"].shape[0] == 6:
-            summary.update({
-                "xyz_paired_mse_left_x": float(xyz_summary["paired_mse"][0]),
-                "xyz_paired_mse_left_y": float(xyz_summary["paired_mse"][1]),
-                "xyz_paired_mse_left_z": float(xyz_summary["paired_mse"][2]),
-                "xyz_paired_mse_right_x": float(xyz_summary["paired_mse"][3]),
-                "xyz_paired_mse_right_y": float(xyz_summary["paired_mse"][4]),
-                "xyz_paired_mse_right_z": float(xyz_summary["paired_mse"][5]),
-                "xyz_paired_mse_avg": float(np.mean(xyz_summary["paired_mse"])),
-                "xyz_final_mse_left_x": float(xyz_summary["final_mse"][0]),
-                "xyz_final_mse_left_y": float(xyz_summary["final_mse"][1]),
-                "xyz_final_mse_left_z": float(xyz_summary["final_mse"][2]),
-                "xyz_final_mse_right_x": float(xyz_summary["final_mse"][3]),
-                "xyz_final_mse_right_y": float(xyz_summary["final_mse"][4]),
-                "xyz_final_mse_right_z": float(xyz_summary["final_mse"][5]),
-                "xyz_final_mse_avg": float(np.mean(xyz_summary["final_mse"])),
-                "xyz_path_distance_avg": float(np.mean(xyz_summary["path_distance"])),
-            })
-        else:  # 3D actions (single arm or averaged)
-            summary.update({
-                "xyz_paired_mse_x": float(xyz_summary["paired_mse"][0]),
-                "xyz_paired_mse_y": float(xyz_summary["paired_mse"][1]),
-                "xyz_paired_mse_z": float(xyz_summary["paired_mse"][2]),
-                "xyz_paired_mse_avg": float(np.mean(xyz_summary["paired_mse"])),
-                "xyz_final_mse_x": float(xyz_summary["final_mse"][0]),
-                "xyz_final_mse_y": float(xyz_summary["final_mse"][1]),
-                "xyz_final_mse_z": float(xyz_summary["final_mse"][2]),
-                "xyz_final_mse_avg": float(np.mean(xyz_summary["final_mse"])),
-                "xyz_path_distance_avg": float(np.mean(xyz_summary["path_distance"])),
-            })
-        
-        # Print XYZ metrics
-        for key, value in summary.items():
-            if key.startswith("xyz_"):
-                print(f"{key}: {value:.4f}")
-    
-    # Joint metrics summary
-    if len(metrics_joints["paired_mse"]) > 0:
-        print("\n=== JOINT ACTION METRICS ===")
-        joints_summary = {}
-        for key in metrics_joints:
-            concat = np.stack(metrics_joints[key], axis=0)
-            mean_stat = np.mean(concat, axis=0)
-            joints_summary[key] = mean_stat
-        
-        # Joint actions are averaged across all dimensions
-        summary.update({
-            "joints_paired_mse_avg": float(np.mean(joints_summary["paired_mse"])),
-            "joints_final_mse_avg": float(np.mean(joints_summary["final_mse"])),
-            "joints_path_distance_avg": float(np.mean(joints_summary["path_distance"])),
-        })
-        
-        # Print joint metrics
-        for key, value in summary.items():
-            if key.startswith("joints_"):
-                print(f"{key}: {value:.4f}")
-    
-    # Save metrics summary
+                            gt_parsed = gt_parsed_joints
+                    demo_results.append({
+                        "frame": t,
+                        "predicted": parsed_pred,
+                        "ground_truth": gt_parsed,
+                    })
+
+            # ── per-demo metrics ──
+            if pred_xyz_traj and gt_xyz_traj:
+                add_metrics(metrics_xyz, np.array(gt_xyz_traj), np.array(pred_xyz_traj))
+            if pred_joints_traj and gt_joints_traj:
+                add_metrics(metrics_joints, np.array(gt_joints_traj), np.array(pred_joints_traj))
+
+            if save_per_frame:
+                all_results.append({"demo": demo_name, "results": demo_results})
+
+    # ── save per-frame results ──
+    if save_per_frame and all_results:
+        results_path = os.path.join(output_dir, "inference_results.json")
+        with open(results_path, 'w') as fw:
+            json.dump(all_results, fw, indent=2)
+        print(f"\nResults saved to: {results_path}")
+
+    # ── compute & save summary ──
+    summary = _format_metrics_summary(metrics_xyz, metrics_joints)
+
+    if summary:
+        print("\n=== METRICS SUMMARY ===")
+        for key, value in sorted(summary.items()):
+            print(f"{key}: {value:.4f}")
+
     metrics_path = os.path.join(output_dir, "metrics_summary.json")
-    with open(metrics_path, 'w') as f:
-        json.dump(summary, f, indent=2)
-    print(f"\nMetrics saved to: {metrics_path}")
-    
-    print(f"\nResults saved to: {results_path}")
+    with open(metrics_path, 'w') as fw:
+        json.dump(summary, fw, indent=2)
+    print(f"Metrics saved to: {metrics_path}")
+
+    return {
+        "xyz_metrics": metrics_xyz if metrics_xyz["paired_mse"] else None,
+        "joints_metrics": metrics_joints if metrics_joints["paired_mse"] else None,
+        "summary": summary,
+    }
 
 
 def run_interactive_inference(rollout_policy, config):
@@ -1200,396 +1085,76 @@ def run_interactive_inference(rollout_policy, config):
             print(f"Error processing image: {e}")
 
 
-def run_inference_on_directory(rollout_policy, config, dataset_dir, output_dir, num_frames, shape_meta, num_demos=3, use_val_split=False, visualize=False):
+def run_inference_on_directory(rollout_policy, config, dataset_dir, output_dir,
+                               num_frames, shape_meta, num_demos=3,
+                               use_val_split=False, visualize=False):
     """
-    Run inference on all HDF5 files in a directory and aggregate metrics across all tasks.
-    
-    Args:
-        rollout_policy: RolloutPolicy wrapper
-        config: Model configuration
-        dataset_dir: Directory containing HDF5 dataset files
-        output_dir: Output directory for results
-        num_frames: Number of frames to process per demo
-        shape_meta: Shape metadata
-        num_demos: Number of demos to process per task
-        use_val_split: If True, only use validation split demos
-        visualize: If True, generate visualization videos
+    Run inference on all HDF5 files in a directory and aggregate metrics.
     """
     import glob
-    
-    # Find all HDF5 files in the directory
+
     hdf5_files = glob.glob(os.path.join(dataset_dir, "*.hdf5"))
-    
     if not hdf5_files:
         print(f"No HDF5 files found in directory: {dataset_dir}")
         return
-    
+
     print(f"\nFound {len(hdf5_files)} HDF5 files in {dataset_dir}")
     print(f"Tasks: {[os.path.basename(f) for f in hdf5_files]}")
-    
-    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Aggregate metrics across all tasks
-    all_tasks_metrics = {
-        "tasks": [],
-        "aggregated_xyz": {
-            "paired_mse": [],
-            "final_mse": [],
-            "path_distance": []
-        },
-        "aggregated_joints": {
-            "paired_mse": [],
-            "final_mse": [],
-            "path_distance": []
-        }
-    }
-    
-    # Process each HDF5 file
+
+    per_task_summaries = []
+    agg_xyz = {"paired_mse": [], "final_mse": [], "path_distance": []}
+    agg_joints = {"paired_mse": [], "final_mse": [], "path_distance": []}
+
     for hdf5_file in sorted(hdf5_files):
         task_name = os.path.splitext(os.path.basename(hdf5_file))[0]
-        print(f"\n{'='*80}")
-        print(f"Processing task: {task_name}")
-        print(f"{'='*80}")
-        
-        # Create task-specific output directory
+        print(f"\n{'=' * 80}\nProcessing task: {task_name}\n{'=' * 80}")
         task_output_dir = os.path.join(output_dir, task_name)
-        os.makedirs(task_output_dir, exist_ok=True)
-        
+
         try:
             if visualize:
-                # Run visualization for this task
                 visualize_actions_on_dataset(
-                    rollout_policy,
-                    config,
-                    hdf5_file,
-                    task_output_dir,
-                    num_frames,
-                    shape_meta,
-                    num_demos,
-                    use_val_split
+                    rollout_policy, config, hdf5_file, task_output_dir,
+                    num_frames, shape_meta, num_demos, use_val_split,
                 )
             else:
-                # Run inference and get metrics for this task
-                task_metrics = run_inference_on_dataset_with_metrics(
-                    rollout_policy,
-                    config,
-                    hdf5_file,
-                    task_output_dir,
-                    num_frames,
-                    shape_meta,
-                    num_demos,
-                    use_val_split
+                task_metrics = run_inference_on_dataset(
+                    rollout_policy, config, hdf5_file, task_output_dir,
+                    num_frames, shape_meta, num_demos, use_val_split,
+                    save_per_frame=False,
                 )
-                
-                # Store task metrics (only summary, not the raw arrays for JSON serialization)
-                all_tasks_metrics["tasks"].append({
+                per_task_summaries.append({
                     "task_name": task_name,
-                    "summary": task_metrics["summary"]  # Only store the summary dict, not the raw metrics
+                    "summary": task_metrics["summary"],
                 })
-                
-                # Aggregate metrics across tasks (use numpy arrays for computation)
-                if "xyz_metrics" in task_metrics and task_metrics["xyz_metrics"]:
-                    xyz_metrics = task_metrics["xyz_metrics"]
-                    all_tasks_metrics["aggregated_xyz"]["paired_mse"].extend(xyz_metrics["paired_mse"])
-                    all_tasks_metrics["aggregated_xyz"]["final_mse"].extend(xyz_metrics["final_mse"])
-                    all_tasks_metrics["aggregated_xyz"]["path_distance"].extend(xyz_metrics["path_distance"])
-                
-                if "joints_metrics" in task_metrics and task_metrics["joints_metrics"]:
-                    joints_metrics = task_metrics["joints_metrics"]
-                    all_tasks_metrics["aggregated_joints"]["paired_mse"].extend(joints_metrics["paired_mse"])
-                    all_tasks_metrics["aggregated_joints"]["final_mse"].extend(joints_metrics["final_mse"])
-                    all_tasks_metrics["aggregated_joints"]["path_distance"].extend(joints_metrics["path_distance"])
-        
+                if task_metrics["xyz_metrics"]:
+                    for k in agg_xyz:
+                        agg_xyz[k].extend(task_metrics["xyz_metrics"][k])
+                if task_metrics["joints_metrics"]:
+                    for k in agg_joints:
+                        agg_joints[k].extend(task_metrics["joints_metrics"][k])
         except Exception as e:
             print(f"Error processing {task_name}: {e}")
             import traceback
             traceback.print_exc()
-            continue
-    
-    # Compute and save aggregated metrics across all tasks
+
+    # ── aggregated summary ──
     if not visualize:
-        print(f"\n{'='*80}")
-        print("AGGREGATED METRICS ACROSS ALL TASKS")
-        print(f"{'='*80}")
-        
-        aggregated_summary = {}
-        
-        # XYZ metrics
-        if len(all_tasks_metrics["aggregated_xyz"]["paired_mse"]) > 0:
-            print("\n=== AGGREGATED XYZ ACTION METRICS ===")
-            xyz_paired_mse = np.stack(all_tasks_metrics["aggregated_xyz"]["paired_mse"], axis=0)
-            xyz_final_mse = np.stack(all_tasks_metrics["aggregated_xyz"]["final_mse"], axis=0)
-            xyz_path_distance = all_tasks_metrics["aggregated_xyz"]["path_distance"]
-            
-            mean_paired_mse = np.mean(xyz_paired_mse, axis=0)
-            mean_final_mse = np.mean(xyz_final_mse, axis=0)
-            mean_path_distance = np.mean(xyz_path_distance)
-            
-            if mean_paired_mse.shape[0] == 6:
-                aggregated_summary.update({
-                    "xyz_paired_mse_left_x": float(mean_paired_mse[0]),
-                    "xyz_paired_mse_left_y": float(mean_paired_mse[1]),
-                    "xyz_paired_mse_left_z": float(mean_paired_mse[2]),
-                    "xyz_paired_mse_right_x": float(mean_paired_mse[3]),
-                    "xyz_paired_mse_right_y": float(mean_paired_mse[4]),
-                    "xyz_paired_mse_right_z": float(mean_paired_mse[5]),
-                    "xyz_paired_mse_avg": float(np.mean(mean_paired_mse)),
-                    "xyz_final_mse_left_x": float(mean_final_mse[0]),
-                    "xyz_final_mse_left_y": float(mean_final_mse[1]),
-                    "xyz_final_mse_left_z": float(mean_final_mse[2]),
-                    "xyz_final_mse_right_x": float(mean_final_mse[3]),
-                    "xyz_final_mse_right_y": float(mean_final_mse[4]),
-                    "xyz_final_mse_right_z": float(mean_final_mse[5]),
-                    "xyz_final_mse_avg": float(np.mean(mean_final_mse)),
-                    "xyz_path_distance_avg": float(mean_path_distance),
-                })
-            else:
-                aggregated_summary.update({
-                    "xyz_paired_mse_x": float(mean_paired_mse[0]),
-                    "xyz_paired_mse_y": float(mean_paired_mse[1]),
-                    "xyz_paired_mse_z": float(mean_paired_mse[2]),
-                    "xyz_paired_mse_avg": float(np.mean(mean_paired_mse)),
-                    "xyz_final_mse_x": float(mean_final_mse[0]),
-                    "xyz_final_mse_y": float(mean_final_mse[1]),
-                    "xyz_final_mse_z": float(mean_final_mse[2]),
-                    "xyz_final_mse_avg": float(np.mean(mean_final_mse)),
-                    "xyz_path_distance_avg": float(mean_path_distance),
-                })
-            
-            for key, value in aggregated_summary.items():
-                if key.startswith("xyz_"):
-                    print(f"{key}: {value:.4f}")
-        
-        # Joint metrics
-        if len(all_tasks_metrics["aggregated_joints"]["paired_mse"]) > 0:
-            print("\n=== AGGREGATED JOINT ACTION METRICS ===")
-            joints_paired_mse = np.stack(all_tasks_metrics["aggregated_joints"]["paired_mse"], axis=0)
-            joints_final_mse = np.stack(all_tasks_metrics["aggregated_joints"]["final_mse"], axis=0)
-            joints_path_distance = all_tasks_metrics["aggregated_joints"]["path_distance"]
-            
-            aggregated_summary.update({
-                "joints_paired_mse_avg": float(np.mean(joints_paired_mse)),
-                "joints_final_mse_avg": float(np.mean(joints_final_mse)),
-                "joints_path_distance_avg": float(np.mean(joints_path_distance)),
-            })
-            
-            for key, value in aggregated_summary.items():
-                if key.startswith("joints_"):
-                    print(f"{key}: {value:.4f}")
-        
-        # Save aggregated metrics
+        print(f"\n{'=' * 80}\nAGGREGATED METRICS ACROSS ALL TASKS\n{'=' * 80}")
+        aggregated_summary = _format_metrics_summary(agg_xyz, agg_joints)
+
+        for key, value in sorted(aggregated_summary.items()):
+            print(f"{key}: {value:.4f}")
+
         aggregated_path = os.path.join(output_dir, "aggregated_metrics_all_tasks.json")
-        with open(aggregated_path, 'w') as f:
+        with open(aggregated_path, 'w') as fw:
             json.dump({
                 "aggregated_summary": aggregated_summary,
-                "per_task_metrics": all_tasks_metrics["tasks"],
+                "per_task_metrics": per_task_summaries,
                 "num_tasks": len(hdf5_files),
-                "num_demos_per_task": num_demos
-            }, f, indent=2)
+                "num_demos_per_task": num_demos,
+            }, fw, indent=2)
         print(f"\nAggregated metrics saved to: {aggregated_path}")
-
-
-def run_inference_on_dataset_with_metrics(rollout_policy, config, dataset_path, output_dir, num_frames, shape_meta, num_demos=3, use_val_split=False):
-    """
-    Run inference on dataset and return metrics (for aggregation across tasks).
-    
-    Returns:
-        dict: Contains xyz_metrics and joints_metrics for this task
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    
-    print(f"\nRunning inference on dataset: {dataset_path}")
-    
-    # Get demo list using common function
-    demo_names, split_info = get_demo_list_from_dataset(dataset_path, num_demos, use_val_split)
-    
-    # Initialize metrics storage
-    metrics_xyz = {
-        "paired_mse": [],
-        "final_mse": [],
-        "path_distance": []
-    }
-    metrics_joints = {
-        "paired_mse": [],
-        "final_mse": [],
-        "path_distance": []
-    }
-    
-    with h5py.File(dataset_path, 'r') as f:
-        all_results = []
-        
-        for demo_name in demo_names:
-            print(f"\nProcessing {demo_name}...")
-            
-            if 'data' in f:
-                demo = f['data'][demo_name]
-            else:
-                demo = f[demo_name]
-            
-            # Load data
-            images = demo['obs/front_img_1'][:]
-            
-            gt_actions_joints = None
-            gt_actions_xyz = None
-            if 'actions_joints_act' in demo:
-                gt_actions_joints = demo['actions_joints_act'][:]
-                print(f"Ground truth joint actions shape: {gt_actions_joints.shape}")
-            if 'actions_xyz_act' in demo:
-                gt_actions_xyz = demo['actions_xyz_act'][:]  
-                print(f"Ground truth XYZ actions shape: {gt_actions_xyz.shape}")
-            
-            N = min(len(images), num_frames)
-            
-            demo_results = []
-            pred_joints_traj = []
-            pred_xyz_traj = []
-            gt_joints_traj = []
-            gt_xyz_traj = []
-            
-            for t in range(0, N, max(1, N//10)):
-                # Get observation
-                image = images[t]
-                if image.max() <= 1.0:
-                    image = (image * 255).astype(np.uint8)
-
-                # Prepare observation (use imagenet_normalize from rollout_policy if applicable)
-                obs_dict = prepare_observation(
-                    image, config,
-                    imagenet_normalize=rollout_policy.imagenet_normalize_images
-                )
-
-                # Add proprioceptive observations
-                if 'obs' in demo:
-                    obs = demo['obs']
-                    expected_obs_keys = list(shape_meta.get('all_shapes', {}).keys())
-                    
-                    for obs_key in expected_obs_keys:
-                        if obs_key == 'front_img_1':
-                            continue
-                        if obs_key == 'joint_positions' and 'joint_positions' in obs:
-                            joint_pos = obs['joint_positions'][t]
-                            obs_dict['joint_positions'] = torch.from_numpy(joint_pos).float().unsqueeze(0)
-                        elif obs_key == 'ee_pose' and 'ee_pose' in obs:
-                            ee_pose = obs['ee_pose'][t]
-                            obs_dict['ee_pose'] = torch.from_numpy(ee_pose).float().unsqueeze(0)
-                
-                # Get prediction
-                with torch.no_grad():
-                    predicted_action = rollout_policy(obs_dict)
-                
-                # Process predictions
-                if isinstance(predicted_action, dict):
-                    predicted_joints = predicted_action['actions_joints_act']
-                    predicted_xyz = predicted_action['actions_xyz_act']
-                    
-                    if torch.is_tensor(predicted_joints):
-                        predicted_joints = predicted_joints.cpu().numpy()
-                    if torch.is_tensor(predicted_xyz):
-                        predicted_xyz = predicted_xyz.cpu().numpy()
-                    
-                    if predicted_joints.ndim > 1:
-                        predicted_joints = predicted_joints[0] if predicted_joints.shape[0] == 1 else predicted_joints
-                        if predicted_joints.ndim > 1:
-                            predicted_joints = predicted_joints[0]
-                    if predicted_xyz.ndim > 1:
-                        predicted_xyz = predicted_xyz[0] if predicted_xyz.shape[0] == 1 else predicted_xyz
-                        if predicted_xyz.ndim > 1:
-                            predicted_xyz = predicted_xyz[0]
-                    
-                    pred_joints_traj.append(predicted_joints)
-                    pred_xyz_traj.append(predicted_xyz)
-                else:
-                    if torch.is_tensor(predicted_action):
-                        predicted_action = predicted_action.cpu().numpy()
-                    
-                    if predicted_action.ndim > 1:
-                        predicted_action = predicted_action[0] if predicted_action.shape[0] == 1 else predicted_action
-                        if predicted_action.ndim > 1:
-                            predicted_action = predicted_action[0]
-                    
-                    if predicted_action.shape[-1] in [14, 7]:
-                        pred_joints_traj.append(predicted_action)
-                    elif predicted_action.shape[-1] in [6, 3]:
-                        pred_xyz_traj.append(predicted_action)
-                
-                # Collect ground truth
-                if gt_actions_joints is not None:
-                    if len(gt_actions_joints.shape) == 3:
-                        gt_action = gt_actions_joints[t, 0]
-                    else:
-                        gt_action = gt_actions_joints[t]
-                    gt_joints_traj.append(gt_action)
-                    
-                    if gt_actions_xyz is not None:
-                        if len(gt_actions_xyz.shape) == 3:
-                            gt_xyz = gt_actions_xyz[t, 0]
-                        else:
-                            gt_xyz = gt_actions_xyz[t]
-                        gt_xyz_traj.append(gt_xyz)
-            
-            # Compute metrics for this demo
-            if len(pred_xyz_traj) > 0 and len(gt_xyz_traj) > 0:
-                pred_xyz_array = np.array(pred_xyz_traj)
-                gt_xyz_array = np.array(gt_xyz_traj)
-                add_metrics(metrics_xyz, gt_xyz_array, pred_xyz_array)
-            
-            if len(pred_joints_traj) > 0 and len(gt_joints_traj) > 0:
-                pred_joints_array = np.array(pred_joints_traj)
-                gt_joints_array = np.array(gt_joints_traj)
-                add_metrics(metrics_joints, gt_joints_array, pred_joints_array)
-    
-    # Compute summary for this task
-    task_summary = {}
-    
-    if len(metrics_xyz["paired_mse"]) > 0:
-        xyz_summary = {}
-        for key in metrics_xyz:
-            concat = np.stack(metrics_xyz[key], axis=0)
-            mean_stat = np.mean(concat, axis=0)
-            xyz_summary[key] = mean_stat
-        
-        task_summary["xyz_paired_mse_avg"] = float(np.mean(xyz_summary["paired_mse"]))
-        task_summary["xyz_final_mse_avg"] = float(np.mean(xyz_summary["final_mse"]))
-        task_summary["xyz_path_distance_avg"] = float(np.mean(xyz_summary["path_distance"]))
-    
-    if len(metrics_joints["paired_mse"]) > 0:
-        joints_summary = {}
-        for key in metrics_joints:
-            concat = np.stack(metrics_joints[key], axis=0)
-            mean_stat = np.mean(concat, axis=0)
-            joints_summary[key] = mean_stat
-        
-        task_summary["joints_paired_mse_avg"] = float(np.mean(joints_summary["paired_mse"]))
-        task_summary["joints_final_mse_avg"] = float(np.mean(joints_summary["final_mse"]))
-        task_summary["joints_path_distance_avg"] = float(np.mean(joints_summary["path_distance"]))
-    
-    # Save task-specific metrics
-    metrics_path = os.path.join(output_dir, "metrics_summary.json")
-    with open(metrics_path, 'w') as f:
-        json.dump(task_summary, f, indent=2)
-    
-    print(f"Task metrics: {task_summary}")
-    
-    # Convert numpy arrays to lists for JSON serialization
-    def convert_metrics_to_lists(metrics):
-        """Convert numpy arrays in metrics to Python lists."""
-        converted = {}
-        for key, value_list in metrics.items():
-            converted[key] = [v.tolist() if isinstance(v, np.ndarray) else v for v in value_list]
-        return converted
-    
-    # Return metrics for aggregation (with numpy arrays converted to lists)
-    xyz_metrics_serializable = convert_metrics_to_lists(metrics_xyz) if len(metrics_xyz["paired_mse"]) > 0 else None
-    joints_metrics_serializable = convert_metrics_to_lists(metrics_joints) if len(metrics_joints["paired_mse"]) > 0 else None
-    
-    return {
-        "xyz_metrics": metrics_xyz if len(metrics_xyz["paired_mse"]) > 0 else None,  # Keep as numpy for aggregation
-        "joints_metrics": metrics_joints if len(metrics_joints["paired_mse"]) > 0 else None,  # Keep as numpy for aggregation
-        "xyz_metrics_serializable": xyz_metrics_serializable,  # For JSON serialization
-        "joints_metrics_serializable": joints_metrics_serializable,  # For JSON serialization
-        "summary": task_summary
-    }
 
 
 def main():
