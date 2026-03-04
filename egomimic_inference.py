@@ -308,8 +308,8 @@ def parse_egomimic_actions(action):
     - action_dim=6: [left_xyz(3), right_xyz(3)]
     """
     action = np.array(action)
-    print(f"[DEBUG] Raw action shape: {action.shape}")
-    print(f"[DEBUG] Raw action: {action}")
+    # print(f"[DEBUG] Raw action shape: {action.shape}")
+    # print(f"[DEBUG] Raw action: {action}")
     
     # Handle sequence predictions (T, action_dim) vs single predictions (action_dim,)
     if len(action.shape) == 2:
@@ -318,7 +318,7 @@ def parse_egomimic_actions(action):
         print(f"[DEBUG] Using first timestep from sequence: {action.shape}")
     
     action_dim = len(action)
-    print(f"[DEBUG] Action dimension: {action_dim}")
+    # print(f"[DEBUG] Action dimension: {action_dim}")
     
     # Parse based on expected EgoMimic action structure for LBM data
     if action_dim == 16:
