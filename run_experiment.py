@@ -370,7 +370,13 @@ def main():
                     matched = [d for d in new_dirs if d.startswith(description + "_DT_")]
                     if matched:
                         new_dirs = matched
-                best = max(new_dirs) if isinstance(new_dirs, list) else max(new_dirs)
+                # In multi-GPU training, non-rank-0 processes may create ghost
+                # directories (with a slightly different timestamp) that lack a
+                # models/ subdirectory.  Prefer dirs that actually contain models/.
+                new_dirs_list = sorted(new_dirs)
+                with_models = [d for d in new_dirs_list
+                               if os.path.isdir(os.path.join(search_base, d, "models"))]
+                best = max(with_models) if with_models else max(new_dirs_list)
                 args.exp_dir = os.path.join(search_base, best)
                 print(f"\nNew experiment directory: {args.exp_dir}")
             elif args.exp_dir is None:

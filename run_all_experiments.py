@@ -56,6 +56,11 @@ SKILLS = {
         "no_avp_config": "egomimic/configs/egomimic_lbm_no_avp_bimanual_apple.json",
         "task_name": "BimanualPlaceAppleFromBowlOnCuttingBoard",
     },
+    "bimanual_banana": {
+        "avp_config": "egomimic/configs/egomimic_lbm_avp_bimanual_banana.json",
+        "no_avp_config": "egomimic/configs/egomimic_lbm_no_avp_bimanual_banana.json",
+        "task_name": "BimanualPlaceBananaFromBowlOnCuttingBoard",
+    },
 }
 
 
