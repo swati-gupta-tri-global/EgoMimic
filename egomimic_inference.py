@@ -147,7 +147,15 @@ def _format_metrics_summary(metrics_xyz, metrics_joints):
             for i, label in enumerate(labels):
                 summary[f"xyz_{metric_name}_{label}"] = float(xyz_means[metric_name][i])
             summary[f"xyz_{metric_name}_avg"] = float(np.mean(xyz_means[metric_name]))
-        summary["xyz_path_distance_avg"] = float(np.mean(xyz_means["path_distance"]))
+
+        per_demo_mse_avgs = np.array([np.mean(v) for v in metrics_xyz["paired_mse"]])
+        n_mse = len(per_demo_mse_avgs)
+        summary["xyz_paired_mse_stderr"] = float(np.std(per_demo_mse_avgs, ddof=1) / np.sqrt(n_mse)) if n_mse > 1 else 0.0
+
+        path_distances = np.array(metrics_xyz["path_distance"])
+        n_pd = len(path_distances)
+        summary["xyz_path_distance_avg"] = float(np.mean(path_distances))
+        summary["xyz_path_distance_stderr"] = float(np.std(path_distances, ddof=1) / np.sqrt(n_pd)) if n_pd > 1 else 0.0
 
     if metrics_joints["paired_mse"]:
         j_means = {k: np.mean(np.stack(v, axis=0), axis=0) for k, v in metrics_joints.items()}

@@ -94,8 +94,8 @@ TASK_SHORT_NAMES = {
 }
 
 METRICS_TO_PLOT = [
-    ("xyz_path_distance_avg", "XYZ Path Distance (avg) \u2193"),
-    ("xyz_paired_mse_avg", "XYZ Paired MSE (avg) \u2193"),
+    ("xyz_path_distance_avg", "XYZ Path Distance (avg) \u2193", "xyz_path_distance_stderr"),
+    ("xyz_paired_mse_avg", "XYZ Paired MSE (avg) \u2193", "xyz_paired_mse_stderr"),
 ]
 
 
@@ -115,16 +115,19 @@ def plot_per_val_split(experiments, output_dir):
         x = np.arange(len(task_names))
         width = 0.35
 
-        for ax, (metric_key, metric_label) in zip(axes, METRICS_TO_PLOT):
-            avp_vals = []
-            no_avp_vals = []
+        for ax, (metric_key, metric_label, stderr_key) in zip(axes, METRICS_TO_PLOT):
+            avp_vals, no_avp_vals, avp_errs, no_avp_errs = [], [], [], []
             for task in task_names:
                 data = tasks_data[task]
                 avp_vals.append(data.get("avp", {}).get(metric_key, 0))
                 no_avp_vals.append(data.get("no_avp", {}).get(metric_key, 0))
+                avp_errs.append(data.get("avp", {}).get(stderr_key, 0))
+                no_avp_errs.append(data.get("no_avp", {}).get(stderr_key, 0))
 
-            bars1 = ax.bar(x - width / 2, no_avp_vals, width, label="No AVP", color="#4C72B0")
-            bars2 = ax.bar(x + width / 2, avp_vals, width, label="AVP", color="#DD8452")
+            bars1 = ax.bar(x - width / 2, no_avp_vals, width, label="No AVP", color="#4C72B0",
+                           yerr=no_avp_errs, capsize=4, error_kw={"elinewidth": 1.5})
+            bars2 = ax.bar(x + width / 2, avp_vals, width, label="AVP", color="#DD8452",
+                           yerr=avp_errs, capsize=4, error_kw={"elinewidth": 1.5})
 
             ax.set_ylabel(metric_label)
             ax.set_xticks(x)
@@ -166,16 +169,19 @@ def plot_per_task(experiments, output_dir):
         x = np.arange(len(val_ratios))
         width = 0.35
 
-        for ax, (metric_key, metric_label) in zip(axes, METRICS_TO_PLOT):
-            avp_vals = []
-            no_avp_vals = []
+        for ax, (metric_key, metric_label, stderr_key) in zip(axes, METRICS_TO_PLOT):
+            avp_vals, no_avp_vals, avp_errs, no_avp_errs = [], [], [], []
             for vr in val_ratios:
                 data = val_data[vr]
                 avp_vals.append(data.get("avp", {}).get(metric_key, 0))
                 no_avp_vals.append(data.get("no_avp", {}).get(metric_key, 0))
+                avp_errs.append(data.get("avp", {}).get(stderr_key, 0))
+                no_avp_errs.append(data.get("no_avp", {}).get(stderr_key, 0))
 
-            bars1 = ax.bar(x - width / 2, no_avp_vals, width, label="No AVP", color="#4C72B0")
-            bars2 = ax.bar(x + width / 2, avp_vals, width, label="AVP", color="#DD8452")
+            bars1 = ax.bar(x - width / 2, no_avp_vals, width, label="No AVP", color="#4C72B0",
+                           yerr=no_avp_errs, capsize=4, error_kw={"elinewidth": 1.5})
+            bars2 = ax.bar(x + width / 2, avp_vals, width, label="AVP", color="#DD8452",
+                           yerr=avp_errs, capsize=4, error_kw={"elinewidth": 1.5})
 
             ax.set_ylabel(metric_label)
             ax.set_xticks(x)
